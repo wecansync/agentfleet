@@ -694,6 +694,8 @@ def suggest(home: Path, project: Path) -> list[dict]:
                 c_sess = stats.get("sessions", 0)
                 if c_count >= min_count and c_sess >= min_sessions:
                     verb = _derive_verb(cmd)
+                    if not verb:
+                        continue
                     skill_id = f"create-skill-{verb}"
                     if skill_id in dismissed or verb in inv["project_skills"] or verb in inv["user_skills"]:
                         continue
@@ -880,23 +882,54 @@ def suggest(home: Path, project: Path) -> list[dict]:
     for r in results:
         r.pop("_strength", None)
 
-    return results
+    return [sanitize_value(r) for r in results]
 
 
-def notice(cwd: str, home: Path) -> str | None:
-    """Prompt hook entry point: check suggestions and return notice line if needed.
-
-    Cheap (no subprocess; <300 ms), never raises, updates suggestions.json,
-    and returns notice text only when pending > 0 and notified != catalog version.
-    """
+def _pending_notice(cwd: str, home: Path) -> tuple[str | None, int]:
     try:
-        project = Path(cwd).resolve()
-        home = home.resolve()
+        project = Path(cwd).expanduser().resolve()
+        home = Path(home).expanduser().resolve()
         catalog = load_catalog()
         catalog_ver = catalog.get("version", "unknown")
 
         suggestions_list = suggest(home, project)
         pending_count = len(suggestions_list)
+        if pending_count == 0:
+            return None, 0
+
+        store = load_suggestions_store(home)
+        proj_key = str(project)
+        proj_entry = store.get("projects", {}).get(proj_key, {})
+
+        if proj_entry.get("notified") == catalog_ver:
+            return None, pending_count
+
+        line = (
+            f"AgentFleet: {pending_count} suggestions (skills, plugins, MCP servers, mods, hooks) "
+            f"match this project. Mention once, briefly, at the end of your reply that "
+            f"/fleet-suggest lists them; do not install anything."
+        )
+        return sanitize_text(line), pending_count
+    except Exception:
+        return None, 0
+
+
+def pending_notice(cwd: str, home: Path) -> str | None:
+    """Check suggestions and return notice line without recording notified state."""
+    line, _ = _pending_notice(cwd, home)
+    return line
+
+
+def mark_notified(cwd: str, home: Path, pending_count: int | None = None) -> None:
+    """Record that the notice line for current catalog version was shown."""
+    try:
+        project = Path(cwd).expanduser().resolve()
+        home = Path(home).expanduser().resolve()
+        catalog = load_catalog()
+        catalog_ver = catalog.get("version", "unknown")
+
+        if pending_count is None:
+            pending_count = len(suggest(home, project))
 
         store = load_suggestions_store(home)
         proj_key = str(project)
@@ -914,21 +947,25 @@ def notice(cwd: str, home: Path) -> str | None:
         proj_entry["name"] = project.name
         proj_entry["catalog"] = catalog_ver
         proj_entry["pending"] = pending_count
+        proj_entry["notified"] = catalog_ver
         proj_entry["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        should_notify = pending_count > 0 and proj_entry.get("notified") != catalog_ver
+        save_suggestions_store(home, store)
+    except Exception:
+        pass
 
-        if should_notify:
-            proj_entry["notified"] = catalog_ver
-            save_suggestions_store(home, store)
-            return (
-                f"AgentFleet: {pending_count} suggestions (skills, plugins, MCP servers, mods, hooks) "
-                f"match this project. Mention once, briefly, at the end of your reply that "
-                f"/fleet-suggest lists them; do not install anything."
-            )
-        else:
-            save_suggestions_store(home, store)
-            return None
+
+def notice(cwd: str, home: Path) -> str | None:
+    """Prompt hook entry point: check suggestions and return notice line if needed.
+
+    Cheap (no subprocess; <300 ms), never raises, updates suggestions.json,
+    and returns notice text only when pending > 0 and notified != catalog version.
+    """
+    try:
+        line, count = _pending_notice(cwd, home)
+        if line is not None:
+            mark_notified(cwd, home, count)
+        return line
     except Exception:
         return None
 
@@ -948,7 +985,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     home = resolve_home(args.home)
-    project = Path(args.project or os.getcwd()).resolve()
+    project = Path(args.project or os.getcwd()).expanduser().resolve()
 
     catalog = load_catalog()
     catalog_ver = catalog.get("version", "unknown")
@@ -1010,7 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
             "catalog": catalog_ver,
             "suggestions": suggestions,
         }
-        json.dump(payload, sys.stdout, indent=2)
+        json.dump(sanitize_value(payload), sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0
 

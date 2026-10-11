@@ -426,6 +426,125 @@ services:
         self.assertIsNotNone(res)
         self.assertLess(elapsed_ms, 300.0, f"notice took {elapsed_ms:.2f} ms, expected < 300 ms")
 
+    def test_breadth_first_scan_finds_root_manifests_with_huge_subdir(self):
+        proj = self.root / "bfs_proj"
+        proj.mkdir()
+        # Early-sorted directory holding 3000 files
+        huge_sub = proj / "00_huge"
+        huge_sub.mkdir()
+        for i in range(3000):
+            (huge_sub / f"item_{i:04d}.txt").write_text("x", encoding="utf-8")
+
+        # Root manifests that sort AFTER 00_huge
+        pkg = {"dependencies": {"react": "^18.2.0"}}
+        (proj / "package.json").write_text(json.dumps(pkg), encoding="utf-8")
+        composer = {"require": {"laravel/framework": "^11.0"}}
+        (proj / "composer.json").write_text(json.dumps(composer), encoding="utf-8")
+
+        signals = fleet_suggest.scan(proj)
+        self.assertIn("package.json", signals["files"])
+        self.assertIn("composer.json", signals["files"])
+        self.assertIn("react", signals["deps"])
+        self.assertIn("laravel/framework", signals["deps"])
+
+    def test_symlinked_project_usage_key_and_suggestions_store(self):
+        real_proj = self.root / "real_project"
+        real_proj.mkdir()
+        (real_proj / "artisan").write_text("#!/usr/bin/env php\n", encoding="utf-8")
+
+        symlink_proj = self.root / "symlink_project"
+        symlink_proj.symlink_to(real_proj)
+
+        # Write usage file using real path's sha256[:16]
+        real_resolved = str(real_proj.resolve())
+        usage_key = fleet_suggest.hashlib.sha256(real_resolved.encode("utf-8")).hexdigest()[:16]
+        usage_dir = self.home / ".claude" / "agentfleet" / "usage"
+        usage_dir.mkdir(parents=True, exist_ok=True)
+        usage_data = {
+            "format": "agentfleet.usage.v1",
+            "project": real_resolved,
+            "updated": "2026-10-11T00:00:00Z",
+            "bash": {
+                "php artisan test": {"count": 15, "sessions": 4, "last": "2026-10-11T00:00:00Z"}
+            }
+        }
+        (usage_dir / f"{usage_key}.json").write_text(json.dumps(usage_data), encoding="utf-8")
+
+        # Scanning via symlink_proj must find the usage file and derive suggestion
+        suggs = fleet_suggest.suggest(self.home, symlink_proj)
+        ids = {s["id"] for s in suggs}
+        self.assertIn("create-skill-test", ids)
+
+        # notice via symlink_proj must record under real_resolved in suggestions.json
+        line = fleet_suggest.notice(str(symlink_proj), self.home)
+        self.assertIsNotNone(line)
+        store_file = self.home / ".claude" / "agentfleet" / "suggestions.json"
+        store = json.loads(store_file.read_text(encoding="utf-8"))
+        self.assertIn(real_resolved, store["projects"])
+        self.assertNotIn(str(symlink_proj), store["projects"])
+
+    def test_pending_notice_and_mark_notified(self):
+        proj = self.root / "pending_proj"
+        proj.mkdir()
+        (proj / "artisan").write_text("#!/usr/bin/env php\n", encoding="utf-8")
+        (proj / "composer.json").write_text(json.dumps({"require": {"laravel/framework": "^11.0"}}), encoding="utf-8")
+
+        store_file = self.home / ".claude" / "agentfleet" / "suggestions.json"
+
+        # 1. pending_notice returns message but does NOT record notified
+        line1 = fleet_suggest.pending_notice(str(proj), self.home)
+        self.assertIsNotNone(line1)
+        self.assertIn("AgentFleet:", line1)
+
+        # store should either not exist or have notified is None
+        if store_file.exists():
+            store = json.loads(store_file.read_text(encoding="utf-8"))
+            p_rec = store.get("projects", {}).get(str(proj.resolve()), {})
+            self.assertIsNone(p_rec.get("notified"))
+
+        # 2. calling pending_notice again still returns the message (not burned)
+        line2 = fleet_suggest.pending_notice(str(proj), self.home)
+        self.assertEqual(line1, line2)
+
+        # 3. mark_notified records notified state
+        fleet_suggest.mark_notified(str(proj), self.home)
+        self.assertTrue(store_file.exists())
+        store = json.loads(store_file.read_text(encoding="utf-8"))
+        p_rec = store["projects"][str(proj.resolve())]
+        self.assertEqual(p_rec["notified"], "2026.10.1")
+
+        # 4. subsequent pending_notice and notice both return None
+        self.assertIsNone(fleet_suggest.pending_notice(str(proj), self.home))
+        self.assertIsNone(fleet_suggest.notice(str(proj), self.home))
+
+    def test_sanitization_escapes_and_verbs(self):
+        proj = self.root / "escape_proj"
+        proj.mkdir()
+
+        # File name containing CSI sequence (ESC[31m)
+        dirty_file = proj / "\x1b[31mevil_component.tsx\x1b[0m"
+        dirty_file.write_text("export const Evil = () => null;", encoding="utf-8")
+
+        # .env.example with OSC 52 sequence in key name
+        env_content = "\x1b]52;c;c2VjcmV0\x07STRIPE_KEY=\n"
+        (proj / ".env.example").write_text(env_content, encoding="utf-8")
+
+        signals = fleet_suggest.scan(proj)
+        self.assertIn("evil_component.tsx", signals["files"])
+        self.assertFalse(any("\x1b" in f for f in signals["files"]))
+        self.assertIn("STRIPE_KEY", signals["env_keys"])
+        self.assertFalse(any("\x1b" in k for k in signals["env_keys"]))
+
+        # Check suggestions sanitized
+        suggs = fleet_suggest.suggest(self.home, proj)
+        suggs_json = json.dumps(suggs)
+        self.assertNotIn("\x1b", suggs_json)
+
+        # Usage head with path traversal 'npm run ../../evil' yields safe verb 'evil'
+        self.assertEqual(fleet_suggest._derive_verb("npm run ../../evil"), "evil")
+        self.assertEqual(fleet_suggest._derive_verb("npm run ../../"), "")
+        self.assertEqual(fleet_suggest._derive_verb("php artisan evil:cmd"), "evil-cmd")
+
 
 if __name__ == "__main__":
     unittest.main()
