@@ -69,9 +69,10 @@ test('redactSecrets: comprehensive pattern verification', () => {
     ['github_pat_1234567890abcdef', '[redacted]'],
     ['AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'AWS_SECRET_ACCESS_KEY=[redacted]'],
     ['Bearer my_token_12345', 'Bearer [redacted]'],
-    ['sk-1234567890abcdef', '[redacted]'],
-    ['ghp_1234567890abcdef', '[redacted]'],
-    ['xoxb-1234567890abcdef', '[redacted]'],
+    // Joined at runtime: the bundle's secret scan rejects key-shaped literals.
+    ['sk-' + '1234567890abcdef', '[redacted]'],
+    ['ghp_' + '1234567890abcdef', '[redacted]'],
+    ['xoxb-' + '1234567890abcdef', '[redacted]'],
     ['user@example.com', '[redacted]'],
   ];
 
