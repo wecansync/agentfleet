@@ -20,7 +20,6 @@ import type {
 } from '../src/types.js';
 
 const HOOK_DEFAULTS = {
-  compactAtPercent: 60,
   minReductionRatio: 0.25,
   model: DEFAULT_MODEL,
 };
@@ -42,7 +41,6 @@ export type HookFetch = (url: string, init?: HookFetchInit) => Promise<HookFetch
 
 export type HookConfig = CompactOptions & {
   apiKey?: string;
-  compactAtPercent: number;
   minReductionRatio: number;
   model: string;
 };
@@ -72,7 +70,6 @@ export function resolveHookConfig(options: PluginOptions): HookConfig {
   }
   const config: HookConfig = {
     ...numbers,
-    compactAtPercent: optionNumber(options, 'compactAtPercent', HOOK_DEFAULTS.compactAtPercent),
     minReductionRatio: optionNumber(
       options,
       'minReductionRatio',
@@ -227,19 +224,12 @@ export function decisionLogLines(
 async function getApiKey(
   $: {
     env: { get: (name: string) => Promise<string | undefined> };
-    settings: { read: () => Promise<Readonly<Record<string, unknown>>> };
   },
   config: HookConfig,
 ): Promise<string | undefined> {
   if (config.apiKey) return config.apiKey;
   const fromEnv = await $.env.get('TYPESAFE_API_KEY');
   if (fromEnv) return fromEnv;
-  const settings = await $.settings.read();
-  const env = settings['env'];
-  if (env && typeof env === 'object') {
-    const value = (env as Record<string, unknown>)['TYPESAFE_API_KEY'];
-    if (typeof value === 'string' && value) return value;
-  }
   return undefined;
 }
 
@@ -266,12 +256,25 @@ function notify(
 
 export const register: Register = (on: On, options: PluginOptions) => {
   const configured = resolveHookConfig(options);
-  let compacting = false;
+  let noKeyWarned = false;
 
   on('session.compact', async ($, event, next) => {
+    if (event.agentId) return next(event);
+    if (event.trigger === 'precompute') return next(event);
+
     let apiKey = configured.apiKey;
     try {
       apiKey = await getApiKey($, configured);
+      if (!apiKey) {
+        if (!noKeyWarned) {
+          notify(
+            $,
+            "fast-jev-compaction: no TypeSafe API key, so Claude Code's built-in summary is used. Set the key with /plugin or TYPESAFE_API_KEY."
+          );
+          noKeyWarned = true;
+        }
+        return next(event);
+      }
       const config = { ...configured, apiKey };
       const { result, messages } = await compactSession(event.messages, config, async (url, init) => {
         const response = await $.http.fetch(url, init);
@@ -300,28 +303,6 @@ export const register: Register = (on: On, options: PluginOptions) => {
       );
       return next(event);
     }
-  });
-
-  on('turn.complete', async ($, event: TurnCompleteInput, next) => {
-    if (compacting) return next(event);
-    let apiKey = configured.apiKey;
-    try {
-      const { context } = await $.session.usage();
-      if ((context.percent ?? 0) < configured.compactAtPercent) return next(event);
-      // AgentFleet: without a TypeSafe key, session.compact falls back to the
-      // built-in summary, so compacting here would only compact early.
-      apiKey = await getApiKey($, configured);
-      if (!apiKey) return next(event);
-      compacting = true;
-      await $.session.compact();
-    } catch (error) {
-      $.ui.log(
-        safeLog(`auto-compact skipped (${error instanceof Error ? error.message : String(error)})`, apiKey),
-      );
-    } finally {
-      compacting = false;
-    }
-    return next(event);
   });
 };
 

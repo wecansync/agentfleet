@@ -27,7 +27,20 @@ sys.dont_write_bytecode = True
 _HERE = Path(__file__).resolve().parent
 SCRIPTS = _HERE if (_HERE / "provider_catalog.py").is_file() else _HERE.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
-from provider_catalog import CatalogError, acquire_lock, generic_policy, load_policy, release_lock  # noqa: E402
+from provider_catalog import (  # noqa: E402
+    CatalogError,
+    NATIVE_CONTEXT_BASIS,
+    acquire_lock,
+    claude_cli,
+    claude_cli_executable,
+    compaction_window,
+    generic_policy,
+    load_policy,
+    load_preferences,
+    release_lock,
+    strip_known_suffix,
+    write_preferences,
+)
 
 # Windows pipes and consoles default to a legacy encoding while policy output
 # may quote non-ASCII model names or paths; emit stdout as UTF-8.
@@ -487,7 +500,173 @@ def categorize_skill(name: str) -> str:
     return "other"
 
 
-def audit_fleet(home: Path, config_home: Path, policy_file: Path) -> dict:
+def display_text(value: object, limit: int = 120) -> str:
+    """Printable text from CLI output: control and format characters removed,
+    so a plugin or server name cannot carry terminal escape sequences."""
+    import unicodedata
+
+    text = "".join(ch for ch in str(value) if unicodedata.category(ch) not in ("Cc", "Cf") and ch not in "\u2028\u2029")
+    return " ".join(text.split())[:limit]
+
+
+def check_plugins_health(home: Path) -> dict:
+    installed_file = home / ".claude" / "plugins" / "installed_plugins.json"
+    installed_names = set()
+    if installed_file.is_file():
+        raw_installed = read_json(installed_file, {})
+        if isinstance(raw_installed, dict):
+            plugins_obj = raw_installed.get("plugins")
+            if isinstance(plugins_obj, dict):
+                installed_names = set(plugins_obj.keys())
+            elif isinstance(plugins_obj, list):
+                installed_names = {p.get("id") for p in plugins_obj if isinstance(p, dict) and p.get("id")}
+    installed_count = len(installed_names)
+
+    if claude_cli_executable() is None:
+        return {
+            "available": False,
+            "reason": "claude CLI not found",
+            "installed": installed_count,
+            "enabled": 0,
+            "errors": [],
+        }
+
+    proc = claude_cli(home, "plugin", "list", "--json", timeout=30)
+    if proc is None:
+        return {
+            "available": False,
+            "reason": "claude CLI timed out or unavailable",
+            "installed": installed_count,
+            "enabled": 0,
+            "errors": [],
+        }
+
+    if proc.returncode != 0:
+        return {
+            "available": False,
+            "reason": f"claude plugin list exited with code {proc.returncode}",
+            "installed": installed_count,
+            "enabled": 0,
+            "errors": [],
+        }
+
+    try:
+        plugin_list = json.loads(proc.stdout)
+        if not isinstance(plugin_list, list):
+            raise ValueError("plugin list is not a JSON array")
+    except Exception:
+        return {
+            "available": False,
+            "reason": "unparsable claude plugin list output",
+            "installed": installed_count,
+            "enabled": 0,
+            "errors": [],
+        }
+
+    installed_count = max(installed_count, len(plugin_list))
+    enabled_count = 0
+    errors = []
+    for item in plugin_list:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("id") or item.get("name") or "unknown"
+        if item.get("enabled") is True:
+            enabled_count += 1
+        err = item.get("error")
+        if err:
+            errors.append({"name": display_text(name, 80), "error": display_text(err)})
+
+    return {
+        "available": True,
+        "installed": installed_count,
+        "enabled": enabled_count,
+        "errors": errors,
+    }
+
+
+def check_mcp_health(home: Path) -> dict:
+    if claude_cli_executable() is None:
+        return {
+            "available": False,
+            "reason": "claude CLI not found",
+            "total": 0,
+            "healthy": 0,
+            "failed": [],
+        }
+
+    proc = claude_cli(home, "mcp", "list", timeout=45)
+    if proc is None:
+        return {
+            "available": False,
+            "reason": "claude CLI timed out or unavailable",
+            "total": 0,
+            "healthy": 0,
+            "failed": [],
+        }
+
+    if proc.returncode != 0:
+        return {
+            "available": False,
+            "reason": f"claude mcp list exited with code {proc.returncode}",
+            "total": 0,
+            "healthy": 0,
+            "failed": [],
+        }
+
+    servers = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("Checking ") or line.startswith("==="):
+            continue
+        if " - " not in line:
+            continue
+        prefix, status_part = line.rsplit(" - ", 1)
+        name = prefix.split(": ", 1)[0].strip() if ": " in prefix else prefix.split(":", 1)[0].strip()
+        if not name:
+            continue
+        status_part_lower = status_part.lower()
+        if (
+            "needs authentication" in status_part_lower
+            or "needs-auth" in status_part_lower
+            or "needs auth" in status_part_lower
+            or "⚠" in status_part
+            or status_part_lower.startswith("!")
+        ):
+            status = "needs-auth"
+        elif "connected" in status_part_lower or "✓" in status_part or "✔" in status_part:
+            status = "connected"
+        elif (
+            "failed" in status_part_lower
+            or "error" in status_part_lower
+            or "✘" in status_part
+            or "✗" in status_part
+        ):
+            status = "failed"
+        else:
+            status = "unknown"
+        servers.append({"name": display_text(name, 80), "status": status})
+
+    total = len(servers)
+    healthy = sum(1 for s in servers if s["status"] == "connected")
+    failed = []
+    for s in servers:
+        st = s["status"]
+        if st != "connected":
+            if st == "needs-auth":
+                hint = "Run /mcp and authenticate."
+            else:
+                hint = "Check the server's command or credentials, then run /mcp to reconnect."
+            failed.append({"name": s["name"], "status": st, "hint": hint})
+
+    return {
+        "available": True,
+        "total": total,
+        "healthy": healthy,
+        "failed": failed,
+    }
+
+
+def audit_fleet(home: Path, config_home: Path, policy_file: Path, check_health: bool = True) -> dict:
     catalog_info = get_live_catalog_info(home)
     live_ids = catalog_info["live_ids"]
     clean_ids = catalog_info["clean_ids"]
@@ -522,7 +701,17 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path) -> dict:
         compact_int = int(compact_window) if compact_window is not None else 0
     except (ValueError, TypeError):
         compact_int = 0
-    compaction_optimal = compact_int >= 800000
+    prefs = load_preferences(home)
+    compact_percent = prefs.get("compactPercent", 70)
+    is_native = not bool(env.get("ANTHROPIC_BASE_URL"))
+    active_model = settings.get("model")
+    model_context = resolve_model_context(home, active_model, is_native, policy_file)
+    if compact_percent == "off":
+        expected_window = None
+        compaction_optimal = True
+    else:
+        expected_window = compaction_window(model_context, compact_percent)
+        compaction_optimal = bool(expected_window is not None and compact_int == expected_window)
 
     hook_validations = []
     hooks_dict = settings.get("hooks", {})
@@ -679,7 +868,7 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path) -> dict:
     utilized_live_models = [m for m in catalog_info["models"] if m["clean_id"] in assigned_models or m["id"] in assigned_models]
     unutilized_live_models = [m for m in catalog_info["models"] if m["clean_id"] not in assigned_models and m["id"] not in assigned_models]
 
-    return {
+    result = {
         "format": "claude-fleet-audit.v1",
         "live_models": {
             "total": len(catalog_info["models"]),
@@ -694,7 +883,9 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path) -> dict:
             "stale_models": stale_models,
             "compaction": {
                 "current": compact_window,
-                "recommended": 800000,
+                "percent": compact_percent,
+                "context": model_context,
+                "expected": expected_window,
                 "optimal": compaction_optimal
             }
         },
@@ -729,6 +920,14 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path) -> dict:
         }
     }
 
+    if check_health:
+        result["health"] = {
+            "plugins": check_plugins_health(home),
+            "mcp": check_mcp_health(home),
+        }
+
+    return result
+
 
 def print_audit_summary(audit: dict) -> None:
     live = audit["live_models"]
@@ -753,10 +952,10 @@ def print_audit_summary(audit: dict) -> None:
         print(f"[Settings] All configured models are valid live models (active model: {st.get('model')}, advisor: {st.get('advisor_model')}).")
 
     comp = st.get("compaction", {})
-    if not comp.get("optimal"):
-        print(f"  - Compaction window: {comp.get('current')} (recommend 800000 for 1M context models).")
+    if comp.get("percent") == "off":
+        print(f"  - Compaction window: {comp.get('current')} (AgentFleet leaves it alone: compact off).")
     else:
-        print(f"  - Compaction window: {comp.get('current')} (optimal).")
+        print(f"  - Compaction window: {comp.get('current')} (expected {comp.get('expected')} = {comp.get('percent')}% of {comp.get('context')}).")
 
     if hk.get("all_valid"):
         print(f"[Hooks] {hk.get('total')}/{hk.get('total')} hook commands verified (executables & script targets present on disk).")
@@ -765,6 +964,27 @@ def print_audit_summary(audit: dict) -> None:
         print(f"[Hooks] {len(invalid)} hook issue(s) detected:")
         for inv in invalid:
             print(f"  - [{inv.get('event')}] {inv.get('error')}")
+
+    health = audit.get("health")
+    if isinstance(health, dict):
+        print("[Health]")
+        plugins = health.get("plugins", {})
+        if plugins.get("available") is False:
+            print(f"  Plugins: unavailable ({plugins.get('reason', 'unknown')})")
+        else:
+            errors = plugins.get("errors", [])
+            err_suffix = f", {len(errors)} with errors" if errors else ""
+            print(f"  Plugins: {plugins.get('enabled', 0)}/{plugins.get('installed', 0)} enabled{err_suffix}")
+            for err_entry in errors:
+                print(f"  - {err_entry.get('name')}: {err_entry.get('error')}")
+
+        mcp = health.get("mcp", {})
+        if mcp.get("available") is False:
+            print(f"  MCP: unavailable ({mcp.get('reason', 'unknown')})")
+        else:
+            print(f"  MCP: {mcp.get('healthy', 0)}/{mcp.get('total', 0)} healthy")
+            for f in mcp.get("failed", []):
+                print(f"  - {f.get('name')}: {f.get('hint')}")
 
     print(f"[Agents] {ag.get('fleet_active_lanes')} Fleet lanes active.")
     non_fleet_total = ag.get("non_fleet_active_count", 0)
@@ -831,65 +1051,145 @@ def best_live(catalog: dict[str, dict], tier: str) -> str | None:
     return ranked[0]
 
 
-def fix_settings(home: Path, advisor_override: str | None = None, target_compaction: int = 800000, policy_file: Path | None = None) -> dict:
-    settings_file = home / ".claude" / "settings.json"
-    settings = read_json(settings_file, {})
-    if not isinstance(settings, dict):
-        raise SystemExit(f"settings file not found or invalid: {settings_file}")
-
+def resolve_model_context(home: Path, model: object, is_native: bool, policy_file: Path | None = None) -> int | None:
+    if is_native:
+        return NATIVE_CONTEXT_BASIS
+    if not isinstance(model, str) or not model.strip():
+        return None
     catalog = runtime_catalog(home, policy_file)
-    live = set(catalog) | {clean_model_id(model) for model in catalog}
+    if not catalog:
+        return None
+    model_name = model.strip()
+    if is_alias(model_name):
+        settings_file = home / ".claude" / "settings.json"
+        settings = read_json(settings_file, {})
+        env = settings.get("env") if isinstance(settings, dict) and isinstance(settings.get("env"), dict) else {}
+        base_alias = model_name.removesuffix("[1m]")
+        if base_alias == "opus":
+            mapped = env.get("ANTHROPIC_DEFAULT_OPUS_MODEL")
+        elif base_alias in {"sonnet", "default"}:
+            mapped = env.get("ANTHROPIC_DEFAULT_SONNET_MODEL")
+        elif base_alias == "haiku":
+            mapped = env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") or env.get("ANTHROPIC_SMALL_FAST_MODEL")
+        else:
+            mapped = None
+        if isinstance(mapped, str) and mapped.strip():
+            model_name = mapped.strip()
 
-    def stale(model: object) -> bool:
-        return isinstance(model, str) and bool(model) and bool(catalog) and not is_alias(model) and model not in live and clean_model_id(model) not in live
+    clean = strip_known_suffix(model_name)
+    model_info = catalog.get(model_name)
+    if not isinstance(model_info, dict):
+        if clean in catalog:
+            model_info = catalog[clean]
+        elif f"{clean}[1m]" in catalog:
+            model_info = catalog[f"{clean}[1m]"]
+        else:
+            model_info = next((row for runtime_id, row in catalog.items() if strip_known_suffix(runtime_id) == clean), None)
 
-    changes = []
+    if isinstance(model_info, dict):
+        ctx = model_info.get("context_length")
+        if isinstance(ctx, int) and ctx > 0:
+            return ctx
+    return None
 
-    current_advisor = settings.get("advisorModel")
-    if advisor_override:
-        settings["advisorModel"] = advisor_override
-        changes.append(f"advisorModel: {current_advisor} -> {advisor_override}")
-    elif stale(current_advisor):
-        replacement = best_live(catalog, "deep")
-        if replacement:
-            settings["advisorModel"] = replacement
-            changes.append(f"advisorModel: replaced stale '{current_advisor}' with live '{replacement}'")
 
-    current_model = settings.get("model")
-    if stale(current_model):
-        replacement = best_live(catalog, "balanced")
-        if replacement:
-            settings["model"] = replacement
-            changes.append(f"model: replaced stale '{current_model}' with live '{replacement}'")
+def fix_settings(
+    home: Path,
+    advisor_override: str | None = None,
+    target_compaction: int | None = None,
+    policy_file: Path | None = None,
+    lock_timeout: float = 4.0,
+) -> dict:
+    fd, lock = acquire_lock(home, timeout=lock_timeout)
+    if fd is None:
+        raise SystemExit(f"another fleet writer holds the lock for {home}; try again")
+    try:
+        settings_file = home / ".claude" / "settings.json"
+        settings = read_json(settings_file, {})
+        if not isinstance(settings, dict):
+            raise SystemExit(f"settings file not found or invalid: {settings_file}")
 
-    env = settings.setdefault("env", {})
-    if isinstance(env, dict):
-        for env_key, tier in (
-            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "deep"),
-            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "balanced"),
-            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "fast"),
-            ("ANTHROPIC_SMALL_FAST_MODEL", "fast"),
-        ):
-            val = env.get(env_key)
-            if stale(val):
-                rep = best_live(catalog, tier)
-                if rep:
-                    env[env_key] = rep
-                    changes.append(f"env.{env_key}: replaced stale '{val}' with live '{rep}'")
+        catalog = runtime_catalog(home, policy_file)
+        live = set(catalog) | {clean_model_id(model) for model in catalog}
 
-        if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(target_compaction):
-            old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target_compaction)
-            changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {target_compaction}")
+        def stale(model: object) -> bool:
+            return isinstance(model, str) and bool(model) and bool(catalog) and not is_alias(model) and model not in live and clean_model_id(model) not in live
 
-    if settings.get("autoCompactWindow") != target_compaction:
-        old_val = settings.get("autoCompactWindow")
-        settings["autoCompactWindow"] = target_compaction
-        changes.append(f"autoCompactWindow: {old_val} -> {target_compaction}")
+        changes = []
 
-    if changes:
-        atomic_json(settings_file, settings, 0o600)
-    return {"changed": bool(changes), "changes": changes}
+        current_advisor = settings.get("advisorModel")
+        if advisor_override:
+            settings["advisorModel"] = advisor_override
+            changes.append(f"advisorModel: {current_advisor} -> {advisor_override}")
+        elif stale(current_advisor):
+            replacement = best_live(catalog, "deep")
+            if replacement:
+                settings["advisorModel"] = replacement
+                changes.append(f"advisorModel: replaced stale '{current_advisor}' with live '{replacement}'")
+
+        current_model = settings.get("model")
+        if stale(current_model):
+            replacement = best_live(catalog, "balanced")
+            if replacement:
+                settings["model"] = replacement
+                changes.append(f"model: replaced stale '{current_model}' with live '{replacement}'")
+
+        env = settings.setdefault("env", {})
+        if isinstance(env, dict):
+            for env_key, tier in (
+                ("ANTHROPIC_DEFAULT_OPUS_MODEL", "deep"),
+                ("ANTHROPIC_DEFAULT_SONNET_MODEL", "balanced"),
+                ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "fast"),
+                ("ANTHROPIC_SMALL_FAST_MODEL", "fast"),
+            ):
+                val = env.get(env_key)
+                if stale(val):
+                    rep = best_live(catalog, tier)
+                    if rep:
+                        env[env_key] = rep
+                        changes.append(f"env.{env_key}: replaced stale '{val}' with live '{rep}'")
+
+        is_native = not bool(env.get("ANTHROPIC_BASE_URL")) if isinstance(env, dict) else True
+
+        if target_compaction is not None:
+            write_preferences(home, {"compactPercent": "off"})
+            target_window = target_compaction
+            if isinstance(env, dict):
+                if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(target_window):
+                    old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+                    env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target_window)
+                    changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {target_window}")
+            if settings.get("autoCompactWindow") != target_window:
+                old_val = settings.get("autoCompactWindow")
+                settings["autoCompactWindow"] = target_window
+                changes.append(f"autoCompactWindow: {old_val} -> {target_window}")
+        else:
+            prefs = load_preferences(home)
+            percent = prefs.get("compactPercent", 70)
+            if percent != "off":
+                active_model = settings.get("model")
+                ctx = resolve_model_context(home, active_model, is_native, policy_file)
+                target_window = compaction_window(ctx, percent)
+                if target_window is not None:
+                    if isinstance(env, dict):
+                        if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(target_window):
+                            old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+                            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target_window)
+                            changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {target_window}")
+                        if not is_native and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(target_window):
+                            old_val = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(target_window)
+                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {target_window}")
+                    if settings.get("autoCompactWindow") != target_window:
+                        old_val = settings.get("autoCompactWindow")
+                        settings["autoCompactWindow"] = target_window
+                        changes.append(f"autoCompactWindow: {old_val} -> {target_window}")
+
+        if changes:
+            atomic_json(settings_file, settings, 0o600)
+        return {"changed": bool(changes), "changes": changes}
+    finally:
+        release_lock(fd, lock)
 
 
 def archive_agents(home: Path, targets: list[str]) -> dict:
@@ -1029,9 +1329,11 @@ def main() -> int:
     parser.add_argument("--reconcile", action="store_true", help="reconcile fleet against live provider models and sync agents")
     parser.add_argument("--audit", action="store_true", help="scan configuration, models, hooks, agents, and skills for health and bloat")
     parser.add_argument("--json", action="store_true", help="output audit results as JSON")
+    parser.add_argument("--no-health", action="store_true", help="skip plugin and MCP health checks in audit")
     parser.add_argument("--fix-settings", action="store_true", help="replace stale models in settings.json and optimize compaction")
     parser.add_argument("--advisor", help="override advisorModel when fixing settings")
-    parser.add_argument("--compaction", type=int, default=800000, help="target compaction window when fixing settings (default 800000)")
+    parser.add_argument("--compaction", type=int, default=None, help="target compaction window override (sets compactPercent to 'off')")
+    parser.add_argument("--compact-percent", help="target compaction percentage (40-95 or 'off')")
     parser.add_argument("--archive-agents", help="comma-separated agent filenames or categories (engineering, game_dev, niche_ops, other, all) to archive")
     parser.add_argument("--restore-agents", help="comma-separated agent filenames or categories to restore from archive")
     parser.add_argument("--archive-skills", help="comma-separated skill names or categories (core, delegates, engineering, other, all) to archive")
@@ -1046,8 +1348,21 @@ def main() -> int:
     path = policy_path(args)
     config_home = Path(args.config_home).expanduser().resolve() if args.config_home else Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")).resolve()
 
+    if args.compaction is not None:
+        if not (100_000 <= args.compaction <= 1_000_000):
+            raise SystemExit("--compaction must be between 100000 and 1000000")
+
+    if args.compact_percent is not None:
+        if args.compact_percent != "off":
+            try:
+                cp = int(args.compact_percent)
+                if not (40 <= cp <= 95):
+                    raise ValueError
+            except ValueError:
+                raise SystemExit("--compact-percent must be between 40 and 95 or 'off'")
+
     if args.audit:
-        res = audit_fleet(home, config_home, path)
+        res = audit_fleet(home, config_home, path, check_health=not args.no_health)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
         else:
@@ -1055,8 +1370,94 @@ def main() -> int:
         return 0
 
     did_action = False
+    if args.compact_percent is not None and not args.fix_settings:
+        pct = "off" if args.compact_percent == "off" else int(args.compact_percent)
+        write_preferences(home, {"compactPercent": pct})
+        if pct == "off":
+            print("Compaction preference set to 'off'; compaction window left unchanged.")
+        else:
+            fd, lock = acquire_lock(home, timeout=args.lock_timeout)
+            if fd is None:
+                raise SystemExit(f"another fleet writer holds the lock for {home}; try again")
+            try:
+                settings_file = home / ".claude" / "settings.json"
+                settings = read_json(settings_file, {})
+                if not isinstance(settings, dict):
+                    raise SystemExit(f"settings file not found or invalid: {settings_file}")
+                env = settings.setdefault("env", {})
+                is_native = not bool(env.get("ANTHROPIC_BASE_URL")) if isinstance(env, dict) else True
+                ctx = resolve_model_context(home, settings.get("model"), is_native, path)
+                expected = compaction_window(ctx, pct)
+                if expected is not None:
+                    changes = []
+                    if settings.get("autoCompactWindow") != expected:
+                        old_val = settings.get("autoCompactWindow")
+                        settings["autoCompactWindow"] = expected
+                        changes.append(f"autoCompactWindow: {old_val} -> {expected}")
+                    if isinstance(env, dict):
+                        if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(expected):
+                            old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+                            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(expected)
+                            changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {expected}")
+                        if not is_native and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(expected):
+                            old_val = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
+                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(expected)
+                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {expected}")
+                    if changes:
+                        atomic_json(settings_file, settings, 0o600)
+                        print("Settings updated:")
+                        for c in changes:
+                            print(f"  - {c}")
+                    else:
+                        print("Settings already optimal; no changes required.")
+                else:
+                    print(f"Compaction preference set to {pct}%.")
+            finally:
+                release_lock(fd, lock)
+        did_action = True
+
+    if args.compaction is not None and not args.fix_settings:
+        write_preferences(home, {"compactPercent": "off"})
+        fd, lock = acquire_lock(home, timeout=args.lock_timeout)
+        if fd is None:
+            raise SystemExit(f"another fleet writer holds the lock for {home}; try again")
+        try:
+            settings_file = home / ".claude" / "settings.json"
+            settings = read_json(settings_file, {})
+            if not isinstance(settings, dict):
+                raise SystemExit(f"settings file not found or invalid: {settings_file}")
+            env = settings.setdefault("env", {})
+            changes = []
+            if settings.get("autoCompactWindow") != args.compaction:
+                old_val = settings.get("autoCompactWindow")
+                settings["autoCompactWindow"] = args.compaction
+                changes.append(f"autoCompactWindow: {old_val} -> {args.compaction}")
+            if isinstance(env, dict) and env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(args.compaction):
+                old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+                env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(args.compaction)
+                changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {args.compaction}")
+            if changes:
+                atomic_json(settings_file, settings, 0o600)
+                print(f"Compaction window set to {args.compaction} (compactPercent preference set to 'off'):")
+                for c in changes:
+                    print(f"  - {c}")
+            else:
+                print(f"Compaction window already {args.compaction} (compactPercent preference set to 'off').")
+        finally:
+            release_lock(fd, lock)
+        did_action = True
+
     if args.fix_settings:
-        fix_res = fix_settings(home, advisor_override=args.advisor, target_compaction=args.compaction, policy_file=path)
+        if args.compact_percent is not None:
+            pct = "off" if args.compact_percent == "off" else int(args.compact_percent)
+            write_preferences(home, {"compactPercent": pct})
+        fix_res = fix_settings(
+            home,
+            advisor_override=args.advisor,
+            target_compaction=args.compaction,
+            policy_file=path,
+            lock_timeout=args.lock_timeout,
+        )
         if fix_res["changed"]:
             print("Settings updated:")
             for c in fix_res["changes"]:

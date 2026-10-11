@@ -43,36 +43,36 @@ CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .
 
 ## Configuration
 
-The plugin declares these `userConfig` values in
-`.claude-plugin/plugin.json`:
+The plugin declares the sensitive `apiKey` option in `userConfig` in
+`.claude-plugin/plugin.json`. The TypeSafe key can be supplied as `apiKey` or
+through the `TYPESAFE_API_KEY` environment variable (never stored in settings.json).
 
-| Option | Default |
-| --- | ---: |
-| `keepThreshold` | `0.5` |
-| `preserveRecentMessages` | `6` |
-| `compactAtPercent` | `60` |
-| `minReductionRatio` | `0.25` |
-| `maxStateTokens` | `25000` |
-| `maxRequestTokens` | `30000` |
-| `truncateHeadChars` | `300` |
-| `model` | `jev-latest` |
+Additional advanced options are supported via code defaults in `resolveHookConfig`:
 
-The TypeSafe key can be supplied as the sensitive `apiKey` plugin option or
-through `TYPESAFE_API_KEY`. The environment variable is the recommended
-development setup.
+| Option | Default | Description |
+| --- | ---: | --- |
+| `keepThreshold` | `0.5` | Minimum keep probability |
+| `preserveRecentMessages` | `6` | Pinned newest messages |
+| `minReductionRatio` | `0.25` | Minimum reduction ratio |
+| `maxStateTokens` | `25000` | State token budget |
+| `maxRequestTokens` | `30000` | Request token budget |
+| `truncateHeadChars` | `300` | Truncated result head |
+| `model` | `jev-latest` | Model name |
 
-Every option except `apiKey`, `compactAtPercent`, `minReductionRatio` and
-`model` is passed straight to the library; see the root README for what they
-do. The `session.compact` hook runs the Jev requests concurrently. If Jev fails,
-the response is malformed, the key is unavailable, the history cannot be
-fitted into the state budget, or the estimated reduction is below
-`minReductionRatio`, the hook logs a fallback and delegates to Claude Code's
-built-in compaction. The outcome is shown as a toast and logged with the
-reduction, per-reason counts, state size and request count; a per-call
-`decisions:` line with both probabilities is logged for diagnosis. The
-`turn.complete` hook requests
-compaction when `context.percent` reaches `compactAtPercent`, with an
-in-flight guard.
+## Data Egress Notice
+
+At each compaction, fast-jev-compaction sends conversation text, message history,
+and tool inputs (with tool results abridged into short notes) to TypeSafe
+(`https://api.typesafe.ai`) using your TypeSafe API key. This is a paid third-party
+service.
+
+## Behavior
+
+The mod only processes compactions in the main conversation:
+- Subagent compactions (`event.agentId`) and precomputes (`event.trigger === 'precompute'`) are skipped and passed to Claude Code's built-in compaction.
+- If no TypeSafe API key is set, a warning is logged and toasted once per session, and compactions pass through to Claude Code's built-in summary.
+- If Jev fails, the response is malformed, the history cannot be fitted, or the reduction is below `minReductionRatio`, the hook logs a fallback and delegates to Claude Code's built-in compaction.
+- JEV only handles compactions triggered by Claude Code (automatic compaction at the AgentFleet window), `/compact`, or plugins. No `turn.complete` auto-compaction is registered.
 
 ## Scope and caveat
 

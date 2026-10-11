@@ -10,6 +10,11 @@
       "description": "Actionable AgentFleet updates and model proposals above the prompt."
     },
     {
+      "name": "lane-guard",
+      "source": "./lane-guard",
+      "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts."
+    },
+    {
       "name": "token-weather",
       "source": "./token-weather",
       "description": "Optional: a live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
@@ -17,7 +22,7 @@
     {
       "name": "fast-jev-compaction",
       "source": "./fast-jev-compaction",
-      "description": "Optional: verbatim compaction guided by TypeSafe Jev (needs a TypeSafe API key; sends conversation text to TypeSafe). By tamaratran, MIT."
+      "description": "Optional: verbatim compaction guided by TypeSafe Jev for the main conversation (needs a TypeSafe API key; sends conversation text to TypeSafe). By tamaratran, MIT."
     }
   ]
 }

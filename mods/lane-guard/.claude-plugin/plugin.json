@@ -1,0 +1,8 @@
+{
+  "name": "lane-guard",
+  "version": "1.0.0",
+  "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts.",
+  "author": { "name": "WeCanSync" },
+  "homepage": "https://agentfleet.wecansync.com",
+  "license": "MIT"
+}

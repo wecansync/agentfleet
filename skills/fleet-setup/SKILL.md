@@ -19,7 +19,8 @@ Run `claude-fleet-setup --audit --json` and `agentfleet profiles`. From them, no
 - **Profile:** the active profile, and whether it is `native` (Claude login) or a gateway.
 - **Live models:** from `live_models.models`: each model's `runtime_id` (the id lanes use; always pass this one to commands), `description`, `tier` (cheap / fast / balanced / deep), `context_length`, `reasoning`, `excluded`, and the lanes it serves (`primary_for`, `fallback_for`). Native profiles have no catalog; use `native_models` (`opus`, `sonnet`, `haiku`).
 - **Lanes:** from `lanes`: each lane's `tier`, `read_only`, `alt_of`, `description`, current `model`, `fallbacks`, and `preferred` pins. Excluded models are in `excluded_models`.
-- **Settings health:** stale `model`, `advisorModel`, or `env.ANTHROPIC_*_MODEL` values, and the compaction window.
+- **Settings health:** stale `model`, `advisorModel`, or `env.ANTHROPIC_*_MODEL` values; configured compaction percentage and expected window from `settings.compaction.percent` and `settings.compaction.expected`.
+- **Plugins and MCP:** plugin and MCP health from `health.plugins` and `health.mcp`; when MCP servers are broken, note each server and its supplied fix hint.
 - **Hooks:** any command whose executable or script is missing.
 - **Fleet:** lane count, which lanes carry an explicit `preferred` list, and how many live models serve as a primary or fallback somewhere.
 - **Agents and skills:** non-fleet agents grouped by category with their prompt-token cost; skills grouped by category.
@@ -28,8 +29,8 @@ Run `claude-fleet-setup --audit --json` and `agentfleet profiles`. From them, no
 Print the status, filling every value from the audit:
 ```
 Profile <name> (<native | gateway host>) · <N> live models (<deep> deep, <balanced> balanced, <fast> fast, <cheap> cheap)
-Settings <OK | stale: key=value, …> · compaction <value>
-Hooks <n>/<n> healthy
+Settings <OK | stale: key=value, …> · auto-compact <pct>% (<window> tokens)
+MCP <ok>/<n> healthy · Hooks <n>/<n> healthy
 Fleet <lanes> lanes · <used>/<N> models in use
 Agents <non-fleet count> extra (~<tokens> tokens/turn) · Skills <count>
 ```
@@ -48,6 +49,8 @@ Then ask only the questions that apply, in this order.
 - **Remove a provider:** confirm with `AskUserQuestion` (name the profile), then run `agentfleet remove <name> --yes`. The active profile and `native` cannot be removed.
 
 Step 3 changes apply to the active profile only; after a switch in Step 2, the choices shown next are that profile's.
+
+If the audit lists broken MCP servers, show each server with its provided fix hint before asking questions.
 
 **Step 3: Fleet tuning.** Options:
 - **Auto-rank all lanes (Recommended):** `claude-fleet-setup --reconcile`. Each lane gets the best live model for its tier, and the next best become its fallbacks.
@@ -75,13 +78,21 @@ Step 3 changes apply to the active profile only; after a switch in Step 2, the c
 
 *Tier labels:* the `-fast`, `-deep`, and `-cheap` lanes depend on them. Catalogs report context size but not price or speed, so tiers are guessed from names. Show the guessed tier of each live model, ask which to correct, and apply with `claude-fleet-setup --tier <model>=<tier>`.
 
-**Step 4: Agent curation** (only if non-fleet agents exist). Show categories with counts and token cost. Options:
+**Step 4: Auto-compact percentage.** Ask with at most four options: "Keep <current>%", "70% (Recommended)", "80%", "60%". The keep option uses the effective preference, including `off` if configured. Apply a changed value with `agentfleet config compact <n>` (or `agentfleet config compact off`) and tell the user to restart Claude Code.
+
+**Step 5: Reviewer access.** Ask with at most three options: "Full: run checks and apply fixes only when the brief says FIX MODE (Recommended)", "Run: run checks, never edit", "Read-only". Apply with `agentfleet config reviewer-access <full|run|read-only>` and tell the user to restart Claude Code.
+
+**Step 6: Optional mods.** Ask with at most two options: "Leave fast-jev-compaction off (Recommended)", "Turn it on — needs a TypeSafe key, sends conversation text to TypeSafe". If enabled, run `agentfleet jev on`; the key is set only via `/plugin` configuration or `TYPESAFE_API_KEY`, never in chat. Explain that compaction sends main-conversation text to TypeSafe.
+
+**Step 7: Suggestions.** Ask with at most two options: "Leave learning off (Recommended)", "Turn learning on — counts command names, tools and doc sites per project, never prompt text". If enabled, run `agentfleet config learn on`; mention `/fleet-suggest`.
+
+**Step 8: Agent curation** (only if non-fleet agents exist). Show categories with counts and token cost. Options:
 - **Keep engineering, archive unused domains (Recommended):** `claude-fleet-setup --archive-agents game_dev,niche_ops`.
 - **Keep everything.**
 - **Archive one category:** `--archive-agents <category>`.
 - **Restore archived agents:** `--restore-agents <category|all>`.
 
-**Step 5: Skills and new agents.** Options:
+**Step 9: Skills and new agents.** Options:
 - **Archive legacy `*-delegate` wrappers:** `claude-fleet-setup --archive-skills delegates`. The native fleet lanes replace them.
 - **Create a custom lane:** ask for a name (`fleet-<name>`), what it does, whether it is read-only, and its tier. Add the lane to `~/.claude/fleet.json` with `implementer: "claude"`, `tier`, `effort`, `readOnly`, and `description`. Then run `claude-fleet-setup --reconcile`, which picks its model and regenerates its agent.
 - **Nothing else.**

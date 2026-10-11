@@ -70,7 +70,14 @@
         <li><a href="#fleet-setup">fleet-setup</a></li>
         <li><a href="#mods">Mods</a></li>
         <li><a href="#what-gets-installed">What gets installed</a></li>
-        <li><a href="#context-compaction">Context compaction</a></li>
+        <li><a href="#preferences">Preferences</a></li>
+        <li><a href="#auto-compact">Auto-compact</a></li>
+        <li><a href="#reviewer-modes">Reviewer modes</a></li>
+        <li><a href="#lane-guard">Lane guard</a></li>
+        <li><a href="#outages">Outages and lane reports</a></li>
+        <li><a href="#suggestions">Suggestions</a></li>
+        <li><a href="#project-lane-overrides">Project lane overrides</a></li>
+        <li><a href="#usage-report">Usage report</a></li>
         <li><a href="#privacy">Privacy</a></li>
         <li><a href="#safety">Safety</a></li>
         <li><a href="#upgrading">Upgrading</a></li>
@@ -88,7 +95,7 @@
         <p>AgentFleet installs 19 native Claude Code subagents — called <em>lanes</em> — under <code class="il">~/.claude/agents/fleet-*.md</code> and maps each lane to whatever models your provider offers: a Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway. Lane names describe a role, never a model, so the same setup survives provider changes.</p>
         <p>The moving parts:</p>
         <ul class="req-list">
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>Lanes</strong> — generated subagent files, one per role. Read-only lanes receive no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> tools. All lanes run in the background with <code class="il">omitClaudeMd: true</code> and cannot spawn nested agents; writable lanes are instructed never to commit, push, or take outward-facing actions.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>Lanes</strong> — generated subagent files, one per role. Planners and researchers are read-only by default; reviewers verify with commands and edit only in explicit FIX MODE. Diagnosis runs commands but never edits. All lanes run in the background with <code class="il">omitClaudeMd: true</code> and cannot spawn nested agents. The main agent owns outward-facing actions; lane-guard blocks covered forbidden commands.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>Tier ranking at startup</strong> — a reconcile step compares your live provider models against each lane's required capability tier and assigns the best fit, spreading models across lanes and keeping assignments stable between sessions.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>Hooks</strong> — a routing hook (<code class="il">UserPromptSubmit</code>), a startup model-sync hook, a context-budget hook, and a privacy-safe status line, all installed under <code class="il">~/.claude/</code>.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>Profiles</strong> — named provider configurations you can switch between without reinstalling. The <code class="il">native</code> profile uses your Claude login; gateway profiles store tokens in mode-0600 files.</li>
@@ -142,12 +149,12 @@
 
         <aside class="callout note">
           <span class="callout-label">Note</span>
-          <p>Pin a version with <code class="il">AGENTFLEET_VERSION=2.0.3</code>. Override the host with <code class="il">AGENTFLEET_BASE_URL</code> (https only; http is accepted only for localhost).</p>
+          <p>Pin a version with <code class="il">AGENTFLEET_VERSION=2.2.0</code>. Override the host with <code class="il">AGENTFLEET_BASE_URL</code> (https only; http is accepted only for localhost).</p>
         </aside>
 
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy pin-a-version command">Copy</button></div>
-          <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.0.3 sh</code></pre>
+          <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.2.0 sh</code></pre>
         </div>
 
         <h3 id="install-what-it-does" class="anchor-heading">What the installer does<a class="anchor-link" href="#install-what-it-does" aria-label="Link to this section">#</a></h3>
@@ -224,7 +231,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
         <div class="cmd-ref">
           <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code><p>Install on macOS or Linux.</p></div>
           <div class="cmd-ref-item"><code class="il">irm https://agentfleet.wecansync.com/install.ps1 | iex</code><p>Install on Windows PowerShell.</p></div>
-          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.0.3 sh</code><p>Pin a specific version.</p></div>
+          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.2.0 sh</code><p>Pin a specific version.</p></div>
           <div class="cmd-ref-item"><code class="il">./install.sh</code><p>From a local clone; <code class="il">install.ps1</code> / <code class="il">install.cmd</code> do the same on Windows.</p></div>
         </div>
       </section>
@@ -319,7 +326,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
       <section id="lanes">
         <h2 class="anchor-heading">Lanes<a class="anchor-link" href="#lanes" aria-label="Link to this section">#</a></h2>
         <p>Each lane is a native Claude Code subagent generated from <code class="il">~/.claude/fleet.json</code>. All lanes run in the background with <code class="il">omitClaudeMd: true</code>. No lane has the <code class="il">Agent</code> tool, so none can spawn nested agents. The main agent owns integration and every outward-facing action.</p>
-        <p>Read-only lanes have no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> tools, so they cannot change files, commit, or push. Writable lanes have those tools; their instructions forbid committing, pushing, deploying, or publishing, but that rule lives in the prompt, not in the tool list.</p>
+        <p>Planning, exploration, triage, and research lanes have no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> by default. Reviewers can run checks and edit only in explicit FIX MODE; diagnosis can run checks but never edits. Preferences and per-lane tool overrides can restrict access. The <a href="#lane-guard">lane-guard mod</a> blocks covered destructive and publishing commands in fleet subagents.</p>
         <h3 id="lanes-task" class="anchor-heading">Task lanes<a class="anchor-link" href="#lanes-task" aria-label="Link to this section">#</a></h3>
         <div class="lane-grid">
           <div class="lane-card">
@@ -331,7 +338,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <p class="lane-desc">General implementation: building features, fixing bugs, refactoring, migrations. Tier: balanced.</p>
           </div>
           <div class="lane-card">
-            <div class="lane-name-row"><span class="lane-name">fleet-review</span><span class="tag tag-ro">Read-only</span></div>
+            <div class="lane-name-row"><span class="lane-name">fleet-review</span><span class="tag tag-rw">Check / Fix</span></div>
             <p class="lane-desc">Code review: defect review, correctness checking, regression auditing. Tier: deep.</p>
           </div>
           <div class="lane-card">
@@ -347,11 +354,11 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <p class="lane-desc">Documentation: READMEs, developer guides, API docs, runbooks, changelogs. Tier: balanced.</p>
           </div>
           <div class="lane-card">
-            <div class="lane-name-row"><span class="lane-name">fleet-security-review</span><span class="tag tag-ro">Read-only</span></div>
+            <div class="lane-name-row"><span class="lane-name">fleet-security-review</span><span class="tag tag-rw">Check / Fix</span></div>
             <p class="lane-desc">Security review: auth, secrets, validation, trust boundaries, injection, credentials. Tier: deep.</p>
           </div>
           <div class="lane-card">
-            <div class="lane-name-row"><span class="lane-name">fleet-diagnose-static</span><span class="tag tag-ro">Read-only</span></div>
+            <div class="lane-name-row"><span class="lane-name">fleet-diagnose-static</span><span class="tag tag-ro">Run checks</span></div>
             <p class="lane-desc">Static diagnosis: root-cause analysis from source, crash tracing, failure isolation. Tier: deep.</p>
           </div>
           <div class="lane-card">
@@ -395,11 +402,11 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <p class="lane-desc">Budget or free-tier implementation: mechanical edits, boilerplate, and large repetitive changes. Tier: cheap.</p>
           </div>
           <div class="lane-card">
-            <div class="lane-name-row"><span class="lane-name">fleet-review-alt</span><span class="tag tag-ro">Read-only</span></div>
+            <div class="lane-name-row"><span class="lane-name">fleet-review-alt</span><span class="tag tag-rw">Check / Fix</span></div>
             <p class="lane-desc">Independent second reviewer on a different model. Use for risky changes that deserve two reviews. Tier: deep.</p>
           </div>
           <div class="lane-card">
-            <div class="lane-name-row"><span class="lane-name">fleet-review-deep</span><span class="tag tag-ro">Read-only</span></div>
+            <div class="lane-name-row"><span class="lane-name">fleet-review-deep</span><span class="tag tag-rw">Check / Fix</span></div>
             <p class="lane-desc">Frontier reviewer for the hardest reviews: security boundaries, installer/migration/concurrency paths, data-loss risk, or conflicting primary findings. Tier: deep.</p>
           </div>
         </div>
@@ -503,7 +510,8 @@ claude-fleet-setup --tier my-model-id=</code></pre>
               <tr><td><code class="il">implementer</code></td><td>Must be <code class="il">"claude"</code>.</td></tr>
               <tr><td><code class="il">tier</code></td><td>One of <code class="il">"cheap"</code>, <code class="il">"fast"</code>, <code class="il">"balanced"</code>, or <code class="il">"deep"</code>.</td></tr>
               <tr><td><code class="il">effort</code></td><td>One of <code class="il">"medium"</code>, <code class="il">"high"</code>, or <code class="il">"xhigh"</code>.</td></tr>
-              <tr><td><code class="il">readOnly</code></td><td><code class="il">true</code> to deny Bash/Edit/Write tools; omit or <code class="il">false</code> for a writable lane.</td></tr>
+              <tr><td><code class="il">readOnly</code></td><td><code class="il">true</code> selects read-only tools by default for a custom lane; omit or <code class="il">false</code> for writable defaults.</td></tr>
+              <tr><td><code class="il">tools</code> (optional)</td><td>Array of tool names overriding the lane defaults. Nested-agent tools are rejected.</td></tr>
               <tr><td><code class="il">description</code></td><td>Plain-text description of what the lane does. Used in the agent's brief.</td></tr>
             </tbody>
           </table>
@@ -513,7 +521,7 @@ claude-fleet-setup --tier my-model-id=</code></pre>
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy reconcile command">Copy</button></div>
           <pre><code>claude-fleet-setup --reconcile</code></pre>
         </div>
-        <p>Custom lanes survive updates and profile switches. A lane marked <code class="il">readOnly: true</code> always receives read-only tools regardless of any other configuration.</p>
+        <p>Custom lanes survive updates and profile switches. By default <code class="il">readOnly: true</code> selects read-only tools for a custom lane. An optional <code class="il">tools</code> array overrides the lane's tool list; nested-agent tools are rejected. Built-in reviewers and diagnosis use their role-specific access rules. See <a href="#reviewer-modes">Reviewer modes</a>.</p>
         <aside class="callout tip"><span class="callout-label">Tip</span><p>The <code class="il">/fleet-setup</code> wizard in Claude Code can create a custom lane interactively — it asks for the name, description, read-only setting, and tier, then runs reconcile for you.</p></aside>
       </section>
 
@@ -573,7 +581,12 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
           <div class="cmd-ref-item"><code class="il">agentfleet save &lt;name&gt;</code><p>Save the current configuration as a named profile.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet add &lt;name&gt; --gateway-url URL</code><p>Add a gateway profile without reinstalling. Options: <code class="il">--token-env VAR</code> (otherwise a hidden prompt), <code class="il">--use</code> (switch to it now), <code class="il">--force</code> (replace a saved profile), <code class="il">--allow-insecure-http</code> (localhost only).</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet remove &lt;name&gt; [--yes]</code><p>Delete a saved profile and its token. Asks for confirmation unless <code class="il">--yes</code> is given.</p></div>
-          <div class="cmd-ref-item"><code class="il">agentfleet status</code><p>Show the active profile and run the audit: live models, stale settings, hook health, agents and skills with token cost.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet status</code><p>Show the active profile and run the audit: live models, settings, hooks, agents, skills, plugins, and MCP health. To skip the plugin and MCP checks, run <code class="il">claude-fleet-setup --audit --no-health</code> instead.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config</code><p>Show or change <a href="#preferences">preferences</a> for auto-compact, reviewer access, and learning.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet jev on|off|status</code><p>Control the optional Jev compaction plugin. See <a href="#mods">Mods</a>.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]</code><p>Manage local <a href="#suggestions">project suggestions</a>.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet project pin LANE MODEL [--fallbacks A,B] [--dir DIR]</code><p>Create a <a href="#project-lane-overrides">project-local lane override</a>; <code class="il">agentfleet project unpin LANE</code> removes it and <code class="il">agentfleet project show</code> lists overrides.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet report [--days N] [--json]</code><p>Summarize local <a href="#usage-report">lane activity and usage</a>.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet doctor</code><p>Verify the installation (runs <code class="il">claude-agents-doctor --check</code>).</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet sync</code><p>Regenerate fleet agent files from <code class="il">~/.claude/fleet.json</code>.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet update</code><p>Download and install the latest release. Extra arguments are forwarded to the installer.</p></div>
@@ -585,7 +598,10 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
         <h3 id="commands-fleet-setup" class="anchor-heading">claude-fleet-setup<a class="anchor-link" href="#commands-fleet-setup" aria-label="Link to this section">#</a></h3>
         <div class="cmd-ref">
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --show</code><p>Print the effective policy, approved families, and fleet status without changing anything.</p></div>
-          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --audit</code><p>Scan settings, models, hooks, agents, and skills for health and bloat.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --audit</code><p>Scan settings, models, hooks, agents, skills, plugins, and MCP servers for health and bloat.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --audit --no-health</code><p>Skip plugin and MCP health checks.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --compact-percent P</code><p>Set auto-compact to 40–95% of context, or <code class="il">off</code> to leave the window alone.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --compaction N</code><p>Set an absolute window of 100,000–1,000,000 tokens and turn the percentage preference off.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --audit --json</code><p>Same as <code class="il">--audit</code> but outputs results as JSON.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --reconcile</code><p>Fetch live provider models, run bidirectional lane reconciliation, and regenerate agent files.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --fix-settings</code><p>Replace stale models in <code class="il">settings.json</code> and optimize the compaction window.</p></div>
@@ -612,7 +628,7 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
 
       <section id="fleet-setup">
         <h2 class="anchor-heading">fleet-setup<a class="anchor-link" href="#fleet-setup" aria-label="Link to this section">#</a></h2>
-        <p>Type <code class="il">/fleet-setup</code> inside Claude Code to run the interactive setup wizard. It audits the live state of your fleet, then walks through five phases:</p>
+        <p>Type <code class="il">/fleet-setup</code> inside Claude Code to run the interactive setup wizard. It audits the fleet, including plugin and MCP health, and offers auto-compact percentage tuning. It then walks through these phases:</p>
         <ol class="step-list">
           <li><h4>Phase 1: Silent audit</h4><p>Runs <code class="il">claude-fleet-setup --audit --json</code> and <code class="il">agentfleet profiles</code>. Collects: active profile, live model count and tiers, settings health (stale <code class="il">model</code> / <code class="il">advisorModel</code> / <code class="il">ANTHROPIC_*_MODEL</code> values, compaction window), hook health, fleet lane count, and non-fleet agents and skills with their token cost.</p></li>
           <li><h4>Phase 2: Status and wizard questions</h4><p>Prints a 4–6 line status summary drawn entirely from live audit data, then asks only the questions that apply:</p>
@@ -645,18 +661,20 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
 
       <section id="mods">
         <h2 class="anchor-heading">Mods<a class="anchor-link" href="#mods" aria-label="Link to this section">#</a></h2>
-        <p>Mods are plugins whose code runs inside Claude Code and can draw in its interface. AgentFleet ships a local plugin catalog (marketplace) named <code class="il">agentfleet</code> at <code class="il">~/.claude/agentfleet/mods/</code>. Only <code class="il">fleet-status</code> is installed and on by default; the other two mods are opt-in.</p>
+        <p>Mods are plugins whose code runs inside Claude Code and can draw in its interface. AgentFleet ships a local plugin catalog (marketplace) named <code class="il">agentfleet</code> at <code class="il">~/.claude/agentfleet/mods/</code>. <code class="il">fleet-status</code> and <code class="il">lane-guard</code> are installed and on by default with mods enabled; <code class="il">token-weather</code> and <code class="il">fast-jev-compaction</code> are opt-in. See <a href="#lane-guard">Lane guard</a> for the command guard.</p>
         <aside class="callout note"><span class="callout-label">Note</span><p>Mods need Claude Code 2.1.287 or later. They show in the terminal and the Code tab of the Claude Desktop app, not in the VS Code extension's chat panel, <code class="il">claude -p</code>, the Agent SDK, or Desktop WSL sessions. Mods run with your user permissions and are not sandboxed.</p></aside>
 
         <h3 id="mods-fleet-status" class="anchor-heading">fleet-status<a class="anchor-link" href="#mods-fleet-status" aria-label="Link to this section">#</a></h3>
-        <p>A band above the prompt appears only when something needs action. It has a Hide button and covers four cases:</p>
+        <p>Version 1.1.0 shows a band above the prompt only when something needs action. Hide dismisses the current notices for this session. It covers these cases:</p>
         <ul class="req-list">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> AgentFleet was updated during the session: "Restart Claude Code to use it".</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> An automatic update failed: it points to <code class="il">~/.claude/agentfleet/auto-update.log</code>.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Fleet lanes have no available model: "Run /fleet-setup".</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Model changes are waiting for review: "Run /fleet-setup".</li>
         </ul>
-        <p>Run <code class="il">/fleet-status</code> to print the version, profile, auto-update state, model proposals, and any notices. It reads only four AgentFleet files: the install manifest, the active profile marker, <code class="il">auto-update.json</code>, and <code class="il">fleet-model-proposal.json</code>. It never reads <code class="il">settings.json</code> or tokens, sends nothing anywhere, and adds nothing to Claude's context except the reply when you run <code class="il">/fleet-status</code>.</p>
+        <p>The band also flags failing lanes and unseen project suggestions. Run <code class="il">/fleet-status</code> for version, profile, auto-update, model proposals, auto-compact, reviewer access, learning, and outages. A missing profile marker shows "not recorded"; auto-update defaults to enabled.</p>
+        <p><code class="il">/fleet-tasks</code> opens a closable pane showing session fleet agents, up to eight recent lane reports, and outages. It refreshes every two seconds while open. Close it with Close, the engine close control, or Escape.</p>
+        <p>The mod reads the install manifest, active marker, auto-update state, model proposals, and AgentFleet's preference, outage, suggestion, and lane-report files. It also uses the engine's project root and agent list. It never reads <code class="il">settings.json</code>, secrets, or saved profiles, and sends nothing anywhere. Command replies are the only additions to model context.</p>
         <p>To turn it off:</p>
         <div class="code-wrap">
           <pre><code>claude plugin disable fleet-status@agentfleet</code></pre>
@@ -670,7 +688,10 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy token-weather install command">Copy</button>
         </div>
         <p><strong>fast-jev-compaction</strong>, by tamaratran (MIT), replaces Claude Code's compaction summary. A fast request to TypeSafe's Jev model decides which old tool calls and results to drop or truncate; everything kept stays word for word. It is not installed by default.</p>
-        <aside class="callout note"><span class="callout-label">Note</span><p>Jev compaction needs a paid TypeSafe API key, set through <code class="il">TYPESAFE_API_KEY</code> or the plugin's <code class="il">apiKey</code> option. At each compaction it sends the conversation's text and tool inputs to <code class="il">api.typesafe.ai</code>; tool results are replaced by short notes. It compacts at 60% of the context window by default. Set its <code class="il">compactAtPercent</code> option to <code class="il">80</code> to match AgentFleet. AgentFleet's copy is changed so it never forces compaction when no key is configured.</p></aside>
+        <aside class="callout note"><span class="callout-label">Note</span><p>Jev compaction needs a paid TypeSafe API key. Configure it through <code class="il">/plugin</code> or export <code class="il">TYPESAFE_API_KEY</code> in your shell; do not put the key in <code class="il">settings.json</code> or chat. It has no separate trigger or percentage: it replaces the normal compaction summary for the main conversation only. At compaction it sends main-conversation text and tool inputs to <code class="il">api.typesafe.ai</code>, with tool results replaced by short notes. Without a key, or on failure, Claude Code's built-in compaction remains in use.</p></aside>
+        <div class="cmd-ref">
+          <div class="cmd-ref-item"><code class="il">agentfleet jev on|off|status</code><p>Enable, disable, or inspect the optional Jev plugin. Restart Claude Code after changing it.</p></div>
+        </div>
         <div class="code-wrap">
           <pre><code>claude plugin install fast-jev-compaction@agentfleet</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy fast-jev-compaction install command">Copy</button>
@@ -680,10 +701,11 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
         <p>On install, when Claude Code 2.1.287 or later is on PATH, the installer runs these commands once. Otherwise it prints them to run by hand and retries on the next update:</p>
         <div class="code-wrap">
           <pre><code>claude plugin marketplace add ~/.claude/agentfleet/mods
-claude plugin install fleet-status@agentfleet</code></pre>
+claude plugin install fleet-status@agentfleet
+claude plugin install lane-guard@agentfleet</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy mod registration commands">Copy</button>
         </div>
-        <p>Updates, including automatic ones, rewrite the mod files in place; the next Claude Code session loads them. Updates never re-register, so a mod you disabled or uninstalled stays that way.</p>
+        <p>Updates, including automatic ones, rewrite the mod files in place; the next Claude Code session loads them. The 2.2.0 update adds lane-guard once for installs with mods enabled. After that, disabled or uninstalled mods stay that way.</p>
         <h3 id="mods-opt-out" class="anchor-heading">Opting out<a class="anchor-link" href="#mods-opt-out" aria-label="Link to this section">#</a></h3>
         <p>Pass <code class="il">--no-mods</code> on install or set <code class="il">AGENTFLEET_MODS=0</code>. The choice is remembered, and <code class="il">agentfleet update</code> honors the variable. <code class="il">--mods</code> opts back in. Uninstall removes the <code class="il">agentfleet</code> catalog and its plugins from Claude Code; a rollback to a backup from before 2.1.0 does too.</p>
       </section>
@@ -697,7 +719,7 @@ claude plugin install fleet-status@agentfleet</code></pre>
         </ul>
         <h3 id="wgi-mods" class="anchor-heading">Mods<a class="anchor-link" href="#wgi-mods" aria-label="Link to this section">#</a></h3>
         <ul class="req-list">
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/agentfleet/mods/</code> — the local <code class="il">agentfleet</code> plugin catalog. <code class="il">fleet-status</code> is installed and on by default; <code class="il">token-weather</code> and <code class="il">fast-jev-compaction</code> are opt-in. See <a href="#mods">Mods</a>.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/agentfleet/mods/</code> — the local <code class="il">agentfleet</code> plugin catalog, including <code class="il">~/.claude/agentfleet/mods/lane-guard/</code>. <code class="il">fleet-status</code> and <code class="il">lane-guard</code> are on by default with mods enabled; <code class="il">token-weather</code> and <code class="il">fast-jev-compaction</code> are opt-in. See <a href="#mods">Mods</a>.</li>
         </ul>
         <h3 id="wgi-settings" class="anchor-heading">Settings<a class="anchor-link" href="#wgi-settings" aria-label="Link to this section">#</a></h3>
         <ul class="req-list">
@@ -708,10 +730,18 @@ claude plugin install fleet-status@agentfleet</code></pre>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/route-to-fleet.py</code> — <code class="il">UserPromptSubmit</code> routing hook.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/subagent-statusline.py</code> — native subagent status rendering.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/sync-provider-models.mjs</code> — startup hook for gateway model discovery and fleet reconciliation.</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/sync-model-context.py</code> — <code class="il">PostModelSwitch</code> / <code class="il">SessionStart</code> hook that reads the active model's context length and keeps <code class="il">autoCompactWindow</code> and <code class="il">CLAUDE_CODE_AUTO_COMPACT_WINDOW</code> paired and bounded. Fail-open.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/sync-model-context.py</code> — <code class="il">PreModelSwitch</code> / <code class="il">PostModelSwitch</code> hook that sets <code class="il">autoCompactWindow</code> and <code class="il">CLAUDE_CODE_AUTO_COMPACT_WINDOW</code> to your auto-compact percentage of the new model's context. Fail-open.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/provider_catalog.py</code> and <code class="il">~/.claude/fleet-reconcile.py</code> — provider identity, cache, and reconciliation helpers used by startup hooks.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/fleet-model-drift.py</code> — fail-open drift detector that writes a mode-0600 proposal and emits bounded startup context.</li>
         </ul>
+        <h3 id="wgi-suggestions" class="anchor-heading">Activity and suggestions<a class="anchor-link" href="#wgi-suggestions" aria-label="Link to this section">#</a></h3>
+        <ul class="req-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/fleet_watch.py</code> — local lane reports, outage notices, and opt-in usage counts.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/fleet_suggest.py</code> and <code class="il">~/.claude/fleet-suggestions.json</code> — local scanner and shipped suggestion catalog.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/skills/fleet-suggest/SKILL.md</code> — the interactive suggestion wizard.</li>
+        </ul>
+        <h3 id="wgi-user-state" class="anchor-heading">User-owned preferences and state<a class="anchor-link" href="#wgi-user-state" aria-label="Link to this section">#</a></h3>
+        <p>The bundle never manages these files under <code class="il">~/.claude/agentfleet/</code>: <code class="il">config.json</code>, <code class="il">outages.json</code>, <code class="il">lane-reports.jsonl</code>, <code class="il">usage/</code>, and <code class="il">suggestions.json</code>. Runtime commands and hooks maintain them; bundle updates do not replace them with shipped defaults.</p>
         <h3 id="wgi-cli" class="anchor-heading">CLI wrappers<a class="anchor-link" href="#wgi-cli" aria-label="Link to this section">#</a></h3>
         <ul class="req-list">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.local/bin/agentfleet</code>, <code class="il">claude-fleet-setup</code>, <code class="il">claude-fleet-sync</code>, <code class="il">claude-agents-doctor</code> (POSIX), or equivalent wrappers on Windows.</li>
@@ -727,16 +757,105 @@ claude plugin install fleet-status@agentfleet</code></pre>
         <aside class="callout note"><span class="callout-label">Note</span><p>Machine-local marketplace source paths are not copied (they are not portable). Remote marketplace entries, enabled plugin selections, permissions, and model picker descriptions are preserved. <code class="il">agent-brain</code> hooks are guarded with <code class="il">command -v</code> and are inert when that optional tool is absent.</p></aside>
       </section>
 
-      <section id="context-compaction">
-        <h2 class="anchor-heading">Context compaction<a class="anchor-link" href="#context-compaction" aria-label="Link to this section">#</a></h2>
-        <p>The context-budget hook (<code class="il">sync-model-context.py</code>) runs at <code class="il">SessionStart</code> and <code class="il">PostModelSwitch</code>. It reads the active model's reported <code class="il">context_length</code>, applies 90% headroom, and writes matching values to both <code class="il">CLAUDE_CODE_MAX_CONTEXT_TOKENS</code> (in <code class="il">env</code>) and <code class="il">autoCompactWindow</code> in <code class="il">settings.json</code>.</p>
-        <p>For example, a model reporting a 272K context window produces a budget of 244,800 tokens. An existing lower user budget is never inflated — the hook only adjusts when its own computed value is lower than what is currently set.</p>
-        <p>These are startup-only settings. The hook emits a restart notice when they change, because Claude Code reads them at launch. The hook is fail-open: any error is silently ignored and does not block a session.</p>
+      <section id="preferences">
+        <h2 class="anchor-heading">Preferences<a class="anchor-link" href="#preferences" aria-label="Link to this section">#</a></h2>
+        <p><code class="il">agentfleet config</code> shows shared preferences stored in <code class="il">~/.claude/agentfleet/config.json</code>. They apply across provider profiles and survive updates.</p>
+        <div class="cmd-ref">
+          <div class="cmd-ref-item"><code class="il">agentfleet config</code><p>Show the effective preferences. Defaults: 70% auto-compact, full reviewer access, learning off.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config compact &lt;40-95|off&gt;</code><p>Set the percentage of the active model's context used for auto-compact, or leave the window alone.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config reviewer-access full|run|read-only</code><p>Choose reviewer tool access and regenerate the fleet agents.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config learn on|off</code><p>Enable or disable local per-project usage learning for suggestions. Off by default.</p></div>
+        </div>
+      </section>
+
+      <section id="auto-compact">
+        <h2 class="anchor-heading">Auto-compact<a class="anchor-link" href="#auto-compact" aria-label="Link to this section">#</a></h2>
+        <h3 id="context-compaction" class="anchor-heading">Model-aware window<a class="anchor-link" href="#context-compaction" aria-label="Link to this section">#</a></h3>
+        <p><code class="il">compactPercent</code> defaults to <code class="il">70</code> in <code class="il">~/.claude/agentfleet/config.json</code>. Choose an integer from 40 to 95, or <code class="il">off</code>. Startup reconciliation and the model-switch hook set <code class="il">autoCompactWindow</code> and <code class="il">CLAUDE_CODE_AUTO_COMPACT_WINDOW</code> to that percentage of the active model's context. Native profiles use a 1,000,000-token basis.</p>
+        <p>A model with 272,000 tokens of context gets a 190,400-token window at 70%. Updating an existing install replaces the old fixed 800,000-token default with the percentage preference. <code class="il">off</code> leaves the current window alone; it does not disable Claude Code's own compaction.</p>
+        <div class="code-wrap">
+          <pre><code>agentfleet config compact 70
+claude-fleet-setup --compact-percent 75
+# Use an absolute window instead (turns the percentage off):
+claude-fleet-setup --compaction 200000</code></pre>
+          <button class="copy-btn" type="button" aria-label="Copy auto-compact examples">Copy</button>
+        </div>
+        <p><code class="il">/fleet-setup</code> also offers percentage tuning. <code class="il">--compaction N</code> accepts 100,000–1,000,000 tokens and sets <code class="il">compactPercent</code> to <code class="il">off</code>.</p>
+        <aside class="callout note"><span class="callout-label">Note</span><p>Claude Code reads the window at startup. After a model switch or a preference change, restart Claude Code to use the new window. Hook failures do not block a session.</p></aside>
+      </section>
+
+      <section id="reviewer-modes">
+        <h2 class="anchor-heading">Reviewer modes<a class="anchor-link" href="#reviewer-modes" aria-label="Link to this section">#</a></h2>
+        <p><code class="il">fleet-review</code>, <code class="il">fleet-review-alt</code>, <code class="il">fleet-review-deep</code>, and <code class="il">fleet-security-review</code> have Bash, Edit, and Write by default. Tool access is not permission to edit every review.</p>
+        <ul class="req-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>CHECK mode</strong> is the default: run tests, linters, builds, and read-only queries to verify findings. Do not edit files or change shared state.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <strong>FIX MODE</strong> requires those words in the brief and a list of allowed files. Fix only the listed findings, rerun checks, and report evidence. Another reviewer must review the fix.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">fleet-diagnose-static</code> runs commands to diagnose failures but never edits files.</li>
+        </ul>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Reviewer access</th><th>Tools</th></tr></thead>
+          <tbody>
+            <tr><td><code class="il">full</code> (default)</td><td>Read tools, Bash, Edit, Write. Fixes still require FIX MODE.</td></tr>
+            <tr><td><code class="il">run</code></td><td>Read tools and Bash; no Edit or Write.</td></tr>
+            <tr><td><code class="il">read-only</code></td><td>Read tools only; no Bash, Edit, or Write.</td></tr>
+          </tbody>
+        </table></div>
+        <p>Set access with <code class="il">agentfleet config reviewer-access full|run|read-only</code>. A lane's <code class="il">tools</code> array in <code class="il">fleet.json</code> can override its tool list; inspect the generated agent's tools before requesting a fix. No lane may spawn nested agents or own outward-facing actions.</p>
+      </section>
+
+      <section id="lane-guard">
+        <h2 class="anchor-heading">Lane guard<a class="anchor-link" href="#lane-guard" aria-label="Link to this section">#</a></h2>
+        <p>The <code class="il">lane-guard</code> mod is on by default for new installs with mods enabled and is added once on update. It intercepts covered tool calls from fleet subagents, never the main conversation.</p>
+        <ul class="req-list">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks covered git history and working-tree mutations, GitHub writes, package publishing, and deployment commands.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks covered migrations and destructive SQL in database clients or MCP tools, including DROP, TRUNCATE, and unqualified DELETE or UPDATE.</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks dangerous recursive or forced deletions targeting root, home, parent directories, repository metadata, or a bare wildcard.</li>
+        </ul>
+        <p>Read-only git inspections, tests, builds, linters, SELECT queries, migration status checks, and normal build cleanup remain allowed. A blocked lane must report the command to the main agent instead.</p>
+        <aside class="callout note"><span class="callout-label">Note</span><p>This is a targeted command guard, not a sandbox or a guarantee against every destructive action. Lane instructions still apply. Disable it through <code class="il">/plugin</code>: select lane-guard, then Disable.</p></aside>
+      </section>
+
+      <section id="outages">
+        <h2 class="anchor-heading">Outages and lane reports<a class="anchor-link" href="#outages" aria-label="Link to this section">#</a></h2>
+        <p><code class="il">fleet_watch.py</code> watches local subagent activity. A gateway 5xx failure marks the affected lane failing for 15 minutes in <code class="il">~/.claude/agentfleet/outages.json</code>. Routing avoids failing lanes where an alternative exists and tells the main agent which alternative lane to dispatch.</p>
+        <p>Per-lane reports in <code class="il">~/.claude/agentfleet/lane-reports.jsonl</code> record changed files, forbidden commands, API errors, and reported token counts. They are local records, not automatic permission to rerun a blocked command. Use <code class="il">/fleet-status</code> for outages or <code class="il">/fleet-tasks</code> for recent lane activity.</p>
+      </section>
+
+      <section id="suggestions">
+        <h2 class="anchor-heading">Suggestions<a class="anchor-link" href="#suggestions" aria-label="Link to this section">#</a></h2>
+        <p>Run <code class="il">/fleet-suggest</code> in a project to find useful capabilities. The scan is local, makes no network requests, and never reads <code class="il">.env</code> values. The 57-entry catalog covers official-marketplace plugins (including language servers and MCP-server plugins), AgentFleet's optional mods, drafted hooks, a project-skill generator, and <code class="il">/init</code>.</p>
+        <p>The wizard explains each suggestion's access, installs only what you pick, and shows drafted hooks or skills for confirmation before writing. Plugin installation can access the network and runs third-party code with your user permissions. Configure credentials through <code class="il">/plugin</code> or your shell, never in chat.</p>
+        <div class="cmd-ref">
+          <div class="cmd-ref-item"><code class="il">agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]</code><p>Scan the current or named project, print JSON, dismiss selected suggestions, mark them seen, or delete stored usage counters and suggestion history.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config learn on</code><p>Opt in to local per-project counts of command names, tools, documentation sites, and slash commands. Never prompt text.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config learn off</code><p>Stop learning. Use <code class="il">agentfleet suggest --forget</code> to remove existing records.</p></div>
+        </div>
+        <p>Learning is off by default. Counters live in <code class="il">~/.claude/agentfleet/usage/</code>; suggestion state lives in <code class="il">~/.claude/agentfleet/suggestions.json</code>. Unseen suggestions can appear in the fleet-status band.</p>
+      </section>
+
+      <section id="project-lane-overrides">
+        <h2 class="anchor-heading">Project lane overrides<a class="anchor-link" href="#project-lane-overrides" aria-label="Link to this section">#</a></h2>
+        <p>Pin a model for one project without changing global lane assignments:</p>
+        <div class="cmd-ref">
+          <div class="cmd-ref-item"><code class="il">agentfleet project pin LANE MODEL [--fallbacks A,B] [--dir DIR]</code><p>Pin the lane and optional fallback models in the current or named project.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet project unpin LANE</code><p>Remove the project's pin for that lane.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet project show</code><p>Show the current project's overrides.</p></div>
+        </div>
+        <p>Overrides live in <code class="il">&lt;project&gt;/.claude/fleet.local.json</code> and generate agents under <code class="il">&lt;project&gt;/.claude/agents/</code>. Claude Code prefers a project agent over a global agent with the same name. These files are project-owned, not managed by bundle updates.</p>
+      </section>
+
+      <section id="usage-report">
+        <h2 class="anchor-heading">Usage report<a class="anchor-link" href="#usage-report" aria-label="Link to this section">#</a></h2>
+        <div class="cmd-ref">
+          <div class="cmd-ref-item"><code class="il">agentfleet report [--days N] [--json]</code><p>Summarize recent local lane reports. Defaults to seven days; use JSON for scripts.</p></div>
+        </div>
+        <p>The report groups runs, failures, forbidden commands, changed-file counts, input and output tokens, and models by lane, and includes active outages. Token counts come from observed subagent records, not a provider billing statement. This report does not require opt-in suggestion learning.</p>
       </section>
 
       <section id="privacy">
         <h2 class="anchor-heading">Privacy<a class="anchor-link" href="#privacy" aria-label="Link to this section">#</a></h2>
-        <p><code class="il">fleet-status</code> sends nothing anywhere; the opt-in <code class="il">fast-jev-compaction</code> mod sends conversation text and tool inputs to TypeSafe at each compaction, with tool results replaced by short notes. See <a href="#mods">Mods</a> for its key requirements and data sharing.</p>
+        <p><code class="il">fleet-status</code> sends nothing anywhere; the opt-in <code class="il">fast-jev-compaction</code> mod sends main-conversation text and tool inputs to TypeSafe at each compaction, with tool results replaced by short notes. See <a href="#mods">Mods</a> for its key requirements and data sharing.</p>
+        <p>Suggestions scan locally without network access and never read <code class="il">.env</code> values. Opt-in learning stores command names, tool names, documentation sites, and slash commands per project, never prompt text. Lane reports store observed activity, changed paths, forbidden commands, API errors, and token counts locally. Use <code class="il">agentfleet suggest --forget</code> to erase usage counters and suggestion history; it does not erase lane reports.</p>
         <p>The routing hook writes only to a mode-0600 JSONL log at <code class="il">~/.claude/routing-log.jsonl</code>.</p>
         <h3 id="privacy-what-stored" class="anchor-heading">What is stored<a class="anchor-link" href="#privacy-what-stored" aria-label="Link to this section">#</a></h3>
         <div class="table-wrap">
@@ -863,6 +982,17 @@ claude plugin install fleet-status@agentfleet</code></pre>
         </div>
         <p>The band only appears when something needs action; <code class="il">/fleet-status</code> always answers.</p>
 
+        <h3 id="ts-compact" class="anchor-heading">Auto-compact still uses the old window<a class="anchor-link" href="#ts-compact" aria-label="Link to this section">#</a></h3>
+        <p>Check <code class="il">agentfleet config</code>. <code class="il">compactPercent: off</code> leaves the window alone. Set <code class="il">agentfleet config compact 70</code> and restart Claude Code. A model-switch hook writes the next window but cannot change the running session's startup setting.</p>
+        <h3 id="ts-guard" class="anchor-heading">A lane command was blocked<a class="anchor-link" href="#ts-guard" aria-label="Link to this section">#</a></h3>
+        <p>Lane-guard returns a rule label for covered destructive or publishing commands. Have the lane report the command and its reason to the main agent; do not ask it to bypass the guard. The main conversation is not blocked. See <a href="#lane-guard">Lane guard</a>.</p>
+        <h3 id="ts-health" class="anchor-heading">Plugin or MCP health warnings<a class="anchor-link" href="#ts-health" aria-label="Link to this section">#</a></h3>
+        <p>Run <code class="il">claude-fleet-setup --audit</code>, <code class="il">/fleet-setup</code>, or <code class="il">agentfleet status</code> to inspect the warning. <code class="il">claude-fleet-setup --audit --no-health</code> skips these checks; it does not repair a plugin or MCP server. Configure credentials outside chat.</p>
+        <h3 id="ts-outage" class="anchor-heading">A lane is marked failing<a class="anchor-link" href="#ts-outage" aria-label="Link to this section">#</a></h3>
+        <p>Use the alternative reported by routing and inspect <code class="il">/fleet-status</code> or <code class="il">/fleet-tasks</code>. A gateway 5xx outage lasts 15 minutes; it does not remove the lane or change its permanent model pin.</p>
+        <h3 id="ts-windows-path" class="anchor-heading">Windows hook path is refused<a class="anchor-link" href="#ts-windows-path" aria-label="Link to this section">#</a></h3>
+        <p>Windows hook commands refuse install paths containing <code class="il">$</code> or a backtick. Use a path without those characters. Version 2.2.0's <code class="il">.cmd</code> shims do not search the current directory for helpers; <code class="il">.ps1</code> shims carry a UTF-8 BOM for Windows PowerShell.</p>
+
         <h3 id="ts-path" class="anchor-heading">Commands not found after install<a class="anchor-link" href="#ts-path" aria-label="Link to this section">#</a></h3>
         <p>The CLI wrappers are installed to <code class="il">~/.local/bin/</code>. If your shell does not include that directory in <code class="il">PATH</code>, add it:</p>
         <div class="code-wrap">
@@ -937,7 +1067,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | sh -s -- --provider gat
           <details class="faq-item"><summary>Where should I put my own Claude Code instructions?</summary><p>Put them in <code class="il">~/.claude/rules/*.md</code>. Claude Code loads all files in that directory in every session. AgentFleet manages <code class="il">~/.claude/CLAUDE.md</code> and rewrites it on update, so personal instructions placed there will be lost.</p></details>
           <details class="faq-item"><summary>How do I revert an update that broke something?</summary><p>Run <code class="il">agentfleet rollback</code>. Every apply operation takes a backup of the managed files first, stored in <code class="il">~/.claude/backups/claude-agents-config/</code>. The rollback restores the newest backup. Use <code class="il">--backup DIR</code> to restore a specific named snapshot.</p></details>
           <details class="faq-item"><summary>Is root or admin access required?</summary><p>No. Everything is installed under your home directory. The only directories created are under <code class="il">~/.claude/</code>, <code class="il">~/.config/</code>, and <code class="il">~/.local/</code>.</p></details>
-          <details class="faq-item"><summary>Does AgentFleet send prompt data anywhere?</summary><p>The opt-in <code class="il">fast-jev-compaction</code> mod sends conversation text and tool inputs to TypeSafe at each compaction; tool results are replaced by short notes. <code class="il">fleet-status</code> sends nothing anywhere. The routing hook writes only to a local mode-0600 log file. Routed entries contain the lane name, reason code, timestamp, and character count — never the prompt text. No-match entries keep a brief excerpt (max 160 characters, credentials redacted) that is purged after 14 days.</p></details>
+          <details class="faq-item"><summary>Does AgentFleet send prompt data anywhere?</summary><p>The opt-in <code class="il">fast-jev-compaction</code> mod sends main-conversation text and tool inputs to TypeSafe at each compaction; tool results are replaced by short notes. <code class="il">fleet-status</code> sends nothing anywhere. The routing hook writes only to a local mode-0600 log file. Routed entries contain the lane name, reason code, timestamp, and character count — never the prompt text. No-match entries keep a brief excerpt (max 160 characters, credentials redacted) that is purged after 14 days.</p></details>
           <details class="faq-item"><summary>Is AgentFleet affiliated with Anthropic?</summary><p>No. AgentFleet is an independent open-source project by WeCanSync, released under the MIT license. Claude and Claude Code are trademarks of Anthropic.</p></details>
         </div>
       </section>

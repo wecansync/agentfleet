@@ -5,17 +5,32 @@ by tamaratran, at commit `e3f262a7f4d42bd8dd32ced30d26176f7cb545b0`. It is licen
 `LICENSE` in this folder. Only the files the plugin runs are included: the
 demo, examples, tests, npm packaging, and bundled type declarations are left out.
 
-Changes from upstream:
+Changes from upstream (AgentFleet patch level 0.3.0-agentfleet.2):
 
-- `hooks/fast-jev.ts`: the `turn.complete` hook does not request compaction
-  when no TypeSafe API key is configured. Upstream requests it at
-  `compactAtPercent` (60% by default) even without a key, and the compaction
-  then falls back to Claude Code's built-in summary, so sessions compacted
-  earlier than they otherwise would.
+- `hooks/fast-jev.ts`: removed the `turn.complete` trigger and `compactAtPercent`
+  option entirely. JEV now only answers compactions Claude Code runs itself:
+  automatic at the AgentFleet window, `/compact`, or plugin-triggered.
+
+- `hooks/fast-jev.ts`: main conversation only. In `session.compact`, subagents
+  (`event.agentId`) and precompute triggers (`event.trigger === 'precompute'`) pass
+  through directly to `next(event)`.
+
+- `hooks/fast-jev.ts`: `getApiKey` reads only `options.apiKey` and `$.env.get('TYPESAFE_API_KEY')`.
+  The `$.settings.read()` fallback is removed because AgentFleet rollback snapshots
+  copy settings.json, so keys must not live there.
+
+- `hooks/fast-jev.ts`: when no key is configured, logs and toasts a notice once per
+  session ("fast-jev-compaction: no TypeSafe API key, so Claude Code's built-in summary is used. Set the key with /plugin or TYPESAFE_API_KEY.")
+  and passes through; subsequent compactions pass through silently.
 
 - `hooks/fast-jev.ts`: UI logs and notifications redact every occurrence of the
   resolved TypeSafe API key and strip control/format characters, including when
   remote response text appears in a compaction error.
+
+- `.claude-plugin/plugin.json`: userConfig only declares `apiKey` (sensitive).
+  Other options (`keepThreshold`, `preserveRecentMessages`, `minReductionRatio`,
+  `maxStateTokens`, `maxRequestTokens`, `truncateHeadChars`, `model`) remain supported
+  via `resolveHookConfig` with code defaults for advanced users.
 
 Before you install it:
 
@@ -24,9 +39,8 @@ Before you install it:
 - At each compaction it sends the conversation's text and tool inputs (tool
   results are replaced by short notes; about 25k tokens per request) to
   `https://api.typesafe.ai`.
-- It requests compaction at 60% of the context window by default. AgentFleet
-  compacts at about 80% on 1M-token models; set `compactAtPercent` to 80 to
-  match.
+- JEV only answers compactions initiated by Claude Code or `/compact` (main
+  conversation only). Subagents and precomputes are skipped.
 
 AgentFleet lists it in its plugin catalog but does not install it. To use it:
 

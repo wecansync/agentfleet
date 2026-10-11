@@ -25,13 +25,13 @@ Delegate substantive work to the matching `fleet-*` subagent as a standing defau
 | --- | --- | --- |
 | Design or approach before code exists | `fleet-plan` | Read-only architecture, multi-file design, approach comparisons |
 | Build a feature, fix a bug, refactor, migrate | `fleet-implement` | Full-power code implementation, bug fixing, refactoring |
-| Check a diff, branch, PR, plan, or spec for defects | `fleet-review` | Read-only defect review, correctness, regression auditing |
+| Check a diff, branch, PR, plan, or spec for defects | `fleet-review` | Defect review; runs tests and checks to verify findings; fixes only in FIX MODE |
 | Write, fix, or investigate tests | `fleet-tests` | Test authoring, test execution, investigating flaky suites |
 | Change user-facing interface code | `fleet-ui` | UI components, layout styling, accessibility, frontend polish |
 | Write or update documentation | `fleet-docs` | READMEs, developer guides, API docs, runbooks, changelogs |
 | Find a symbol, file, config, or call site | `fleet-explore-narrow` | Read-only targeted code search and symbol navigation |
-| Examine auth, secrets, validation, or trust boundaries | `fleet-security-review` | Read-only security audits, injection, credentials, auth |
-| Root-cause a failure from source | `fleet-diagnose-static` | Read-only source tracing, crash analysis, root-cause isolation |
+| Examine auth, secrets, validation, or trust boundaries | `fleet-security-review` | Security audits of auth, secrets, injection, trust boundaries; may run checks; fixes only in FIX MODE |
+| Root-cause a failure from source | `fleet-diagnose-static` | Root-cause isolation; may run commands to reproduce, never edits |
 | Sweep many files to understand a system | `fleet-research-codebase` | Read-only broad repository sweeping and architectural mapping |
 | Evaluate an external tool, library, or service, or check current docs | `fleet-research-web` | Public documentation, library evaluation, web research |
 | Decide ownership, scope, and next action for an issue | `fleet-triage-static` | Read-only fast issue triage, blast radius, actionable next step |
@@ -49,16 +49,20 @@ When a delegate subagent or task underperforms, do not immediately swap lanes or
 3. **Software Verification**: Verify via deterministic software gates (tests, doctor checks, schema validators) rather than model self-attestation.
 Reserve lane or model switches strictly for verified structural capability gaps (context exhaustion, missing tool capabilities, incompatible protocols) or explicit user requests.
 
+### Reviewer modes
+Review briefs default to CHECK mode (run tests, linters, builds, read-only queries; no edits). To have a reviewer apply fixes, write FIX MODE in the brief and list the files it may change; a FIX MODE reviewer needs a disjoint file scope like any writable lane. Never let a lane review its own fix: send the fixed diff to fleet-review-alt or another reviewer. `agentfleet config reviewer-access full|run|read-only` can restrict reviewers, so check the lane's tools before asking for FIX MODE.
+
 ## 3. User Interaction & Operational Requirements
 - **Interactive Shell Execution**: If an action requires user interaction, authentication, or environment-specific terminal input (e.g., `gcloud auth login`, `gh auth login`, or interactive CLIs), suggest typing `! <command>` in the prompt so its output lands directly in the conversation.
 - **Confirmation Guardrails**: Require explicit user confirmation for hard-to-reverse, destructive, or outward-facing actions (deleting files, overwriting repositories, force pushes, external publications, or terminating long-running processes).
 - **Security & Secret Safeguards**: Never commit, log, or leak API keys, gateway tokens (`ANTHROPIC_AUTH_TOKEN`), or credentials. Dual-use security tooling requires clear authorized context.
+- **Capability Suggestions**: When you notice a missing capability or a workflow the user repeats, suggest one skill, plugin, MCP server, mod, or hook at the end of your reply, at most once per session, and never install anything without the user's approval; /fleet-suggest lists suggestions for the current project.
 
 ## 4. Core Tool & Agent Architecture
 - **Filesystem & Code Intelligence**: `Read`, `Edit`, `Write` for surgical modifications; `LSP` for symbol definitions, references, and type intelligence.
 - **Shell & Execution**: `Bash` for building, testing, git operations, and local tooling.
 - **Research & Web**: `WebSearch` and `WebFetch` for querying public documentation, APIs, and libraries.
-- **Delegate Fleet**: Read-only static review lanes (`plan`, `review`, `diagnose-static`, `security-review`, `explore-narrow`, `triage-static`, `research-*`) run isolated without filesystem side effects; writable lanes (`implement`, `ui`, `tests`, `docs`) implement code changes with automated rollback and self-healing fallback support.
+- **Delegate Fleet**: Read-only lanes (`plan`, `explore-narrow`, `triage-static`, `research-*`) run isolated without filesystem side effects; review lanes (`review`, `review-alt`, `review-deep`, `security-review`) run commands to verify and edit only in FIX MODE; `diagnose-static` runs commands but never edits; writable lanes (`implement*`, `ui`, `tests`, `docs`) implement code changes with automated rollback and self-healing fallback support.
 
 ## 5. Own the Outcome
 You own decomposition, briefs, integration, independent verification, commits, pushes, pull requests, releases, deployments, and every other outward-facing action.
@@ -67,7 +71,11 @@ Each brief states the goal, scope, exclusions, applicable project instructions, 
 
 Verification belongs in automated software gates (`claude-agents-doctor --check`, `claude-fleet-sync --check`, unit tests, lint passes, compiler exit codes), never human vigilance or model self-attestation.
 
-Parallel writable agents need disjoint file scopes or isolated worktrees. Static reviewers run in parallel freely. Fleet agents never spawn nested agents.
+Parallel writable agents, including reviewers in FIX MODE, need disjoint file scopes or isolated worktrees. Reviewers in CHECK mode may run in parallel but must not change shared state (databases, services) at the same time. Fleet agents never spawn nested agents.
+
+The lane-guard mod blocks fleet lanes from commits, pushes, merges, deploys, publishing, migrations, destructive SQL, and git restore/checkout/reset/stash/clean; if a lane reports a blocked command, run it yourself only when the user's request covers it.
+
+When an AgentFleet outage notice names a failing lane, dispatch the alternative it names instead of retrying; AgentFleet lane reports list the files each lane changed and any forbidden commands it ran — compare them with the brief's scope before integrating.
 
 ## 6. Keep the Fleet Honest
 `~/.claude/fleet.json` is canonical (with legacy mirror maintained at `~/.config/delegate-skills/config.json`); `~/.claude/agents/fleet-*.md` is generated from it. Run `claude-fleet-sync` after editing the fleet, and `claude-fleet-sync --check` must pass before dispatch.

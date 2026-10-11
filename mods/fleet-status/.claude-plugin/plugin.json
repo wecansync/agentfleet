@@ -1,7 +1,7 @@
 {
   "name": "fleet-status",
-  "version": "1.0.0",
-  "description": "Actionable AgentFleet updates and model proposals above the prompt.",
+  "version": "1.1.0",
+  "description": "Actionable AgentFleet notices, status summaries, and a live fleet-tasks pane.",
   "author": { "name": "WeCanSync" },
   "homepage": "https://agentfleet.wecansync.com",
   "license": "MIT",

@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { CoreEngineInterface, On, RenderPropsOf } from 'claude-code'
-import { claudeDirectory, snapshotFromSources, notices, summary } from '../hooks/status'
+import { claudeDirectory, snapshotFromSources, notices, summary, parseOutages, parseSuggestion } from '../hooks/status'
 import { readSnapshot } from '../hooks/register'
 
 // Test the installed layout rather than this repository's source layout.
@@ -19,7 +19,9 @@ function sources(on: On, files: Record<string, string>, root = '/test/claude/age
   // through state writes while exercising the real read function separately.
   const readFixture = async () => readSnapshot({
     plugin: { name: 'fleet-status', root },
-    fs: { read: async (path: string) => {
+    session: { root: async () => '/test' },
+    clock: { now: () => Date.parse('2026-10-09T09:00:00Z') },
+    fs: { stat: async (path: string) => ({ kind: 'file', size: 100, realPath: path }), read: async (path: string) => {
       const name = allowed.find(name => path.endsWith(`/${name}`))
       expect(name).toBeDefined()
       if (!name || files[name] === undefined) throw new Error('Missing fixture')
@@ -41,7 +43,10 @@ function sources(on: On, files: Record<string, string>, root = '/test/claude/age
   const allowed = [
     '.claude-agents-config-manifest.json', 'agentfleet/active',
     'agentfleet/auto-update.json', 'fleet-model-proposal.json',
+    'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json',
   ]
+  on('fs.stat', (_$, e) => ({ value: { kind: 'file', size: 100, mtimeMs: 0, isLink: false, realPath: e.path } }))
+  on('session.root', () => ({ value: '/test' }))
   on('fs.read', (_$, e) => {
     const normalized = e.path.replace(/\\/g, '/')
     const name = allowed.find(name => normalized.endsWith(`/${name}`))
@@ -175,10 +180,12 @@ for (const profile of ['normal\nsecret', 'x'.repeat(65), 'safe‮hidden']) {
   test(`unsafe profile defaults: ${JSON.stringify(profile)}`, async () => {
     const snapshot = await readSnapshot({
       plugin: { name: 'fleet-status', root: '/test/claude/agentfleet/mods/fleet-status' },
-      fs: { read: async (path: string) => path.endsWith('/active') ? profile : '{}' },
+      session: { root: async () => '/test' },
+      clock: { now: () => 0 },
+      fs: { stat: async (path: string) => ({ kind: 'file', size: 100, realPath: path }), read: async (path: string) => path.endsWith('/active') ? profile : '{}' },
     } as unknown as CoreEngineInterface)
     expect(snapshot.profile).toBeNull()
-    expect(summary(snapshot, null)).toContain('Profile: default')
+    expect(summary(snapshot, null)).toContain('Profile: not recorded')
     expect(summary(snapshot, null)).not.toContain(profile)
   })
 }
@@ -194,6 +201,122 @@ test('malformed versions and timestamps are absent and never request restart', a
   expect(snapshot.lastResult?.version).toBeNull()
   expect(summary(snapshot, '2.1.0')).toContain('AgentFleet version: unknown')
   expect(notices(snapshot, '2.1.0')).toEqual([])
+})
+
+const now = Date.parse('2026-10-09T09:00:00Z')
+const outage = { model: 'claude-sonnet-4.6', status: 503, message: 'unavailable', at: '2026-10-09T08:58:32Z', until: '2026-10-09T09:13:32Z' }
+const outagesSource = (lanes: Record<string, unknown>) => JSON.stringify({ format: 'agentfleet.outages.v1', lanes })
+const suggestion = { name: 'project', catalog: '2.2.0', pending: 3, seen: null }
+const suggestionsSource = (item: unknown) => JSON.stringify({ format: 'agentfleet.suggestions.v1', projects: { '/test': item } })
+
+test('missing sources use AgentFleet defaults', () => {
+  const result = summary(snapshotFromSources(null, []), null)
+  for (const line of ['Profile: not recorded', 'Auto-update: enabled (default)', "Auto-compact: 70% of the model's context", 'Reviewer access: full', 'Suggestions learning: off', 'Lane outages: none']) expect(result).toContain(line)
+  expect(summary(snapshotFromSources(null, [null, null, '{"enabled":"yes"}']), null)).toContain('enabled (default)')
+})
+for (const percent of [40, 70, 95, 'off', 39, 96, 70.5, '70', null]) {
+  test(`config compact window ${percent}`, () => {
+    const config = JSON.stringify({ format: 'agentfleet.config.v1', compactPercent: percent, reviewerAccess: 'read-only', learn: true })
+    const snapshot = snapshotFromSources(null, [null, null, null, null, config])
+    expect(snapshot.compactPercent).toBe(percent === 'off' || (typeof percent === 'number' && Number.isInteger(percent) && percent >= 40 && percent <= 95) ? percent : 70)
+    expect(snapshot.reviewerAccess).toBe('read-only')
+    expect(snapshot.learn).toBe(true)
+    if (percent === 'off') expect(summary(snapshot, null)).toContain('off (AgentFleet leaves the window alone)')
+  })
+}
+test('invalid config values and format use defaults', () => {
+  for (const config of [{ reviewerAccess: 'root', learn: 'true' }, { reviewerAccess: 'full‮', learn: 1 }, { format: 'bad', compactPercent: 'off' }]) {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, JSON.stringify({ format: 'agentfleet.config.v1', ...config })])
+    expect(snapshot.reviewerAccess).toBe('full')
+    expect(snapshot.learn).toBe(false)
+    expect(snapshot.compactPercent).toBe(70)
+  }
+  expect(snapshotFromSources(null, [null, null, null, null, '{"format":"agentfleet.config.v1","reviewerAccess":"run"}']).reviewerAccess).toBe('run')
+})
+test('outages expire and alternatives come only from the watcher file', () => {
+  const current = parseOutages(outagesSource({ docs: { ...outage, alternative: 'custom-alt' }, ui: outage, tests: { ...outage, until: '2026-10-09T09:00:00Z' } }), now)
+  expect(current.map(item => item.lane)).toEqual(['docs', 'ui'])
+  expect(current[0]?.alternative).toBe('custom-alt')
+  const snapshot = snapshotFromSources(null, [], null, now)
+  snapshot.outages = current
+  expect(notices(snapshot, null)[0]).toBe('fleet-docs is failing (503 at 08:58 UTC; claude-sonnet-4.6). Dispatch fleet-custom-alt until 09:13 UTC.')
+  expect(notices(snapshot, null)[1]).toContain('Retry it after 09:13 UTC.')
+  expect(summary(snapshot, null)).toContain('Lane outages: fleet-docs 503 until 09:13 UTC')
+})
+for (const alternative of [undefined, null, '', 'Bad', '../ui', 'ui\n', 'ui‮', 7]) {
+  test(`missing or invalid alternative recommends retry: ${JSON.stringify(alternative)}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, alternative } })], null, now)
+    expect(snapshot.outages[0]?.alternative).toBeNull()
+    expect(notices(snapshot, null)[0]).toContain('Retry it after 09:13 UTC.')
+  })
+}
+test('suggestions match only the project and unseen catalog with pending work', () => {
+  const source = suggestionsSource(suggestion)
+  expect(parseSuggestion(source, '/other')).toBeNull()
+  expect(parseSuggestion(source, '/test/nested')).toBeNull()
+  for (const item of [suggestion, { ...suggestion, seen: '2.2.0' }, { ...suggestion, pending: 0 }]) {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, null, suggestionsSource(item)], '/test', now)
+    expect(notices(snapshot, null).length).toBe(item.pending > 0 && item.seen !== item.catalog ? 1 : 0)
+    expect(summary(snapshot, null)).toContain(`Suggestions for project: ${item.pending} (run /fleet-suggest)`)
+  }
+})
+for (const hostile of ['\u0000', '\u0085', '‮', ' ', ' ', '\n']) {
+  test(`new status strings reject hostile character ${JSON.stringify(hostile)}`, () => {
+    for (const field of ['message', 'at', 'until']) expect(parseOutages(outagesSource({ docs: { ...outage, [field]: String(outage[field as keyof typeof outage]) + hostile } }), now).length).toBe(0)
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model: outage.model + hostile } })], null, now)
+    expect(snapshot.outages.length).toBe(1)
+    expect(snapshot.outages[0]?.model).toBe('unknown model')
+    expect(notices(snapshot, null)[0]).toContain('unknown model')
+    expect(notices(snapshot, null)[0]).not.toContain(hostile)
+    expect(parseOutages(outagesSource({ ['docs' + hostile]: outage }), now).length).toBe(0)
+    for (const field of ['name', 'catalog', 'seen']) expect(parseSuggestion(suggestionsSource({ ...suggestion, [field]: 'safe' + hostile }), '/test')).toBeNull()
+    expect(parseSuggestion(suggestionsSource(suggestion), '/test' + hostile)).toBeNull()
+  })
+}
+for (const model of ['codex-sol[1m]', 'claude-opus-4.6[1m]', 'vendor/model-name', 'vendor/model@v1+fast', 'a', 'a'.repeat(128)]) {
+  test(`gateway outage model is accepted and displayed: ${model}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model } })], null, now)
+    expect(snapshot.outages[0]?.model).toBe(model)
+    expect(notices(snapshot, null)[0]).toContain(model)
+  })
+}
+for (const model of [undefined, null, 7, '', '/vendor/model', 'a'.repeat(129), 'bad model']) {
+  test(`invalid outage model retains notice: ${JSON.stringify(model)}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model } })], null, now)
+    expect(snapshot.outages.length).toBe(1)
+    expect(snapshot.outages[0]?.model).toBe('unknown model')
+    expect(notices(snapshot, null)[0]).toContain('unknown model')
+  })
+}
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`outage and suggestions notice sets retain Hide behavior on ${surface}`, async ($, on) => {
+    const files: Record<string, string> = healthy()
+    files['agentfleet/outages.json'] = outagesSource({ docs: { ...outage, model: 'codex-sol[1m]', alternative: 'ui' } })
+    files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
+    const clock = sources(on, files)
+    await $.session.start(start)
+    const ui = await $.ui.mount({ plugin: 'fleet-status', surface, component: 'AbovePrompt', props })
+    expect((await ui.find({ text: 'fleet-docs is failing' }))?.text).toContain('Dispatch fleet-ui')
+    expect((await ui.find({ text: 'AgentFleet has 3 suggestions' }))?.text).toContain('/fleet-suggest')
+    await ui.press({ key: 'hide' })
+    await clock.advance(60_000)
+    expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, pending: 4 })
+    await clock.advance(60_000)
+    expect((await ui.find({ text: 'AgentFleet has 4 suggestions' }))?.text).toContain('/fleet-suggest')
+    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, seen: '2.2.0' })
+    await clock.advance(60_000)
+    expect(await ui.find({ text: 'AgentFleet has' })).toBeUndefined()
+  })
+}
+test('known source symlinks cannot cause reads of secrets or settings', async () => {
+  let reads = 0
+  const snapshot = await readSnapshot({ plugin: { root: '/test/claude/agentfleet/mods/fleet-status' },
+    fs: { stat: async () => ({ kind: 'file', size: 100, realPath: '/test/claude/agentfleet/secrets/key' }), read: async () => { reads++; return '{}' } },
+    session: { root: async () => '/test' }, clock: { now: () => now },
+  } as unknown as CoreEngineInterface)
+  expect(reads).toBe(0)
+  expect(snapshot.suggestion).toBeNull()
 })
 
 test('installation paths handle custom directories and both separators', () => {

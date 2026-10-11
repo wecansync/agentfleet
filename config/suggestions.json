@@ -1,0 +1,1103 @@
+{
+  "format": "agentfleet.suggestions-catalog.v1",
+  "version": "2026.10.1",
+  "entries": [
+    {
+      "id": "init-claude-md",
+      "kind": "claude-md",
+      "title": "Initialize project CLAUDE.md",
+      "why": "Claude Code reads CLAUDE.md at the start of every session; /init drafts one from the code",
+      "match": {
+        "missing": [
+          "CLAUDE.md"
+        ]
+      },
+      "install": null,
+      "source": "claude-code",
+      "access": "Local project instructions file for Claude Code",
+      "template": "Run /init to generate a CLAUDE.md file tailored to this project."
+    },
+    {
+      "id": "protect-secrets",
+      "kind": "hook",
+      "title": "Protect secrets PreToolUse hook",
+      "why": "Project has a .env file; blocks edits to .env and .env.* files (not .env.example)",
+      "match": {
+        "files": [
+          ".env",
+          ".env.*"
+        ]
+      },
+      "install": null,
+      "source": "agentfleet",
+      "access": "PreToolUse hook blocks Edit, Write, MultiEdit and NotebookEdit calls on .env files and tells Claude why",
+      "template": "{\n  \"PreToolUse\": [\n    {\n      \"matcher\": \"Edit|Write|MultiEdit|NotebookEdit\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, os; p = json.load(sys.stdin).get('tool_input', {}).get('file_path', ''); n = os.path.basename(p); blocked = n == '.env' or n.startswith('.env.') and not n.endswith(('.example', '.sample')); blocked and print('Editing ' + n + ' is blocked: it holds secrets. Ask the user to change it.', file=sys.stderr); sys.exit(2 if blocked else 0)\\\" # agentfleet:protect-secrets\",\n          \"timeout\": 5\n        }\n      ]\n    }\n  ]\n}"
+    },
+    {
+      "id": "format-after-edit",
+      "kind": "hook",
+      "title": "Format after edit PostToolUse hook",
+      "why": "Project has formatter configuration; formats edited files after Edit/Write",
+      "match": {
+        "files": [
+          ".prettierrc*",
+          "biome.json*",
+          "pint.json",
+          "rustfmt.toml",
+          ".rustfmt.toml"
+        ],
+        "bashHeads": {
+          "npx prettier": 5,
+          "vendor/bin/pint": 5,
+          "ruff format": 5,
+          "black": 5
+        }
+      },
+      "install": null,
+      "source": "agentfleet",
+      "access": "PostToolUse hook runs the project's own formatter on the edited file (node_modules/.bin/prettier, vendor/bin/pint, ruff or rustfmt on PATH); it never downloads one",
+      "template": "{\n  \"PostToolUse\": [\n    {\n      \"matcher\": \"Edit|Write|MultiEdit\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, os, shutil, subprocess; p = json.load(sys.stdin).get('tool_input', {}).get('file_path', ''); root = os.environ.get('CLAUDE_PROJECT_DIR', '.'); local = lambda rel: os.path.join(root, rel) if os.path.isfile(os.path.join(root, rel)) else None; ext = os.path.splitext(p)[1].lower(); web = ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.css', '.scss', '.md', '.vue', '.svelte', '.html', '.yml', '.yaml'); tool = local('node_modules/.bin/prettier') if ext in web else local('vendor/bin/pint') if ext == '.php' else shutil.which('ruff') if ext == '.py' else shutil.which('rustfmt') if ext == '.rs' else None; args = [tool, 'format', p] if tool and os.path.basename(tool) == 'ruff' else [tool, '--write', p] if tool and 'prettier' in tool else [tool, p]; os.path.isfile(p) and tool and subprocess.run(args, check=False)\\\" # agentfleet:format-after-edit\",\n          \"timeout\": 30\n        }\n      ]\n    }\n  ]\n}"
+    },
+    {
+      "id": "create-project-skill",
+      "kind": "create-skill",
+      "title": "Project skill for {{command}}",
+      "why": "Frequently ran '{{command}}' ({{count}} times across {{sessions}} sessions)",
+      "match": {
+        "bashMinCount": 10,
+        "bashMinSessions": 3
+      },
+      "install": null,
+      "source": "agentfleet",
+      "access": "Project-level custom skill in .claude/skills/{{verb}}/SKILL.md",
+      "template": "---\\nname: {{verb}}\\ndescription: Run {{command}} in {{project}}\\n---\\n\\n# {{verb}}\\n\\nRun `{{command}}` in {{project}}.\\n"
+    },
+    {
+      "id": "token-weather",
+      "kind": "mod",
+      "title": "Token Weather context forecast",
+      "why": "Usage shows /compact used 3+ times; forecast context window fullness",
+      "match": {
+        "commands": {
+          "/compact": 3
+        }
+      },
+      "install": {
+        "plugin": "token-weather@agentfleet"
+      },
+      "source": "agentfleet",
+      "access": "Anthropic sample mod: live context window forecast above the prompt (Apache-2.0)"
+    },
+    {
+      "id": "fast-jev-compaction",
+      "kind": "mod",
+      "title": "Fast Jev Compaction",
+      "why": "Usage shows /compact used 5+ times; verbatim compaction guided by TypeSafe Jev",
+      "match": {
+        "commands": {
+          "/compact": 5
+        }
+      },
+      "install": {
+        "plugin": "fast-jev-compaction@agentfleet"
+      },
+      "source": "agentfleet",
+      "access": "Sends the main conversation's text to api.typesafe.ai when Claude Code compacts; needs a TypeSafe API key"
+    },
+    {
+      "id": "typescript-lsp",
+      "kind": "plugin",
+      "title": "TypeScript LSP (language server)",
+      "why": "TypeScript files or tsconfig.json detected",
+      "match": {
+        "files": [
+          "tsconfig.json",
+          "tsconfig.*.json",
+          "*.ts",
+          "*.tsx"
+        ],
+        "deps": [
+          "typescript"
+        ]
+      },
+      "install": {
+        "plugin": "typescript-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the typescript-language-server language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "pyright-lsp",
+      "kind": "plugin",
+      "title": "Pyright Python LSP (language server)",
+      "why": "Python manifest or source files detected",
+      "match": {
+        "files": [
+          "pyproject.toml",
+          "setup.py",
+          "setup.cfg",
+          "*.py"
+        ],
+        "deps": [
+          "pyright",
+          "mypy"
+        ]
+      },
+      "install": {
+        "plugin": "pyright-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the pyright-langserver language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "gopls-lsp",
+      "kind": "plugin",
+      "title": "Go gopls LSP (language server)",
+      "why": "Go module or source files detected",
+      "match": {
+        "files": [
+          "go.mod",
+          "go.sum",
+          "*.go"
+        ]
+      },
+      "install": {
+        "plugin": "gopls-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the gopls language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "rust-analyzer-lsp",
+      "kind": "plugin",
+      "title": "Rust Analyzer LSP (language server)",
+      "why": "Rust Cargo manifest or source files detected",
+      "match": {
+        "files": [
+          "Cargo.toml",
+          "Cargo.lock",
+          "*.rs"
+        ]
+      },
+      "install": {
+        "plugin": "rust-analyzer-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the rust-analyzer language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "php-lsp",
+      "kind": "plugin",
+      "title": "PHP Intelephense LSP (language server)",
+      "why": "PHP Composer manifest or source files detected",
+      "match": {
+        "files": [
+          "composer.json",
+          "*.php"
+        ]
+      },
+      "install": {
+        "plugin": "php-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the intelephense language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "ruby-lsp",
+      "kind": "plugin",
+      "title": "Ruby LSP (language server)",
+      "why": "Ruby Gemfile or source files detected",
+      "match": {
+        "files": [
+          "Gemfile",
+          "*.rb",
+          "Rakefile"
+        ]
+      },
+      "install": {
+        "plugin": "ruby-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the ruby-lsp language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "jdtls-lsp",
+      "kind": "plugin",
+      "title": "Java JDT.LS LSP (language server)",
+      "why": "Java project files detected",
+      "match": {
+        "files": [
+          "pom.xml",
+          "build.gradle",
+          "*.java"
+        ]
+      },
+      "install": {
+        "plugin": "jdtls-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the jdtls language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "csharp-lsp",
+      "kind": "plugin",
+      "title": "C# LSP (language server)",
+      "why": "C# project or solution files detected",
+      "match": {
+        "files": [
+          "*.csproj",
+          "*.sln",
+          "*.cs"
+        ]
+      },
+      "install": {
+        "plugin": "csharp-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the csharp-ls language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "clangd-lsp",
+      "kind": "plugin",
+      "title": "C/C++ clangd LSP (language server)",
+      "why": "C/C++ build configs or source files detected",
+      "match": {
+        "files": [
+          "CMakeLists.txt",
+          "compile_commands.json",
+          "*.c",
+          "*.cpp",
+          "*.h",
+          "*.hpp"
+        ]
+      },
+      "install": {
+        "plugin": "clangd-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the clangd language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "kotlin-lsp",
+      "kind": "plugin",
+      "title": "Kotlin LSP (language server)",
+      "why": "Kotlin project files detected",
+      "match": {
+        "files": [
+          "build.gradle.kts",
+          "*.kt",
+          "*.kts"
+        ]
+      },
+      "install": {
+        "plugin": "kotlin-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the kotlin-lsp language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "swift-lsp",
+      "kind": "plugin",
+      "title": "Swift SourceKit LSP (language server)",
+      "why": "Swift package or source files detected",
+      "match": {
+        "files": [
+          "Package.swift",
+          "*.swift"
+        ]
+      },
+      "install": {
+        "plugin": "swift-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the sourcekit-lsp language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "lua-lsp",
+      "kind": "plugin",
+      "title": "Lua LSP (language server)",
+      "why": "Lua config or source files detected",
+      "match": {
+        "files": [
+          ".luarc.json",
+          "*.lua"
+        ]
+      },
+      "install": {
+        "plugin": "lua-lsp@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs the lua-language-server language server locally for code intelligence; the binary must be installed and on PATH."
+    },
+    {
+      "id": "github",
+      "kind": "plugin",
+      "title": "GitHub (MCP Server)",
+      "why": ".github directory detected",
+      "match": {
+        "files": [
+          ".github",
+          ".github/**"
+        ]
+      },
+      "install": {
+        "plugin": "github@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server that calls the GitHub API with your token"
+    },
+    {
+      "id": "gitlab",
+      "kind": "plugin",
+      "title": "GitLab Integration",
+      "why": ".gitlab-ci.yml or .gitlab directory detected",
+      "match": {
+        "files": [
+          ".gitlab-ci.yml",
+          ".gitlab/**"
+        ]
+      },
+      "install": {
+        "plugin": "gitlab@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to GitLab DevOps platform to manage merge requests and pipelines"
+    },
+    {
+      "id": "playwright",
+      "kind": "plugin",
+      "title": "Playwright Testing (MCP Server)",
+      "why": "Playwright configuration or dependencies detected",
+      "match": {
+        "files": [
+          "playwright.config.*",
+          "playwright.config.ts",
+          "playwright.config.js"
+        ],
+        "deps": [
+          "@playwright/test",
+          "playwright",
+          "pytest-playwright"
+        ]
+      },
+      "install": {
+        "plugin": "playwright@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server by Microsoft for browser automation and end-to-end testing"
+    },
+    {
+      "id": "frontend-design",
+      "kind": "plugin",
+      "title": "Frontend Design System Assistant",
+      "why": "Frontend framework (React, Vue, Svelte, Angular) dependencies detected",
+      "match": {
+        "deps": [
+          "react",
+          "react-dom",
+          "vue",
+          "svelte",
+          "@angular/core"
+        ]
+      },
+      "install": {
+        "plugin": "frontend-design@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Generates creative, production-grade frontend interfaces and UI components"
+    },
+    {
+      "id": "modern-web-guidance",
+      "kind": "plugin",
+      "title": "Modern Web Guidance",
+      "why": "Modern web framework (Next, Nuxt, Vite, Astro, SvelteKit) detected",
+      "match": {
+        "deps": [
+          "next",
+          "nuxt",
+          "vite",
+          "astro",
+          "sveltekit"
+        ]
+      },
+      "install": {
+        "plugin": "modern-web-guidance@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides best-practice rules and guidance for modern web architectures"
+    },
+    {
+      "id": "security-guidance",
+      "kind": "plugin",
+      "title": "Security Review Guidance",
+      "why": "Project manifests present; enables pattern-based security warnings",
+      "match": {
+        "files": [
+          "package.json",
+          "pyproject.toml",
+          "Cargo.toml",
+          "composer.json",
+          "go.mod"
+        ]
+      },
+      "install": {
+        "plugin": "security-guidance@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Reviews Claude-generated code for security anti-patterns locally"
+    },
+    {
+      "id": "claude-security",
+      "kind": "plugin",
+      "title": "Claude Security Scanner",
+      "why": "Project manifests present; enables deep vulnerability scanning",
+      "match": {
+        "files": [
+          "package.json",
+          "pyproject.toml",
+          "Cargo.toml",
+          "composer.json",
+          "go.mod"
+        ]
+      },
+      "install": {
+        "plugin": "claude-security@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs deep vulnerability scanning of your code locally inside Claude Code"
+    },
+    {
+      "id": "semgrep",
+      "kind": "plugin",
+      "title": "Semgrep Security Analysis",
+      "why": "Semgrep configuration (.semgrep.yml) detected",
+      "match": {
+        "files": [
+          ".semgrep.yml",
+          ".semgrep/**",
+          "semgrep.yml"
+        ]
+      },
+      "install": {
+        "plugin": "semgrep@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Executes Semgrep rules locally to detect vulnerabilities and security defects"
+    },
+    {
+      "id": "cloud-sql-postgresql",
+      "kind": "plugin",
+      "title": "Cloud SQL PostgreSQL Integration",
+      "why": "PostgreSQL dependency or docker compose image detected",
+      "match": {
+        "composeImages": [
+          "postgres",
+          "postgresql"
+        ],
+        "deps": [
+          "pg",
+          "psycopg2",
+          "psycopg",
+          "asyncpg"
+        ]
+      },
+      "install": {
+        "plugin": "cloud-sql-postgresql@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to PostgreSQL databases and manages queries with configured credentials"
+    },
+    {
+      "id": "cloud-sql-mysql",
+      "kind": "plugin",
+      "title": "Cloud SQL MySQL Integration",
+      "why": "MySQL or MariaDB dependency or compose image detected",
+      "match": {
+        "composeImages": [
+          "mysql",
+          "mariadb"
+        ],
+        "deps": [
+          "mysql",
+          "mysql2",
+          "pymysql"
+        ]
+      },
+      "install": {
+        "plugin": "cloud-sql-mysql@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to MySQL databases and manages tables with configured credentials"
+    },
+    {
+      "id": "supabase",
+      "kind": "plugin",
+      "title": "Supabase (MCP Server)",
+      "why": "Supabase client library or environment variables detected",
+      "match": {
+        "deps": [
+          "@supabase/supabase-js",
+          "supabase"
+        ],
+        "envKeys": [
+          "SUPABASE_"
+        ]
+      },
+      "install": {
+        "plugin": "supabase@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server for Supabase database operations, auth, and migrations"
+    },
+    {
+      "id": "mongodb",
+      "kind": "plugin",
+      "title": "MongoDB (MCP Server)",
+      "why": "MongoDB driver, Mongoose, or docker image detected",
+      "match": {
+        "composeImages": [
+          "mongo",
+          "mongodb"
+        ],
+        "deps": [
+          "mongodb",
+          "mongoose",
+          "pymongo"
+        ],
+        "envKeys": [
+          "MONGODB_"
+        ]
+      },
+      "install": {
+        "plugin": "mongodb@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server and skills connecting to MongoDB clusters"
+    },
+    {
+      "id": "redis-development",
+      "kind": "plugin",
+      "title": "Redis Development Toolkit",
+      "why": "Redis client library or docker image detected",
+      "match": {
+        "composeImages": [
+          "redis"
+        ],
+        "deps": [
+          "redis",
+          "ioredis"
+        ],
+        "envKeys": [
+          "REDIS_"
+        ]
+      },
+      "install": {
+        "plugin": "redis-development@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides Redis data structure patterns, caching strategies, and commands"
+    },
+    {
+      "id": "prisma",
+      "kind": "plugin",
+      "title": "Prisma ORM (MCP Server)",
+      "why": "Prisma schema or package dependency detected",
+      "match": {
+        "files": [
+          "prisma/schema.prisma",
+          "schema.prisma"
+        ],
+        "deps": [
+          "@prisma/client",
+          "prisma"
+        ]
+      },
+      "install": {
+        "plugin": "prisma@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server for Prisma Postgres database management and schema migrations"
+    },
+    {
+      "id": "neon",
+      "kind": "plugin",
+      "title": "Neon Postgres (MCP Server)",
+      "why": "Neon serverless driver or environment keys detected",
+      "match": {
+        "deps": [
+          "@neondatabase/serverless"
+        ],
+        "envKeys": [
+          "NEON_"
+        ]
+      },
+      "install": {
+        "plugin": "neon@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs a Neon MCP server and agent skills for Neon serverless databases"
+    },
+    {
+      "id": "stripe",
+      "kind": "plugin",
+      "title": "Stripe API Integration",
+      "why": "Stripe library or environment keys detected",
+      "match": {
+        "deps": [
+          "stripe",
+          "@stripe/stripe-js"
+        ],
+        "envKeys": [
+          "STRIPE_"
+        ]
+      },
+      "install": {
+        "plugin": "stripe@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides Stripe payment patterns, checkout flows, and webhook handling"
+    },
+    {
+      "id": "sentry",
+      "kind": "plugin",
+      "title": "Sentry Error Monitoring",
+      "why": "Sentry SDK dependency or environment keys detected",
+      "match": {
+        "deps": [
+          "@sentry/node",
+          "@sentry/react",
+          "@sentry/nextjs",
+          "@sentry/browser",
+          "sentry-sdk"
+        ],
+        "envKeys": [
+          "SENTRY_"
+        ]
+      },
+      "install": {
+        "plugin": "sentry@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Queries Sentry API for live error reports and stack traces"
+    },
+    {
+      "id": "sentry-cli",
+      "kind": "plugin",
+      "title": "Sentry CLI Helper",
+      "why": "Sentry configuration (.sentryclirc) detected",
+      "match": {
+        "files": [
+          ".sentryclirc",
+          "sentry.properties"
+        ]
+      },
+      "install": {
+        "plugin": "sentry-cli@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs sentry-cli locally for release management and source map uploads"
+    },
+    {
+      "id": "vercel",
+      "kind": "plugin",
+      "title": "Vercel Platform Integration",
+      "why": "Vercel configuration or SDK dependencies detected",
+      "match": {
+        "files": [
+          "vercel.json",
+          ".vercel/**"
+        ],
+        "deps": [
+          "@vercel/node",
+          "@vercel/blob",
+          "@vercel/kv"
+        ]
+      },
+      "install": {
+        "plugin": "vercel@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to Vercel API to manage deployments and inspect build logs"
+    },
+    {
+      "id": "netlify-skills",
+      "kind": "plugin",
+      "title": "Netlify Platform Skills",
+      "why": "Netlify configuration (netlify.toml) detected",
+      "match": {
+        "files": [
+          "netlify.toml",
+          ".netlify/**"
+        ]
+      },
+      "install": {
+        "plugin": "netlify-skills@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Interacts with Netlify CLI and configuration for functions and deploys"
+    },
+    {
+      "id": "firebase",
+      "kind": "plugin",
+      "title": "Firebase (MCP Server)",
+      "why": "Firebase configuration or SDK dependencies detected",
+      "match": {
+        "files": [
+          "firebase.json",
+          ".firebaserc"
+        ],
+        "deps": [
+          "firebase",
+          "firebase-admin"
+        ]
+      },
+      "install": {
+        "plugin": "firebase@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server managing Firestore, Cloud Functions, and Firebase Auth"
+    },
+    {
+      "id": "deploy-on-aws",
+      "kind": "plugin",
+      "title": "Deploy on AWS",
+      "why": "AWS deployment template or environment keys detected",
+      "match": {
+        "files": [
+          "cdk.json",
+          "serverless.yml",
+          "template.yaml"
+        ],
+        "envKeys": [
+          "AWS_"
+        ]
+      },
+      "install": {
+        "plugin": "deploy-on-aws@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides AWS deployment guidance, architecture patterns, and IaC templates"
+    },
+    {
+      "id": "aws-core",
+      "kind": "plugin",
+      "title": "AWS Core Infrastructure",
+      "why": "AWS SDK dependencies detected",
+      "match": {
+        "deps": [
+          "@aws-sdk/client-s3",
+          "boto3",
+          "aws-sdk"
+        ]
+      },
+      "install": {
+        "plugin": "aws-core@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Guides AWS SDK usage and infrastructure-as-code authoring"
+    },
+    {
+      "id": "azure",
+      "kind": "plugin",
+      "title": "Azure Cloud Platform (MCP Server)",
+      "why": "Azure pipeline configuration or environment keys detected",
+      "match": {
+        "files": [
+          "azure-pipelines.yml",
+          "host.json"
+        ],
+        "envKeys": [
+          "AZURE_"
+        ]
+      },
+      "install": {
+        "plugin": "azure@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an Azure MCP server and agent skills for Microsoft Azure"
+    },
+    {
+      "id": "google-cloud-storage",
+      "kind": "plugin",
+      "title": "Google Cloud Storage (MCP Server)",
+      "why": "GCS SDK dependency or environment keys detected",
+      "match": {
+        "deps": [
+          "@google-cloud/storage",
+          "google-cloud-storage"
+        ],
+        "envKeys": [
+          "GOOGLE_CLOUD_"
+        ]
+      },
+      "install": {
+        "plugin": "google-cloud-storage@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an MCP server to manage Google Cloud Storage buckets and objects"
+    },
+    {
+      "id": "cloudflare",
+      "kind": "plugin",
+      "title": "Cloudflare Platform (MCP Server)",
+      "why": "Cloudflare Wrangler configuration or dependency detected",
+      "match": {
+        "files": [
+          "wrangler.toml",
+          "wrangler.json"
+        ],
+        "deps": [
+          "wrangler"
+        ]
+      },
+      "install": {
+        "plugin": "cloudflare@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs Cloudflare Workers, Durable Objects, and MCP developer platform tools"
+    },
+    {
+      "id": "railway",
+      "kind": "plugin",
+      "title": "Railway Deployment",
+      "why": "Railway configuration (railway.json/toml) detected",
+      "match": {
+        "files": [
+          "railway.json",
+          "railway.toml"
+        ]
+      },
+      "install": {
+        "plugin": "railway@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Manages Railway project setup, environments, and deployments"
+    },
+    {
+      "id": "render",
+      "kind": "plugin",
+      "title": "Render Cloud Hosting",
+      "why": "Render blueprint (render.yaml) detected",
+      "match": {
+        "files": [
+          "render.yaml"
+        ]
+      },
+      "install": {
+        "plugin": "render@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Deploys, debugs, and monitors applications on Render"
+    },
+    {
+      "id": "laravel-boost",
+      "kind": "plugin",
+      "title": "Laravel Boost (MCP Server)",
+      "why": "Laravel artisan command or framework dependency detected",
+      "match": {
+        "files": [
+          "artisan"
+        ],
+        "deps": [
+          "laravel/framework"
+        ]
+      },
+      "install": {
+        "plugin": "laravel-boost@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs a Laravel development toolkit MCP server for Artisan, routes, and migrations"
+    },
+    {
+      "id": "pydantic-ai",
+      "kind": "plugin",
+      "title": "Pydantic AI Agent Framework",
+      "why": "Pydantic AI dependency detected",
+      "match": {
+        "deps": [
+          "pydantic-ai"
+        ]
+      },
+      "install": {
+        "plugin": "pydantic-ai@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides Pydantic AI agent patterns, model decision trees, and best practices"
+    },
+    {
+      "id": "context7",
+      "kind": "plugin",
+      "title": "Context7 Docs Lookup (MCP Server)",
+      "why": "Documentation lookup domain accessed or large dependency set detected",
+      "match": {
+        "domains": {
+          "context7.upstash.io": 1
+        },
+        "minDeps": 12
+      },
+      "install": {
+        "plugin": "context7@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs an Upstash Context7 MCP server for up-to-date documentation lookup"
+    },
+    {
+      "id": "linear",
+      "kind": "plugin",
+      "title": "Linear Issue Tracking",
+      "why": "Linear configuration or environment keys detected",
+      "match": {
+        "files": [
+          ".linear/**"
+        ],
+        "envKeys": [
+          "LINEAR_"
+        ]
+      },
+      "install": {
+        "plugin": "linear@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to Linear API to manage issues, projects, and cycles with your token"
+    },
+    {
+      "id": "atlassian",
+      "kind": "plugin",
+      "title": "Atlassian Jira & Confluence",
+      "why": "Jira/Confluence configuration or environment keys detected",
+      "match": {
+        "files": [
+          ".jira/**",
+          ".confluence/**"
+        ],
+        "envKeys": [
+          "JIRA_",
+          "CONFLUENCE_"
+        ]
+      },
+      "install": {
+        "plugin": "atlassian@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to Atlassian products to search and create Jira issues and Confluence pages"
+    },
+    {
+      "id": "asana",
+      "kind": "plugin",
+      "title": "Asana Task Management (MCP Server)",
+      "why": "Asana configuration or environment keys detected",
+      "match": {
+        "files": [
+          ".asana/**"
+        ],
+        "envKeys": [
+          "ASANA_"
+        ]
+      },
+      "install": {
+        "plugin": "asana@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Connects to Asana V2 MCP server to manage tasks, sections, and projects"
+    },
+    {
+      "id": "terraform",
+      "kind": "plugin",
+      "title": "Terraform Infrastructure (MCP Server)",
+      "why": "Terraform configuration files (.tf/.tfvars) detected",
+      "match": {
+        "files": [
+          "*.tf",
+          "*.tfvars",
+          ".terraform/**"
+        ]
+      },
+      "install": {
+        "plugin": "terraform@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs a Terraform MCP server providing schema definitions and provider intelligence"
+    },
+    {
+      "id": "auth0",
+      "kind": "plugin",
+      "title": "Auth0 Authentication",
+      "why": "Auth0 SDK dependency or environment keys detected",
+      "match": {
+        "deps": [
+          "@auth0/auth0-react",
+          "@auth0/nextjs-auth0",
+          "auth0"
+        ],
+        "envKeys": [
+          "AUTH0_"
+        ]
+      },
+      "install": {
+        "plugin": "auth0@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Provides Auth0 login, SSO, and MFA integration workflows"
+    },
+    {
+      "id": "posthog",
+      "kind": "plugin",
+      "title": "PostHog Product Analytics",
+      "why": "PostHog SDK dependency or environment keys detected",
+      "match": {
+        "deps": [
+          "posthog-js",
+          "posthog-node",
+          "posthog"
+        ],
+        "envKeys": [
+          "POSTHOG_"
+        ]
+      },
+      "install": {
+        "plugin": "posthog@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Integrates PostHog analytics, feature flags, and event capture"
+    },
+    {
+      "id": "datadog",
+      "kind": "plugin",
+      "title": "Datadog Observability (MCP Server)",
+      "why": "Datadog tracing library or environment keys detected",
+      "match": {
+        "deps": [
+          "dd-trace",
+          "datadog"
+        ],
+        "envKeys": [
+          "DD_"
+        ]
+      },
+      "install": {
+        "plugin": "datadog@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Runs a Datadog MCP server to query logs, traces, and metrics with your API key"
+    },
+    {
+      "id": "logfire",
+      "kind": "plugin",
+      "title": "Logfire Python Observability",
+      "why": "Logfire dependency or environment keys detected",
+      "match": {
+        "deps": [
+          "logfire"
+        ],
+        "envKeys": [
+          "LOGFIRE_"
+        ]
+      },
+      "install": {
+        "plugin": "logfire@claude-plugins-official"
+      },
+      "source": "claude-plugins-official",
+      "access": "Instruments Python and FastAPI applications with Logfire tracing"
+    }
+  ]
+}
