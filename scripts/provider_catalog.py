@@ -192,6 +192,100 @@ def context_length(row: dict) -> int | None:
     return value if value > 0 else None
 
 
+PREFERENCES_FORMAT = "agentfleet.config.v1"
+COMPACT_PERCENT_MIN = 40
+COMPACT_PERCENT_MAX = 95
+COMPACT_WINDOW_MIN = 100_000
+COMPACT_WINDOW_MAX = 1_000_000
+# A native (Claude login) profile has no catalog to size its models, so its
+# window is taken against the largest window Claude Code offers. A smaller
+# model's own limit then wins, which never compacts earlier than asked.
+NATIVE_CONTEXT_BASIS = 1_000_000
+REVIEWER_ACCESS = ("full", "run", "read-only")
+PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": False}
+
+
+def preferences_path(home: Path) -> Path:
+    return home / ".claude" / "agentfleet" / "config.json"
+
+
+def valid_compact_percent(value: object) -> bool:
+    if value == "off":
+        return True
+    return isinstance(value, int) and not isinstance(value, bool) and COMPACT_PERCENT_MIN <= value <= COMPACT_PERCENT_MAX
+
+
+def load_preferences(home: Path) -> dict:
+    """The user's AgentFleet preferences over the defaults.
+
+    Hooks read this on every start, so a missing, unreadable, or invalid file
+    or value falls back to its default instead of failing.
+    """
+    raw = load_json(preferences_path(home))
+    raw = raw if isinstance(raw, dict) else {}
+    preferences = dict(PREFERENCE_DEFAULTS)
+    if valid_compact_percent(raw.get("compactPercent")):
+        preferences["compactPercent"] = raw["compactPercent"]
+    if raw.get("reviewerAccess") in REVIEWER_ACCESS:
+        preferences["reviewerAccess"] = raw["reviewerAccess"]
+    if isinstance(raw.get("learn"), bool):
+        preferences["learn"] = raw["learn"]
+    return preferences
+
+
+def write_preferences(home: Path, changes: dict) -> dict:
+    """Validate ``changes``, merge them into the preferences file, and return
+    the effective preferences. Raises ValueError on an invalid value."""
+    for key, value in changes.items():
+        if key == "compactPercent" and not valid_compact_percent(value):
+            raise ValueError(f"compactPercent must be {COMPACT_PERCENT_MIN}-{COMPACT_PERCENT_MAX} or 'off'")
+        if key == "reviewerAccess" and value not in REVIEWER_ACCESS:
+            raise ValueError(f"reviewerAccess must be one of {', '.join(REVIEWER_ACCESS)}")
+        if key == "learn" and not isinstance(value, bool):
+            raise ValueError("learn must be true or false")
+        if key not in PREFERENCE_DEFAULTS:
+            raise ValueError(f"unknown preference: {key}")
+    path = preferences_path(home)
+    raw = load_json(path)
+    data = {key: value for key, value in (raw if isinstance(raw, dict) else {}).items() if key in PREFERENCE_DEFAULTS}
+    data.update(changes)
+    data = {"format": PREFERENCES_FORMAT, **data}
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(6)}")
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        try:
+            os.write(fd, (json.dumps(data, indent=2) + "\n").encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.chmod(temp, 0o600)
+        os.replace(temp, path)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    return load_preferences(home)
+
+
+def compaction_window(context: object, percent: object) -> int | None:
+    """The auto-compact window for a model of ``context`` tokens at ``percent``.
+
+    None means leave the window alone: the percentage is "off", or the
+    context is unknown or too small to trust.
+    """
+    if percent == "off" or not valid_compact_percent(percent):
+        return None
+    if isinstance(context, bool):
+        return None
+    try:
+        number = int(context)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if number < COMPACT_WINDOW_MIN:
+        return None
+    return max(COMPACT_WINDOW_MIN, min(COMPACT_WINDOW_MAX, number * int(percent) // 100))
+
+
 def _catalog_page(payload: object) -> tuple[list[dict], bool, str | None]:
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise CatalogError("provider catalog data is not an array")
