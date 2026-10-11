@@ -500,6 +500,15 @@ def categorize_skill(name: str) -> str:
     return "other"
 
 
+def display_text(value: object, limit: int = 120) -> str:
+    """Printable text from CLI output: control and format characters removed,
+    so a plugin or server name cannot carry terminal escape sequences."""
+    import unicodedata
+
+    text = "".join(ch for ch in str(value) if unicodedata.category(ch) not in ("Cc", "Cf") and ch not in "\u2028\u2029")
+    return " ".join(text.split())[:limit]
+
+
 def check_plugins_health(home: Path) -> dict:
     installed_file = home / ".claude" / "plugins" / "installed_plugins.json"
     installed_names = set()
@@ -565,8 +574,7 @@ def check_plugins_health(home: Path) -> dict:
             enabled_count += 1
         err = item.get("error")
         if err:
-            clean_err = " ".join(str(err).split())[:120]
-            errors.append({"name": str(name), "error": clean_err})
+            errors.append({"name": display_text(name, 80), "error": display_text(err)})
 
     return {
         "available": True,
@@ -636,7 +644,7 @@ def check_mcp_health(home: Path) -> dict:
             status = "failed"
         else:
             status = "unknown"
-        servers.append({"name": name, "status": status})
+        servers.append({"name": display_text(name, 80), "status": status})
 
     total = len(servers)
     healthy = sum(1 for s in servers if s["status"] == "connected")

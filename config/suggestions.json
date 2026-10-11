@@ -21,7 +21,7 @@
       "id": "protect-secrets",
       "kind": "hook",
       "title": "Protect secrets PreToolUse hook",
-      "why": "Project has .env file; denies Edit/Write targeting .env* files",
+      "why": "Project has a .env file; blocks edits to .env and .env.* files (not .env.example)",
       "match": {
         "files": [
           ".env",
@@ -30,8 +30,8 @@
       },
       "install": null,
       "source": "agentfleet",
-      "access": "PreToolUse hook denies Edit and Write tool calls on .env* files",
-      "template": "{\n  \"PreToolUse\": [\n    {\n      \"matcher\": \"Edit|Write\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, os; p=json.load(sys.stdin).get('tool_input',{}).get('file_path',''); n=os.path.basename(p); sys.exit(1 if n=='.env' or n.startswith('.env.') else 0)\\\" # agentfleet:protect-secrets\",\n          \"timeout\": 5\n        }\n      ]\n    }\n  ]\n}"
+      "access": "PreToolUse hook blocks Edit, Write, MultiEdit and NotebookEdit calls on .env files and tells Claude why",
+      "template": "{\n  \"PreToolUse\": [\n    {\n      \"matcher\": \"Edit|Write|MultiEdit|NotebookEdit\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, os; p = json.load(sys.stdin).get('tool_input', {}).get('file_path', ''); n = os.path.basename(p); blocked = n == '.env' or n.startswith('.env.') and not n.endswith(('.example', '.sample')); blocked and print('Editing ' + n + ' is blocked: it holds secrets. Ask the user to change it.', file=sys.stderr); sys.exit(2 if blocked else 0)\\\" # agentfleet:protect-secrets\",\n          \"timeout\": 5\n        }\n      ]\n    }\n  ]\n}"
     },
     {
       "id": "format-after-edit",
@@ -55,8 +55,8 @@
       },
       "install": null,
       "source": "agentfleet",
-      "access": "PostToolUse hook runs the project formatter on edited files",
-      "template": "{\n  \"PostToolUse\": [\n    {\n      \"matcher\": \"Edit|Write\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, subprocess, shutil; p=json.load(sys.stdin).get('tool_input',{}).get('file_path',''); subprocess.run(['npx','prettier','--write',p], check=False) if p and shutil.which('npx') else None\\\" # agentfleet:format-after-edit\",\n          \"timeout\": 15\n        }\n      ]\n    }\n  ]\n}"
+      "access": "PostToolUse hook runs the project's own formatter on the edited file (node_modules/.bin/prettier, vendor/bin/pint, ruff or rustfmt on PATH); it never downloads one",
+      "template": "{\n  \"PostToolUse\": [\n    {\n      \"matcher\": \"Edit|Write|MultiEdit\",\n      \"hooks\": [\n        {\n          \"type\": \"command\",\n          \"command\": \"python3 -c \\\"import sys, json, os, shutil, subprocess; p = json.load(sys.stdin).get('tool_input', {}).get('file_path', ''); root = os.environ.get('CLAUDE_PROJECT_DIR', '.'); local = lambda rel: os.path.join(root, rel) if os.path.isfile(os.path.join(root, rel)) else None; ext = os.path.splitext(p)[1].lower(); web = ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json', '.css', '.scss', '.md', '.vue', '.svelte', '.html', '.yml', '.yaml'); tool = local('node_modules/.bin/prettier') if ext in web else local('vendor/bin/pint') if ext == '.php' else shutil.which('ruff') if ext == '.py' else shutil.which('rustfmt') if ext == '.rs' else None; args = [tool, 'format', p] if tool and os.path.basename(tool) == 'ruff' else [tool, '--write', p] if tool and 'prettier' in tool else [tool, p]; os.path.isfile(p) and tool and subprocess.run(args, check=False)\\\" # agentfleet:format-after-edit\",\n          \"timeout\": 30\n        }\n      ]\n    }\n  ]\n}"
     },
     {
       "id": "create-project-skill",

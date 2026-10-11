@@ -242,8 +242,11 @@ class PreferencesTests(unittest.TestCase):
         self.assertEqual(enabled.returncode, 0, enabled.stderr)
         self.assertIn("never stores or asks", enabled.stdout)
         logged = [json.loads(line) for line in fake_log.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(logged[0]["argv"], ["plugin", "install", "fast-jev-compaction@agentfleet"])
-        self.assertEqual(logged[0]["credentials"], [], "credential variables must not reach the fake Claude CLI")
+        # A listed plugin is enabled (install would not turn a disabled one back on); an unlisted one is installed.
+        self.assertEqual(logged[0]["argv"], ["plugin", "list", "--json"])
+        self.assertIn(logged[1]["argv"], (["plugin", "enable", "fast-jev-compaction@agentfleet"],
+                                          ["plugin", "install", "fast-jev-compaction@agentfleet"]))
+        self.assertTrue(all(entry["credentials"] == [] for entry in logged), "credential variables must not reach the fake Claude CLI")
 
         status = self.run_agentfleet("jev", "status", env=env)
         self.assertEqual(status.returncode, 0, status.stderr)

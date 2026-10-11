@@ -923,6 +923,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         return 0
 
     if setting == "reviewer-access":
+        previous = provider_catalog.load_preferences(paths.home)["reviewerAccess"]
         try:
             provider_catalog.write_preferences(paths.home, {"reviewerAccess": value})
         except ValueError as exc:
@@ -930,6 +931,9 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             return 2
         code = cmd_sync(paths, args)
         if code != 0:
+            # Keep the preference in step with the agents that are installed.
+            provider_catalog.write_preferences(paths.home, {"reviewerAccess": previous})
+            print(f"agentfleet: regenerating the agents failed; reviewer access stays {previous}", file=sys.stderr)
             return code
         print(f"Reviewer access set to {value}. Restart Claude Code to apply.")
         return 0
@@ -964,7 +968,14 @@ def cmd_jev(paths: Paths, args: argparse.Namespace) -> int:
         if not isinstance(metadata, dict) or (metadata.get("modsMarketplace") is not True and metadata.get("modsState") != "registered"):
             print("AgentFleet mods are not registered. Run: agentfleet update --mods", file=sys.stderr)
             return 1
-        result = provider_catalog.claude_cli(paths.home, "plugin", "install", plugin_id)
+        # An installed but disabled plugin is turned back on with enable;
+        # install covers the first time.
+        listed = provider_catalog.claude_cli(paths.home, "plugin", "list", "--json")
+        try:
+            present = any(isinstance(item, dict) and item.get("id") == plugin_id for item in json.loads(listed.stdout)) if listed and listed.returncode == 0 else False
+        except (ValueError, TypeError):
+            present = False
+        result = provider_catalog.claude_cli(paths.home, "plugin", "enable" if present else "install", plugin_id)
         if result is None:
             print("agentfleet: Claude CLI is missing or could not install fast-jev-compaction", file=sys.stderr)
             return 1
@@ -1020,7 +1031,10 @@ def cmd_jev(paths: Paths, args: argparse.Namespace) -> int:
 
 def cmd_report(paths: Paths, args: argparse.Namespace) -> int:
     import fleet_watch
-    days = getattr(args, "days", 7) or 7
+    days = getattr(args, "days", 7)
+    if not isinstance(days, int) or days < 1:
+        print("agentfleet: --days must be 1 or more", file=sys.stderr)
+        return 2
     data = fleet_watch.report(paths.home, days=days)
     if getattr(args, "json", False):
         print(json.dumps(data, indent=2))

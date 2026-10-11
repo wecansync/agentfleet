@@ -9,6 +9,7 @@ capabilities. Never accesses the network, never spawns subprocesses, never reads
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from datetime import datetime, timezone
 import fnmatch
 import hashlib
@@ -19,6 +20,49 @@ import re
 import secrets
 import shutil
 import sys
+import unicodedata
+
+_ANSI_ESCAPE_RE = re.compile(
+    r"""
+    \x1b\][^\x1b\x07]*(?:\x07|\x1b\\)
+    | \x1b\[[0-9;?]*[ -/]*[@-~]
+    | \x1b[PX^_][^\x1b]*(?:\x1b\\)
+    | \x1b[@-Z\\-_]
+    | \x1b
+    """,
+    re.VERBOSE,
+)
+
+
+def sanitize_text(text: str) -> str:
+    """Strip terminal escape sequences, C0/C1 controls, Cf, and U+2028/2029."""
+    if not isinstance(text, str):
+        return ""
+    cleaned = _ANSI_ESCAPE_RE.sub("", text)
+    out = []
+    for ch in cleaned:
+        cp = ord(ch)
+        if 0x00 <= cp <= 0x1F or cp == 0x7F:
+            continue
+        if 0x80 <= cp <= 0x9F:
+            continue
+        if cp in (0x2028, 0x2029):
+            continue
+        if unicodedata.category(ch) == "Cf":
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def sanitize_value(val: object) -> object:
+    """Recursively sanitize strings in nested objects."""
+    if isinstance(val, str):
+        return sanitize_text(val)
+    if isinstance(val, dict):
+        return {sanitize_text(str(k)): sanitize_value(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [sanitize_value(v) for v in val]
+    return val
 
 # Suppress bytecode emission before importing local helpers
 sys.dont_write_bytecode = True
@@ -100,11 +144,12 @@ def load_catalog(script_dir: Path | None = None) -> dict:
 def scan(project: Path) -> dict:
     """Bounded scan of project files and manifests.
 
-    Never traverses deeper than 3 levels, visits at most 2000 entries,
-    skips heavy/vendored directories, never reads files >256KB, and NEVER
-    reads .env values (only key names from .env.example / .env.sample).
+    Traverses breadth-first to read every root-level entry first, then descends
+    level by level up to 3 levels, visiting at most 2000 entries. Skips
+    heavy/vendored directories, never reads files >256KB, and NEVER reads .env
+    values (only key names from .env.example / .env.sample).
     """
-    project = project.resolve()
+    project = Path(project).expanduser().resolve()
     files: set[str] = set()
     manifest_deps: set[str] = set()
     compose_images: set[str] = set()
@@ -114,26 +159,208 @@ def scan(project: Path) -> dict:
 
     entries_visited = 0
 
-    def _walk(curr: Path, depth: int) -> None:
-        nonlocal entries_visited, has_env
-        if depth > MAX_WALK_DEPTH or entries_visited >= MAX_WALK_ENTRIES:
+    def _process_file(entry: os.DirEntry) -> None:
+        nonlocal has_env
+        name = entry.name
+        try:
+            rel_path = Path(entry.path).relative_to(project).as_posix()
+        except ValueError:
             return
+
+        files.add(sanitize_text(rel_path))
+
+        # Check if .env file exists (without ever opening it)
+        if name == ".env" or name.startswith(".env."):
+            if not (name.endswith(".example") or name.endswith(".sample")):
+                has_env = True
+                return
+
+        # Check formatter configs
+        if name in {".prettierrc", ".prettierrc.json", ".prettierrc.yml", ".prettierrc.yaml",
+                    ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml",
+                    "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs"}:
+            formatters.add("prettier")
+        elif name in {"biome.json", "biome.jsonc"}:
+            formatters.add("biome")
+        elif name == "pint.json":
+            formatters.add("pint")
+        elif name in {"rustfmt.toml", ".rustfmt.toml"}:
+            formatters.add("rustfmt")
+
+        # Size guard: never read files >256 KB
+        try:
+            size = entry.stat(follow_symlinks=False).st_size
+        except OSError:
+            return
+        if size > MAX_FILE_BYTES:
+            return
+
+        # Parse .env.example / .env.sample: key names ONLY, never values
+        if name in {".env.example", ".env.sample"}:
+            try:
+                content = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                for line in content.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key = line.split("=", 1)[0].strip()
+                        if key:
+                            env_keys.add(sanitize_text(key))
+            except OSError:
+                pass
+            return
+
+        # Manifest: package.json
+        if name == "package.json":
+            try:
+                data = json.loads(Path(entry.path).read_text(encoding="utf-8", errors="replace"))
+                if isinstance(data, dict):
+                    for sec in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+                        deps = data.get(sec)
+                        if isinstance(deps, dict):
+                            manifest_deps.update(sanitize_text(d) for d in deps.keys())
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
+
+        # Manifest: composer.json
+        elif name == "composer.json":
+            try:
+                data = json.loads(Path(entry.path).read_text(encoding="utf-8", errors="replace"))
+                if isinstance(data, dict):
+                    for sec in ("require", "require-dev"):
+                        deps = data.get(sec)
+                        if isinstance(deps, dict):
+                            manifest_deps.update(sanitize_text(d) for d in deps.keys())
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
+
+        # Manifest: pyproject.toml
+        elif name == "pyproject.toml":
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                if "[tool.black]" in text:
+                    formatters.add("black")
+                if "[tool.ruff]" in text:
+                    formatters.add("ruff")
+
+                # Try stdlib tomllib (Python 3.11+)
+                parsed = False
+                try:
+                    import tomllib
+                    toml_data = tomllib.loads(text)
+                    parsed = True
+                    # project.dependencies
+                    proj = toml_data.get("project", {})
+                    if isinstance(proj, dict):
+                        for item in proj.get("dependencies", []):
+                            if isinstance(item, str):
+                                m = re.match(r"^([a-zA-Z0-9_\-]+)", item.strip())
+                                if m:
+                                    manifest_deps.add(sanitize_text(m.group(1)))
+                    # tool.poetry.dependencies
+                    tool = toml_data.get("tool", {})
+                    if isinstance(tool, dict):
+                        poetry = tool.get("poetry", {})
+                        if isinstance(poetry, dict):
+                            for sec in ("dependencies", "dev-dependencies"):
+                                deps = poetry.get(sec)
+                                if isinstance(deps, dict):
+                                    manifest_deps.update(sanitize_text(d) for d in deps.keys())
+                except Exception:
+                    pass
+
+                # Fallback regex if tomllib was unavailable or failed
+                if not parsed:
+                    for dep in re.findall(r"""['"]([a-zA-Z0-9_\-]+)(?:[><=~^;].*?)?['"]""", text):
+                        manifest_deps.add(sanitize_text(dep))
+            except OSError:
+                pass
+
+        # Manifest: requirements*.txt
+        elif name.startswith("requirements") and name.endswith(".txt"):
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith("-"):
+                        continue
+                    m = re.match(r"^([a-zA-Z0-9_\-]+)", line)
+                    if m:
+                        manifest_deps.add(sanitize_text(m.group(1)))
+            except OSError:
+                pass
+
+        # Manifest: Gemfile
+        elif name == "Gemfile":
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                for gem in re.findall(r"""gem\s+['"]([a-zA-Z0-9_\-]+)['"]""", text):
+                    manifest_deps.add(sanitize_text(gem))
+            except OSError:
+                pass
+
+        # Manifest: go.mod
+        elif name == "go.mod":
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                for mod in re.findall(r"""(?:require\s+([^\s\(\)]+)|^\s+([^\s\(\)]+)\s+v)""", text, re.MULTILINE):
+                    m_name = mod[0] or mod[1]
+                    if m_name:
+                        manifest_deps.add(sanitize_text(m_name))
+            except OSError:
+                pass
+
+        # Manifest: Cargo.toml
+        elif name == "Cargo.toml":
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                in_deps = False
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line.startswith("[") and line.endswith("]"):
+                        sec = line[1:-1].strip()
+                        in_deps = sec in {"dependencies", "dev-dependencies", "build-dependencies"}
+                        continue
+                    if in_deps and "=" in line:
+                        dep = line.split("=", 1)[0].strip()
+                        if dep:
+                            manifest_deps.add(sanitize_text(dep))
+            except OSError:
+                pass
+
+        # Docker Compose images
+        elif name.startswith("docker-compose") or name.startswith("compose") and (name.endswith(".yml") or name.endswith(".yaml")):
+            try:
+                text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
+                for img in re.findall(r"""^\s*image:\s*['"]?([^\s'"]+)""", text, re.MULTILINE):
+                    compose_images.add(sanitize_text(img))
+            except OSError:
+                pass
+
+    queue: deque[tuple[Path, int]] = deque([(project, 1)])
+
+    while queue:
+        curr, depth = queue.popleft()
+        if depth > MAX_WALK_DEPTH:
+            continue
+        if depth > 1 and entries_visited >= MAX_WALK_ENTRIES:
+            break
 
         try:
             items = list(os.scandir(curr))
         except OSError:
-            return
+            continue
 
         # Sort for deterministic traversal order
         items.sort(key=lambda e: e.name)
 
         for entry in items:
-            entries_visited += 1
-            if entries_visited >= MAX_WALK_ENTRIES:
+            if depth > 1 and entries_visited >= MAX_WALK_ENTRIES:
                 break
+            entries_visited += 1
 
             name = entry.name
-
             try:
                 is_dir = entry.is_dir(follow_symlinks=False)
                 is_file = entry.is_file(follow_symlinks=False)
@@ -143,185 +370,10 @@ def scan(project: Path) -> dict:
             if is_dir:
                 if name in SKIP_DIRS:
                     continue
-                _walk(Path(entry.path), depth + 1)
+                if depth < MAX_WALK_DEPTH:
+                    queue.append((Path(entry.path), depth + 1))
             elif is_file:
-                try:
-                    rel_path = Path(entry.path).relative_to(project).as_posix()
-                except ValueError:
-                    continue
-
-                files.add(rel_path)
-
-                # Check if .env file exists (without ever opening it)
-                if name == ".env" or name.startswith(".env."):
-                    if not (name.endswith(".example") or name.endswith(".sample")):
-                        has_env = True
-                        continue
-
-                # Check formatter configs
-                if name in {".prettierrc", ".prettierrc.json", ".prettierrc.yml", ".prettierrc.yaml",
-                            ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.toml",
-                            "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs"}:
-                    formatters.add("prettier")
-                elif name in {"biome.json", "biome.jsonc"}:
-                    formatters.add("biome")
-                elif name == "pint.json":
-                    formatters.add("pint")
-                elif name in {"rustfmt.toml", ".rustfmt.toml"}:
-                    formatters.add("rustfmt")
-
-                # Size guard: never read files >256 KB
-                try:
-                    size = entry.stat(follow_symlinks=False).st_size
-                except OSError:
-                    continue
-                if size > MAX_FILE_BYTES:
-                    continue
-
-                # Parse .env.example / .env.sample: key names ONLY, never values
-                if name in {".env.example", ".env.sample"}:
-                    try:
-                        content = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        for line in content.splitlines():
-                            line = line.strip()
-                            if not line or line.startswith("#"):
-                                continue
-                            if "=" in line:
-                                key = line.split("=", 1)[0].strip()
-                                if key:
-                                    env_keys.add(key)
-                    except OSError:
-                        pass
-                    continue
-
-                # Manifest: package.json
-                if name == "package.json":
-                    try:
-                        data = json.loads(Path(entry.path).read_text(encoding="utf-8", errors="replace"))
-                        if isinstance(data, dict):
-                            for sec in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
-                                deps = data.get(sec)
-                                if isinstance(deps, dict):
-                                    manifest_deps.update(deps.keys())
-                    except (OSError, UnicodeError, json.JSONDecodeError):
-                        pass
-
-                # Manifest: composer.json
-                elif name == "composer.json":
-                    try:
-                        data = json.loads(Path(entry.path).read_text(encoding="utf-8", errors="replace"))
-                        if isinstance(data, dict):
-                            for sec in ("require", "require-dev"):
-                                deps = data.get(sec)
-                                if isinstance(deps, dict):
-                                    manifest_deps.update(deps.keys())
-                    except (OSError, UnicodeError, json.JSONDecodeError):
-                        pass
-
-                # Manifest: pyproject.toml
-                elif name == "pyproject.toml":
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        if "[tool.black]" in text:
-                            formatters.add("black")
-                        if "[tool.ruff]" in text:
-                            formatters.add("ruff")
-
-                        # Try stdlib tomllib (Python 3.11+)
-                        parsed = False
-                        try:
-                            import tomllib
-                            toml_data = tomllib.loads(text)
-                            parsed = True
-                            # project.dependencies
-                            proj = toml_data.get("project", {})
-                            if isinstance(proj, dict):
-                                for item in proj.get("dependencies", []):
-                                    if isinstance(item, str):
-                                        m = re.match(r"^([a-zA-Z0-9_\-]+)", item.strip())
-                                        if m:
-                                            manifest_deps.add(m.group(1))
-                            # tool.poetry.dependencies
-                            tool = toml_data.get("tool", {})
-                            if isinstance(tool, dict):
-                                poetry = tool.get("poetry", {})
-                                if isinstance(poetry, dict):
-                                    for sec in ("dependencies", "dev-dependencies"):
-                                        deps = poetry.get(sec)
-                                        if isinstance(deps, dict):
-                                            manifest_deps.update(deps.keys())
-                        except Exception:
-                            pass
-
-                        # Fallback regex if tomllib was unavailable or failed
-                        if not parsed:
-                            for dep in re.findall(r"""['"]([a-zA-Z0-9_\-]+)(?:[><=~^;].*?)?['"]""", text):
-                                manifest_deps.add(dep)
-                    except OSError:
-                        pass
-
-                # Manifest: requirements*.txt
-                elif name.startswith("requirements") and name.endswith(".txt"):
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        for line in text.splitlines():
-                            line = line.strip()
-                            if not line or line.startswith("#") or line.startswith("-"):
-                                continue
-                            m = re.match(r"^([a-zA-Z0-9_\-]+)", line)
-                            if m:
-                                manifest_deps.add(m.group(1))
-                    except OSError:
-                        pass
-
-                # Manifest: Gemfile
-                elif name == "Gemfile":
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        for gem in re.findall(r"""gem\s+['"]([a-zA-Z0-9_\-]+)['"]""", text):
-                            manifest_deps.add(gem)
-                    except OSError:
-                        pass
-
-                # Manifest: go.mod
-                elif name == "go.mod":
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        for mod in re.findall(r"""(?:require\s+([^\s\(\)]+)|^\s+([^\s\(\)]+)\s+v)""", text, re.MULTILINE):
-                            m_name = mod[0] or mod[1]
-                            if m_name:
-                                manifest_deps.add(m_name)
-                    except OSError:
-                        pass
-
-                # Manifest: Cargo.toml
-                elif name == "Cargo.toml":
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        in_deps = False
-                        for line in text.splitlines():
-                            line = line.strip()
-                            if line.startswith("[") and line.endswith("]"):
-                                sec = line[1:-1].strip()
-                                in_deps = sec in {"dependencies", "dev-dependencies", "build-dependencies"}
-                                continue
-                            if in_deps and "=" in line:
-                                dep = line.split("=", 1)[0].strip()
-                                if dep:
-                                    manifest_deps.add(dep)
-                    except OSError:
-                        pass
-
-                # Docker Compose images
-                elif name.startswith("docker-compose") or name.startswith("compose") and (name.endswith(".yml") or name.endswith(".yaml")):
-                    try:
-                        text = Path(entry.path).read_text(encoding="utf-8", errors="replace")
-                        for img in re.findall(r"""^\s*image:\s*['"]?([^\s'"]+)""", text, re.MULTILINE):
-                            compose_images.add(img)
-                    except OSError:
-                        pass
-
-    _walk(project, 1)
+                _process_file(entry)
 
     return {
         "files": files,
@@ -335,8 +387,8 @@ def scan(project: Path) -> dict:
 
 def inventory(home: Path, project: Path) -> dict:
     """Inspect installed plugins, available marketplace plugins, skills, and hooks."""
-    home = home.resolve()
-    project = project.resolve()
+    home = Path(home).expanduser().resolve()
+    project = Path(project).expanduser().resolve()
 
     # 1. Installed plugins from <home>/.claude/plugins/installed_plugins.json
     installed_keys: set[str] = set()
@@ -474,7 +526,7 @@ def inventory(home: Path, project: Path) -> dict:
 
 def load_usage(home: Path, project: Path) -> dict:
     """Read opt-in usage stats for project if available."""
-    key = hashlib.sha256(str(project.resolve()).encode("utf-8")).hexdigest()[:16]
+    key = hashlib.sha256(str(Path(project).expanduser().resolve()).encode("utf-8")).hexdigest()[:16]
     usage_file = home / ".claude" / "agentfleet" / "usage" / f"{key}.json"
     if usage_file.is_file():
         try:
@@ -550,28 +602,35 @@ def forget(home: Path) -> list[str]:
 
 
 def _derive_verb(command: str) -> str:
-    """Extract a short action verb from a frequent command."""
+    """Extract a short action verb from a frequent command, restricted to [a-z0-9][a-z0-9-]{0,39}."""
     parts = command.strip().split()
     if not parts:
-        return "run"
+        return ""
+    candidate = ""
     # e.g., npm run build -> build
     if len(parts) >= 3 and parts[0] in ("npm", "pnpm", "yarn", "bun") and parts[1] == "run":
-        return parts[2]
+        candidate = parts[2]
     # e.g., php artisan test -> test
-    if len(parts) >= 3 and parts[0] == "php" and parts[1] == "artisan":
-        return parts[2]
+    elif len(parts) >= 3 and parts[0] == "php" and parts[1] == "artisan":
+        candidate = parts[2]
     # e.g., composer test -> test
-    if len(parts) >= 2 and parts[0] in ("composer", "cargo", "make"):
-        return parts[1]
-    # e.g., pytest, vitest, ruff
-    verb = parts[0]
-    return re.sub(r"[^a-zA-Z0-9_-]", "-", verb).strip("-") or "run"
+    elif len(parts) >= 2 and parts[0] in ("composer", "cargo", "make"):
+        candidate = parts[1]
+    else:
+        candidate = parts[0]
+
+    candidate = candidate.lower()
+    candidate = re.sub(r"[^a-z0-9-]", "-", candidate).lstrip("-")
+    candidate = candidate[:40]
+    if candidate and re.match(r"^[a-z0-9][a-z0-9-]{0,39}$", candidate):
+        return candidate
+    return ""
 
 
 def suggest(home: Path, project: Path) -> list[dict]:
     """Evaluate catalog entries for project and return ranked suggestions."""
-    project = project.resolve()
-    home = home.resolve()
+    project = Path(project).expanduser().resolve()
+    home = Path(home).expanduser().resolve()
 
     catalog = load_catalog()
     signals = scan(project)
@@ -579,7 +638,8 @@ def suggest(home: Path, project: Path) -> list[dict]:
     usage = load_usage(home, project)
 
     store = load_suggestions_store(home)
-    proj_record = store.get("projects", {}).get(str(project), {})
+    proj_key = str(project)
+    proj_record = store.get("projects", {}).get(proj_key, {})
     dismissed = set(proj_record.get("dismissed", []))
 
     results: list[dict] = []

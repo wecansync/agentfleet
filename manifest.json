@@ -134,7 +134,7 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "a535f89dd06d925a2cc6506fdef18d267a8b5e38ab1ef91c87ab62a2a51a78f9",
+      "sha256": "a8d0e1e9b3eddb1421bea36fd479a491b97248e67ef9b0391e05fd9619bf9317",
       "mode": "0o755"
     },
     {
@@ -154,7 +154,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "d4987e518ea614dde50bc1c66b61e26e300eb286a9c02aabd070b41ed1723fea",
+      "sha256": "8a6d044fb320428d33e0e51a5de338f686dc51bdd3dce3683c202ef1985122c7",
       "mode": "0o755"
     },
     {
@@ -409,7 +409,7 @@
     },
     {
       "path": "scripts/generate-claude-agents.mjs",
-      "sha256": "acfd9200d84902ab12858d7ba089984b3925d1b013e89cfae26fb369eb7c598f",
+      "sha256": "82cd965eaed5ee2d582db6945c376f7f8ed28d4223bbc459998f176591d02e6b",
       "mode": "0o755"
     },
     {
@@ -429,7 +429,7 @@
     },
     {
       "path": "scripts/sync-model-context.py",
-      "sha256": "63cd7b8eda96e83d0447dcd3e370196fb66530747500e9dc8597143ae75653db",
+      "sha256": "e40672fdbe1822e0f7c2dda20d2421fcb22f9ce1f0bf3e5bf3424a63467a8ce9",
       "mode": "0o755"
     },
     {
@@ -464,7 +464,7 @@
     },
     {
       "path": "tests/test_install_220.py",
-      "sha256": "eb6180dad7a511a244b67dd148db3584d9c31c94f0d931f1fc0ffce1777c0638",
+      "sha256": "0ab932bc1be38917e9e50132e0dd5773406ea36f8c9c09fcebfe732997999d48",
       "mode": "0o644"
     },
     {
@@ -474,7 +474,7 @@
     },
     {
       "path": "tests/test_lane_access.py",
-      "sha256": "0d6d96a1ea84129adcb7da2cc5020a8bbdc4362eb85b23c1fa43a91b0241b62e",
+      "sha256": "67a90c3adda14066ed24316d1cdf1e3ab05bb482cd60c720567a24100b68ef88",
       "mode": "0o644"
     },
     {

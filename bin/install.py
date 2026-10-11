@@ -3473,6 +3473,15 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             changes["modsState"] = "registered"
         if changes:
             update_mods_metadata(home, changes)
+    if "lane-guard" not in (old_metadata(home).get("modsInstalled") or []):
+        try:
+            access = provider_catalog.load_preferences(home)["reviewerAccess"]
+        except Exception:  # noqa: BLE001 - a notice must never fail an install
+            access = "full"
+        if access != "read-only":
+            print("Note: the lane-guard mod is not active, so nothing blocks fleet lanes (including reviewers, which can run "
+                  "commands) from git history, deploy, or migration commands. Turn it on with: "
+                  "claude plugin install lane-guard@agentfleet  (or keep reviewers read-only: agentfleet config reviewer-access read-only)")
     return 0
 
 

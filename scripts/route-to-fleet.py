@@ -76,10 +76,13 @@ PURGE_INTERVAL_SECONDS = 86_400
 # Anything that looks like a credential is masked before it can reach the log.
 SECRETS = re.compile(
     r"(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}"
+    r"|github_pat_[A-Za-z0-9_]{8,}|[sr]k_(?:live|test)_[A-Za-z0-9]{8,}"
+    r"|(?i:bearer)\s+\S+|(?<=://)[^/\s:@]+:[^/\s@]+(?=@)"
     r"|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{12,}"
     r"|[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
     r"|\b(?:\d[ -]*?){13,19}\b"
-    r"|(?i:(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[=:]\s*)\S+)"
+    r"|(?i:(?:password|passwd|secret|token|api[_-]?key|authorization|aws_secret_access_key|mysql_pwd|pgpassword)\s*[=:]\s*)(?:(?i:bearer|basic)\s+)?\S+"
+    r"|(?i:--password[= ])\S+|(?<=\s-p)\S{3,})"
 )
 
 
@@ -219,8 +222,13 @@ if fleet_watch is not None:
         watcher_lines = []
 
 
+pending_suggestion = None
+
+
 def emit_context(lines):
     lines = [line for line in lines if isinstance(line, str) and line]
+    if pending_suggestion and pending_suggestion not in lines:
+        lines.append(pending_suggestion)
     routing = [line for line in lines if line.startswith("Routing:")]
     suggestions = [line for line in lines if line.startswith("AgentFleet:")]
     notices = [line[:400] for line in lines if not line.startswith(("Routing:", "AgentFleet:"))]
@@ -245,6 +253,11 @@ def emit_context(lines):
                 "additionalContext": "\n".join(lines),
             }
         }))
+        if pending_suggestion and pending_suggestion in lines and fleet_suggest is not None:
+            try:
+                fleet_suggest.mark_notified(payload.get("cwd") or "", suggestion_home)
+            except Exception:
+                pass
 
 
 def leave(reason, prompt, lane=None):
@@ -268,14 +281,14 @@ if ALREADY_ROUTED.search(prompt):
 if INLINE.search(prompt):
     leave("inline-requested", prompt)
 
-suggestion_line = None
-if fleet_suggest is not None:
+suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+if fleet_suggest is not None and hasattr(fleet_suggest, "pending_notice"):
     try:
         cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
-        suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
-        suggestion_line = fleet_suggest.notice(cwd, suggestion_home)
+        # Recorded as shown by emit_context only once it is printed.
+        pending_suggestion = fleet_suggest.pending_notice(cwd, suggestion_home)
     except Exception:
-        suggestion_line = None
+        pending_suggestion = None
 
 # A leading "add/write tests" is test work; otherwise the earliest signal in the
 # prompt wins, so "add X and add tests" routes to implement, not tests.
@@ -340,4 +353,4 @@ context += (
 )
 
 record("routed", prompt, original_lane)
-emit_context(watcher_lines + ([suggestion_line] if suggestion_line else []) + [context])
+emit_context(watcher_lines + [context])

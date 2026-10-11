@@ -19,8 +19,8 @@ Run `claude-fleet-setup --audit --json` and `agentfleet profiles`. From them, no
 - **Profile:** the active profile, and whether it is `native` (Claude login) or a gateway.
 - **Live models:** from `live_models.models`: each model's `runtime_id` (the id lanes use; always pass this one to commands), `description`, `tier` (cheap / fast / balanced / deep), `context_length`, `reasoning`, `excluded`, and the lanes it serves (`primary_for`, `fallback_for`). Native profiles have no catalog; use `native_models` (`opus`, `sonnet`, `haiku`).
 - **Lanes:** from `lanes`: each lane's `tier`, `read_only`, `alt_of`, `description`, current `model`, `fallbacks`, and `preferred` pins. Excluded models are in `excluded_models`.
-- **Settings health:** stale `model`, `advisorModel`, or `env.ANTHROPIC_*_MODEL` values; configured compaction percentage and expected window from `compaction.percent` and `compaction.expected`.
-- **Plugins and MCP:** plugin and MCP health from `plugins` and `mcp`; when MCP servers are broken, note each server and its supplied fix hint.
+- **Settings health:** stale `model`, `advisorModel`, or `env.ANTHROPIC_*_MODEL` values; configured compaction percentage and expected window from `settings.compaction.percent` and `settings.compaction.expected`.
+- **Plugins and MCP:** plugin and MCP health from `health.plugins` and `health.mcp`; when MCP servers are broken, note each server and its supplied fix hint.
 - **Hooks:** any command whose executable or script is missing.
 - **Fleet:** lane count, which lanes carry an explicit `preferred` list, and how many live models serve as a primary or fallback somewhere.
 - **Agents and skills:** non-fleet agents grouped by category with their prompt-token cost; skills grouped by category.

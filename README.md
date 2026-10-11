@@ -412,7 +412,7 @@ install command (or an update) keeps the gateway you switched to.
 - `~/.claude/subagent-statusline.py` — native subagent status rendering.
 - `~/.claude/sync-provider-models.mjs` — startup hook for gateway model
   discovery and fleet reconciliation.
-- `~/.claude/sync-model-context.py` — PostModelSwitch/SessionStart hook that
+- `~/.claude/sync-model-context.py` — PreModelSwitch/PostModelSwitch hook that
   sets the auto-compact window to `compactPercent` of the model's context length
   and keeps `autoCompactWindow` paired with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Fail-open.
 - `~/.claude/provider_catalog.py` and `fleet-reconcile.py` — provider identity,
@@ -506,7 +506,7 @@ remembered, and `agentfleet update` honors the variable. `--mods` opts back in.
 AgentFleet sizes Claude Code's auto-compact window as a percentage of the active model's context length:
 
 - **Configured percentage**: `compactPercent` (default `70`, allowed range `40`–`95`, or `'off'`) in `~/.claude/agentfleet/config.json`.
-- **Startup and model switch**: The context watcher calculates the auto-compact window when Claude Code starts (via `fleet-reconcile.py` on the `SessionStart` model-sync hook) and when you switch models (via `sync-model-context.py`). Claude Code loads its compaction window at startup, so a model switch applies its new window upon restart.
+- **Startup and model switch**: The context watcher calculates the auto-compact window when Claude Code starts (via `fleet-reconcile.py` on the `SessionStart` model-sync hook for gateway profiles, and via the `agentfleet auto-update --hook` startup hook for native profiles) and when you switch models (via `sync-model-context.py`). Claude Code loads its compaction window at startup, so a model switch applies its new window upon restart.
 - **Native Claude profiles**: Profiles using direct Claude login (`native`) use a 1,000,000-token basis; smaller models retain their own smaller upper limits, ensuring compaction never triggers earlier than intended.
 - **Disabling or overriding**: Setting `compactPercent` to `off` instructs AgentFleet to leave the compaction window untouched. Passing `claude-fleet-setup --compaction <tokens>` sets an absolute token threshold and automatically switches `compactPercent` to `off`.
 - **Automatic migration**: On upgrade to 2.2.0, existing installations migrate from the previous static 800,000-token threshold to 70% of context.
@@ -525,9 +525,9 @@ claude-fleet-setup --compaction 300000   # absolute token override (disables per
 ## Outages and lane reports
 
 When a provider gateway responds to a lane model with a 5xx gateway error:
-- **Automatic outage tracking**: The failing model is marked as experiencing an outage for 15 minutes in `~/.claude/agentfleet/outages.json`.
-- **Intelligent failover**: AgentFleet's routing hook alerts the main agent and suggests a configured non-outage alternative lane with a different model. New prompts are routed away from the failing model while the outage record remains active.
-- **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, forbidden commands intercepted by `lane-guard`, and API errors, allowing the main agent to verify lane actions before merging.
+- **Automatic outage tracking**: When a lane's model fails with a 5xx gateway error, that lane is marked as failing for 15 minutes from the failure in `~/.claude/agentfleet/outages.json`.
+- **Intelligent failover**: AgentFleet's routing hook alerts the main agent and suggests a configured non-outage alternative lane with a different model. While the outage lasts, a request routed to that lane is sent to the alternative instead.
+- **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), and API errors, allowing the main agent to verify lane actions before merging.
 - **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.
 
 ---
@@ -549,7 +549,7 @@ The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current rep
 
 ## Privacy and routing policy
 
-- **Routing log**: The routing hook writes to a mode-0600 JSONL log (`~/.claude/agentfleet/routing.jsonl`). Routed entries record only lane name, routing reason, timestamp, and character count — never prompt text. A `no-match` entry stores at most a 160-character snippet with credential-shaped tokens redacted. Excerpts purge after 14 days; entries purge after 90 days. Rotates at 2,000,000 bytes. Fail-open.
+- **Routing log**: The routing hook writes to a mode-0600 JSONL log (`~/.claude/routing-log.jsonl`). Routed entries record only lane name, routing reason, timestamp, and character count — never prompt text. A `no-match` entry stores at most a 160-character snippet with credential-shaped tokens redacted. Excerpts purge after 14 days; entries purge after 90 days. Rotates at 2,000,000 bytes. Fail-open.
 - **Outages, reports, and suggestions**: Outage records (`outages.json`), subagent execution logs (`lane-reports.jsonl`), and suggestions metadata stay completely local to your machine.
 - **Usage learning opt-in**: Learning (`agentfleet config learn on`) is disabled by default. When enabled, it records only sanitized command names, tool identifiers, doc URLs, and slash commands without prompt text in `~/.claude/agentfleet/usage/`.
 - **Local mod safety**: `fleet-status` and `lane-guard` run locally, access no external network, and never read `settings.json`, profiles, or secrets.
