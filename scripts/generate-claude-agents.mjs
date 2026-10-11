@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 
 const projectArgIndex = process.argv.indexOf("--project");
 const projectDir = projectArgIndex >= 0 && process.argv[projectArgIndex + 1] ? resolve(process.argv[projectArgIndex + 1]) : null;
@@ -743,7 +743,36 @@ try {
 }
 
 let fleetRaw, fleet;
+// Project agents land in <project>/.claude/agents, and stale ones there are
+// pruned. A symlinked .claude or agents directory, or a project whose .claude
+// resolves to the global one, would write into (and prune) the global fleet.
+function checkProjectTarget(dir) {
+  for (const path of [join(dir, ".claude"), join(dir, ".claude", "agents")]) {
+    let stat;
+    try {
+      stat = lstatSync(path);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      fail(`cannot inspect ${path}: ${error.message}`);
+    }
+    if (stat.isSymbolicLink()) fail(`refusing project overrides through symlinked ${path}`);
+  }
+  const real = (path) => {
+    try {
+      return realpathSync.native(path);
+    } catch {
+      return resolve(path);
+    }
+  };
+  const projectClaude = real(join(dir, ".claude"));
+  const globalClaude = real(join(home, ".claude"));
+  if (projectClaude === globalClaude || projectClaude.startsWith(globalClaude + sep)) {
+    fail(`refusing project overrides inside the global Claude directory: ${projectClaude}`);
+  }
+}
+
 if (projectDir) {
+  checkProjectTarget(projectDir);
   const localFleetPath = join(projectDir, ".claude", "fleet.local.json");
   fleet = { version: globalFleet.version, integrations: globalFleet.integrations, lanes: {} };
   let hasOverrides = false;

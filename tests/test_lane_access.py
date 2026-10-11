@@ -287,3 +287,29 @@ class TestLaneAccess(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
+
+
+class ProjectTargetSafetyTests(unittest.TestCase):
+    """A project whose .claude points at the global one must never be written or pruned."""
+
+    @unittest.skipIf(shutil.which("node") is None, "Node.js is required")
+    def test_symlinked_project_claude_is_refused_and_global_agents_survive(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            home, project = root / "home", root / "project"
+            (home / ".claude" / "agents").mkdir(parents=True)
+            project.mkdir()
+            (project / ".claude").symlink_to(home / ".claude", target_is_directory=True)
+            (home / ".claude" / "settings.json").write_text(json.dumps({"model": "opus", "modelPicker": {"options": [{"model": "opus"}, {"model": "sonnet"}]}}), encoding="utf-8")
+            (home / ".claude" / "fleet.json").write_text(json.dumps({"version": "delegate-fleet.v1", "lanes": {
+                "implement": {"implementer": "claude", "model": "sonnet"},
+                "plan": {"implementer": "claude", "model": "opus", "readOnly": True},
+            }}), encoding="utf-8")
+            generator = Path(__file__).resolve().parent.parent / "scripts" / "generate-claude-agents.mjs"
+            base = ["node", str(generator), "--home", str(home), "--config-home", str(root / "config"), "--quiet"]
+            self.assertEqual(subprocess.run(base, capture_output=True, text=True).returncode, 0)
+            (home / ".claude" / "fleet.local.json").write_text(json.dumps({"version": "delegate-fleet.local.v1", "lanes": {"plan": {"model": "sonnet"}}}), encoding="utf-8")
+            refused = subprocess.run(base + ["--project", str(project)], capture_output=True, text=True)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("symlinked", refused.stderr)
+            self.assertEqual(sorted(path.name for path in (home / ".claude" / "agents").iterdir()), ["fleet-implement.md", "fleet-plan.md"])

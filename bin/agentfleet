@@ -511,6 +511,26 @@ def _write_auto_update_state(paths: Paths, state: dict) -> None:
     atomic_write(_auto_update_state_path(paths), json_bytes(state), 0o600)
 
 
+def _update_auto_update_state(paths: Paths, mutate, timeout: float, required: bool = False) -> bool:
+    """Read-modify-write auto-update.json under the shared lock, so a write
+    never undoes a concurrent one (an `auto-update off` most of all).
+
+    ``mutate`` changes the freshly read state in place and returns False to
+    skip the write. Without the lock, a required write still happens (losing
+    a report is worse than racing); an optional one is skipped."""
+    fd, lock = provider_catalog.acquire_lock(paths.home, timeout=timeout)
+    if fd is None and not required:
+        return False
+    try:
+        state = _read_auto_update_state(paths)
+        if mutate(state) is not False:
+            _write_auto_update_state(paths, state)
+        return True
+    finally:
+        if fd is not None:
+            provider_catalog.release_lock(fd, lock)
+
+
 def self_heal_markers(paths: Paths, settings: dict | None) -> None:
     """Silently restore AgentFleet's status markers without changing update intent."""
     try:
@@ -523,11 +543,12 @@ def self_heal_markers(paths: Paths, settings: dict | None) -> None:
     except Exception:
         pass
     try:
-        state_path = _auto_update_state_path(paths)
-        state = _read_auto_update_state(paths)
-        if not state_path.is_file() or "enabled" not in state:
+        def record_default(state: dict) -> bool:
+            if "enabled" in state:
+                return False
             state["enabled"] = True
-            _write_auto_update_state(paths, state)
+            return True
+        _update_auto_update_state(paths, record_default, timeout=0.5)
     except Exception:
         pass
 
@@ -1028,8 +1049,20 @@ def cmd_suggest(paths: Paths, args: argparse.Namespace) -> int:
     return fleet_suggest.main(forwarded)
 
 
+def check_project_target(paths: Paths, project_dir: Path) -> None:
+    """Refuse a project whose .claude (or its agents directory) is a symlink
+    or resolves to the global ~/.claude: project agents written or pruned
+    there would replace the global fleet."""
+    for path in (project_dir / ".claude", project_dir / ".claude" / "agents"):
+        if path.is_symlink():
+            die(f"refusing project overrides through symlinked {path}")
+    if (project_dir / ".claude").resolve() == paths.claude.resolve():
+        die(f"{project_dir} uses your global Claude directory; project overrides need a project of their own")
+
+
 def cmd_project_pin(paths: Paths, args: argparse.Namespace) -> int:
     project_dir = Path(args.dir).expanduser().resolve() if getattr(args, "dir", None) else Path.cwd().resolve()
+    check_project_target(paths, project_dir)
     lane = args.lane
     if lane.startswith("fleet-"):
         lane = lane[len("fleet-"):]
@@ -1086,6 +1119,7 @@ def cmd_project_pin(paths: Paths, args: argparse.Namespace) -> int:
 
 def cmd_project_unpin(paths: Paths, args: argparse.Namespace) -> int:
     project_dir = Path(args.dir).expanduser().resolve() if getattr(args, "dir", None) else Path.cwd().resolve()
+    check_project_target(paths, project_dir)
     lane = args.lane
     if lane.startswith("fleet-"):
         lane = lane[len("fleet-"):]
@@ -1338,10 +1372,9 @@ def _auto_update_run(paths: Paths, version: str) -> None:
             ok = False
             _append_log(log_path, f"[{_now_iso()}] auto-update failed: {version}: {exc}\n")
 
-        state = _read_auto_update_state(paths)
-        state["lastResult"] = {"version": version, "ok": ok, "time": _now_iso()}
-        state["reported"] = False
-        _write_auto_update_state(paths, state)
+        result = {"version": version, "ok": ok, "time": _now_iso()}
+        _update_auto_update_state(paths, lambda state: state.update(lastResult=result, reported=False),
+                                  timeout=LOCK_TIMEOUT, required=True)
     finally:
         if fd >= 0:
             try:
@@ -1360,16 +1393,14 @@ def cmd_auto_update(paths: Paths, args: argparse.Namespace) -> int:
     au_version = args.run
 
     if subcommand == "on":
-        state = _read_auto_update_state(paths)
-        state["enabled"] = True
-        _write_auto_update_state(paths, state)
+        if not _update_auto_update_state(paths, lambda state: state.update(enabled=True), timeout=LOCK_TIMEOUT):
+            die(f"another fleet writer is busy; try again in a moment (lock: {provider_catalog.lock_path(paths.home)})")
         print("AgentFleet auto-update enabled.")
         return 0
 
     if subcommand == "off":
-        state = _read_auto_update_state(paths)
-        state["enabled"] = False
-        _write_auto_update_state(paths, state)
+        if not _update_auto_update_state(paths, lambda state: state.update(enabled=False), timeout=LOCK_TIMEOUT):
+            die(f"another fleet writer is busy; try again in a moment (lock: {provider_catalog.lock_path(paths.home)})")
         print("AgentFleet auto-update disabled.")
         return 0
 
@@ -1444,8 +1475,7 @@ def _auto_update_hook(paths: Paths) -> None:
         else:
             log_path = _auto_update_log(paths)
             print(f"AgentFleet auto-update to {ver} failed; see {log_path}")
-        state["reported"] = True
-        _write_auto_update_state(paths, state)
+        _update_auto_update_state(paths, lambda current: current.update(reported=True), timeout=2.0, required=True)
         return
 
     # 1b. Check disabled
@@ -1471,10 +1501,9 @@ def _auto_update_hook(paths: Paths) -> None:
 
     # 1e. Fetch latest.json
     latest_version = _fetch_latest_version(paths)
-    state["lastCheck"] = _now_iso()
-    if latest_version:
-        state["latestSeen"] = latest_version
-    _write_auto_update_state(paths, state)
+    checked = {"lastCheck": _now_iso(), **({"latestSeen": latest_version} if latest_version else {})}
+    state.update(checked)
+    _update_auto_update_state(paths, lambda current: current.update(checked), timeout=2.0, required=True)
 
     if not latest_version:
         return
@@ -1496,8 +1525,8 @@ def _auto_update_hook(paths: Paths) -> None:
         major_notified = state.get("majorNotified", "")
         if major_notified != latest_version:
             print(f"AgentFleet {latest_t[0]}.0.0 is available; run agentfleet update to upgrade.")
-            state["majorNotified"] = latest_version
-            _write_auto_update_state(paths, state)
+            _update_auto_update_state(paths, lambda current: current.update(majorNotified=latest_version),
+                                      timeout=2.0, required=True)
         return
 
     # Same major, newer: spawn (or run sync for tests)

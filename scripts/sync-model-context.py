@@ -87,6 +87,23 @@ def update_context(
 ) -> dict | None:
     if not isinstance(payload, dict):
         return None
+    # Take the shared lock before reading anything: the profile, model and
+    # endpoint decide every value written below, and another writer (a
+    # profile switch, the installer) must not change them in between.
+    fd = None
+    lock_path = None
+    if not already_locked:
+        fd, lock_path = acquire_lock(home, timeout=0.75)
+        if fd is None:
+            return None
+    try:
+        return _update_context_locked(payload, home, config_home, percent_override)
+    finally:
+        if fd is not None and lock_path is not None:
+            release_lock(fd, lock_path)
+
+
+def _update_context_locked(payload: dict, home: Path, config_home: Path, percent_override: object) -> dict | None:
     settings_path = home / ".claude" / "settings.json"
     cache_path = home / ".claude" / "cache" / "provider-models-cache.json"
     policy_path = config_home / "delegate-skills" / "provider-policy.json"
@@ -126,12 +143,6 @@ def update_context(
         return None
     value = str(budget)
 
-    fd = None
-    lock_path = None
-    if not already_locked:
-        fd, lock_path = acquire_lock(home, timeout=0.75)
-        if fd is None:
-            return None
     temp = settings_path.with_name(settings_path.name + ".tmp." + str(os.getpid()) + "." + secrets.token_hex(6))
     try:
         try:
@@ -175,9 +186,6 @@ def update_context(
         except OSError:
             pass
         return None
-    finally:
-        if fd is not None and lock_path is not None:
-            release_lock(fd, lock_path)
 
     result = {"model": model.strip(), "percent": percent, "window": budget, "native": native, "changed": changed}
     event = payload.get("hook_event_name")

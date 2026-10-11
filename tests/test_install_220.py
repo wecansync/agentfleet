@@ -361,6 +361,30 @@ class Install220Tests(unittest.TestCase):
         settings_after = json.loads(settings_path.read_text())
         self.assertEqual(settings_after.get("autoCompactWindow"), 600000)
         self.assertEqual(settings_after.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "600000")
+        # The native window is recorded as the user's own, so the startup
+        # hook (which sizes native windows since 2.2.0) leaves it alone too.
+        self.assertIn("Kept your auto-compact window (600000 tokens)", up.stdout)
+        prefs = json.loads((home / ".claude" / "agentfleet" / "config.json").read_text())
+        self.assertEqual(prefs.get("compactPercent"), "off")
+        hook = subprocess.run([PYTHON, "-B", str(home / ".claude" / "agentfleet.py"), "--home", str(home), "--config-home", str(home / ".config"), "auto-update", "--hook"],
+                              env={**self.env_for(home), "AGENTFLEET_AUTO_UPDATE": "0"}, text=True, capture_output=True)
+        self.assertEqual(hook.returncode, 0, hook.stderr)
+        self.assertEqual(json.loads(settings_path.read_text()).get("autoCompactWindow"), 600000)
+
+    def test_already_listed_default_is_recorded_so_a_removal_sticks(self):
+        # lane-guard was installed (and disabled) before AgentFleet first saw it.
+        self.set_fake_state(new_state(plugins=[{"id": "lane-guard@agentfleet", "enabled": False}]))
+        home = self.home_for()
+        first = self.install(home)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        self.assertIn("lane-guard", self.metadata(home).get("modsInstalled", []))
+        # The user then removes it; the next update must not bring it back.
+        state = json.loads(self.state_path.read_text())
+        state["plugins"] = [item for item in state["plugins"] if item.get("id") != "lane-guard@agentfleet"]
+        self.set_fake_state(state)
+        again = self.install(home)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertNotIn(["plugin", "install", "lane-guard@agentfleet"], [call["argv"] for call in self.calls()])
 
     def test_compact_percent_off_prevents_refresh_of_bundle_owned_pair(self):
         home = self.home_for()

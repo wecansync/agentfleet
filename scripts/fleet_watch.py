@@ -62,12 +62,12 @@ FALLBACKS = {
     "docs": ("ui", "implement"),
     "tests": ("implement",),
     "ui": ("implement",),
-    "implement": ("implement-alt",),
+    "implement": ("implement-alt", "implement-deep"),
     "plan": ("plan-alt",),
     "plan-alt": ("plan",),
-    "review": ("review-alt",),
-    "review-alt": ("review",),
-    "review-deep": ("review",),
+    "review": ("review-alt", "review-deep"),
+    "review-alt": ("review", "review-deep"),
+    "review-deep": ("review", "review-alt"),
     "security-review": ("review-deep",),
     "diagnose-static": ("review",),
     "explore-narrow": ("research-codebase",),
@@ -76,6 +76,15 @@ FALLBACKS = {
     "research-web": (),
 }
 WRAPPERS = {"sudo", "command", "env", "time", "nohup", "exec"}
+
+
+# Stop reasons that end a lane's turn; a record without one is mid-message.
+TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "refusal"}
+OUTAGE_MINUTES = 15
+# A transcript idle this long ended without a final message (killed, turn limit).
+IDLE_DONE_SECONDS = 30 * 60
+# An agent first seen this long after its last write finished before this watcher ran.
+HISTORY_SECONDS = 60 * 60
 
 
 def _utcnow() -> datetime:
@@ -471,7 +480,7 @@ def _migration(words: list[str], program: str) -> bool:
             return True
         return action == "db:wipe"
     if program in {"rails", "rake"}:
-        return bool(args and args[0] in {"db:migrate", "db:drop", "db:reset", "db:rollback", "db:setup", "schema:load"})
+        return bool(args and args[0] in {"db:migrate", "db:drop", "db:reset", "db:rollback", "db:setup", "db:schema:load"})
     if program == "prisma":
         return len(args) >= 2 and ((args[0] == "migrate" and args[1] in {"dev", "deploy", "reset"}) or args[:2] == ["db", "push"])
     if program == "alembic":
@@ -696,6 +705,10 @@ def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, cal
     budget[0] += len(data)
     complete_end = data.rfind(b"\n") + 1
     if complete_end <= 0:
+        if len(data) >= SCAN_MAX_BYTES:
+            # One line larger than a whole scan would stall every later scan:
+            # skip it; the rest of it fails to parse and is ignored too.
+            return offset + len(data), len(data)
         # Keep the offset at the partial line; the bounded read still counts.
         return offset, 0
     processed = 0
@@ -731,8 +744,12 @@ def _new_agent_state(agent_id: str, lane: str, description: str) -> dict:
         "isApiError": False,
         "apiMessage": "",
         "toolCalls": 0,
-        "usage": {},
-        "seenMessageIds": [],
+        "usageIn": 0,
+        "usageOut": 0,
+        "usageId": "",
+        "usageIdIn": 0,
+        "usageIdOut": 0,
+        "lastStopReason": None,
         "firstAt": None,
         "lastAt": None,
         "model": "",
@@ -762,14 +779,17 @@ def _agent_record(state: dict, record: dict, cwd: object) -> None:
     message_id = message.get("id")
     usage = message.get("usage")
     if isinstance(message_id, str) and isinstance(usage, dict):
-        seen_ids = state.get("seenMessageIds") if isinstance(state.get("seenMessageIds"), list) else []
-        if message_id not in seen_ids:
-            state["usage"][message_id] = {
-                "input": max(0, _as_int(usage.get("input_tokens"))),
-                "output": max(0, _as_int(usage.get("output_tokens"))),
-            }
-            seen_ids.append(message_id)
-            state["seenMessageIds"] = seen_ids[-5000:]
+        # One API message spans consecutive records (thinking, text, tool_use)
+        # and only the later ones carry its final counts: keep the largest
+        # per message, and fold it into the totals when the next one starts.
+        if message_id != state.get("usageId"):
+            state["usageIn"] = _as_int(state.get("usageIn")) + _as_int(state.get("usageIdIn"))
+            state["usageOut"] = _as_int(state.get("usageOut")) + _as_int(state.get("usageIdOut"))
+            state["usageId"], state["usageIdIn"], state["usageIdOut"] = message_id, 0, 0
+        state["usageIdIn"] = max(_as_int(state.get("usageIdIn")), max(0, _as_int(usage.get("input_tokens"))))
+        state["usageIdOut"] = max(_as_int(state.get("usageIdOut")), max(0, _as_int(usage.get("output_tokens"))))
+    stop_reason = message.get("stop_reason")
+    state["lastStopReason"] = stop_reason if isinstance(stop_reason, str) else None
     content = message.get("content")
     content = content if isinstance(content, list) else []
     tool_uses = [block for block in content if isinstance(block, dict) and block.get("type") == "tool_use"]
@@ -869,7 +889,12 @@ def _report_payload(session_id: str, state: dict, home: Path | None = None) -> d
     started = _parse_time(state.get("firstAt"))
     ended = _parse_time(state.get("lastAt"))
     duration = max(0, int((ended - started).total_seconds())) if started and ended else 0
-    unique_usage = {key: item for key, item in usage.items() if isinstance(item, dict)}
+    # States written before usage totals existed kept a per-message dict.
+    legacy = [item for item in usage.values() if isinstance(item, dict)]
+    input_tokens = (_as_int(state.get("usageIn")) + _as_int(state.get("usageIdIn"))
+                    + sum(max(0, _as_int(item.get("input"))) for item in legacy))
+    output_tokens = (_as_int(state.get("usageOut")) + _as_int(state.get("usageIdOut"))
+                     + sum(max(0, _as_int(item.get("output"))) for item in legacy))
     return {
         "at": _iso(),
         "session": session_id,
@@ -884,8 +909,8 @@ def _report_payload(session_id: str, state: dict, home: Path | None = None) -> d
         ],
         "apiError": _as_int(state.get("apiError")) or None,
         "toolCalls": max(0, _as_int(state.get("toolCalls"))),
-        "inputTokens": sum(max(0, _as_int(item.get("input"))) for item in unique_usage.values()),
-        "outputTokens": sum(max(0, _as_int(item.get("output"))) for item in unique_usage.values()),
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
         "durationSeconds": duration,
     }
 
@@ -941,8 +966,9 @@ def _outage_for(home: Path, lane: str) -> dict | None:
     return current_outages(home).get("lanes", {}).get(_clean_lane(lane))
 
 
-def alternative_lane(home: Path, lane: str) -> str | None:
-    """Choose a configured, non-outage lane on a different model."""
+def alternative_lane(home: Path, lane: str, outages: dict | None = None) -> str | None:
+    """Choose a configured, non-outage lane on a different model. ``outages``
+    (lane -> entry) replaces the stored set while a scan is recording new ones."""
     primary = _clean_lane(lane)
     if not primary:
         return None
@@ -958,7 +984,7 @@ def alternative_lane(home: Path, lane: str) -> str | None:
     candidates.extend(candidate for candidate in FALLBACKS.get(primary, ()) if candidate not in candidates)
     if primary.startswith("implement-") and "implement" not in candidates:
         candidates.append("implement")
-    outage_lanes = current_outages(home).get("lanes", {})
+    outage_lanes = outages if outages is not None else current_outages(home).get("lanes", {})
     failing_row = lane_rows.get(primary, {})
     failing_model = failing_row.get("model") if isinstance(failing_row, dict) else None
     for candidate in candidates:
@@ -1054,8 +1080,20 @@ def _forbidden_item(command: str) -> dict | None:
     return {"rule": reason, "command": _clean_text(command, 160)}
 
 
+def _usage_key_path(cwd_string: str) -> str:
+    try:
+        return str(Path(cwd_string).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        return cwd_string
+
+
+# Claude Code logs a slash command as <command-name>/compact</command-name>.
+COMMAND_TAG = re.compile(r"<command-name>\s*(/[^<\s]{1,39})\s*</command-name>")
+
+
 def _usage_path(home: Path, cwd_string: str) -> Path:
-    key = hashlib.sha256(cwd_string.encode("utf-8", errors="replace")).hexdigest()[:16]
+    # The resolved path, so a symlinked checkout shares fleet_suggest's key.
+    key = hashlib.sha256(_usage_key_path(cwd_string).encode("utf-8", errors="replace")).hexdigest()[:16]
     return _store(home) / "usage" / f"{key}.json"
 
 
@@ -1120,9 +1158,15 @@ def _usage_record(data: dict, record: dict, session_id: str, now: str) -> None:
                     pass
     elif kind == "user":
         content = message.get("content")
+        if isinstance(content, list):
+            content = " ".join(block.get("text", "") for block in content
+                               if isinstance(block, dict) and isinstance(block.get("text"), str))
         if isinstance(content, str):
             text = content.strip()
-            if text.startswith("/"):
+            tagged = COMMAND_TAG.search(text)
+            if tagged:
+                _usage_increment(data, "commands", tagged.group(1)[:40], session_id, now)
+            elif text.startswith("/"):
                 name = text.split(None, 1)[0][:40]
                 _usage_increment(data, "commands", name, session_id, now)
 
@@ -1162,8 +1206,7 @@ def _learn_main(home: Path, session: dict, payload: dict, session_id: str, cwd_s
     main_state = session.get("main")
     if not isinstance(main_state, dict) or main_state.get("path") != str(path):
         main_state = {"path": str(path), "offset": 0}
-    cwd_path = _resolve_file(cwd_string, None) or cwd_string
-    data = _usage_load(_usage_path(home, cwd_string), cwd_path)
+    data = _usage_load(_usage_path(home, cwd_string), _usage_key_path(cwd_string))
     now_dt = _utcnow()
     now = _iso(now_dt)
 
@@ -1203,7 +1246,6 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
     if not isinstance(agents, dict):
         agents = {}
         session["agents"] = agents
-    system_event = _system_envelope(payload)
     budget = [0]
     deadline = time.monotonic() + SCAN_MAX_SECONDS
     lines: list[str] = []
@@ -1223,7 +1265,8 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
             continue
         agent_path = str(file_path.resolve(strict=False))
         agent = agents.get(agent_path)
-        if not isinstance(agent, dict):
+        is_new = not isinstance(agent, dict)
+        if is_new:
             agent = _new_agent_state(agent_id, lane, description)
             agents[agent_path] = agent
         else:
@@ -1237,23 +1280,31 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         offset = max(0, _as_int(agent.get("offset")))
         if current_size < offset:
             offset = 0
-            agent["offset"] = 0
-            agent["usage"] = {}
-            agent["seenMessageIds"] = []
-            agent["files"] = []
-            agent["forbidden"] = []
-            agent["toolCalls"] = 0
-            agent["apiError"] = None
-            agent["isApiError"] = False
-            agent["reported"] = False
-            agent["done"] = False
+            agent.update(_new_agent_state(agent_id, lane, description))
+        try:
+            idle_seconds = time.time() - file_path.stat().st_mtime
+        except OSError:
+            idle_seconds = 0.0
+        if is_new and idle_seconds > HISTORY_SECONDS:
+            # Finished long before this watcher first saw it (the first prompt
+            # after an update, or a session resumed after its state expired):
+            # record it as handled without reports, notices, or outages.
+            agent["offset"] = current_size
+            agent["size"] = current_size
+            agent["done"] = agent["reported"] = True
+            continue
         new_offset, _ = _iter_jsonl(file_path, offset, budget, deadline,
                                    lambda row, target=agent: _agent_record(target, row, cwd))
         agent["offset"] = new_offset
-        grew = prior_size < 0 or current_size > prior_size
         agent["size"] = current_size
-        has_terminal = bool(agent.get("lastAssistantSeen")) and (not agent.get("lastAssistantHasToolUse") or bool(agent.get("isApiError")))
-        if has_terminal and ((not grew) or system_event):
+        consumed = new_offset >= current_size
+        finished = agent.get("lastStopReason") in TERMINAL_STOP_REASONS or bool(agent.get("isApiError"))
+        # Done only once the whole file is read and the lane's last message
+        # ended its turn (or failed). Records before the last block of a
+        # message carry no stop reason, so a pause mid-message is not an end.
+        # A lane that stopped without a final message (killed, turn limit)
+        # is done once its transcript has been idle for a long time.
+        if consumed and agent.get("lastAssistantSeen") and (finished or idle_seconds > IDLE_DONE_SECONDS):
             agent["done"] = True
         if agent.get("done") and not agent.get("reported"):
             row = _report_payload(session_id, agent, home)
@@ -1261,25 +1312,34 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
                 agent["reported"] = True
                 lane_name = row["lane"]
                 error = row["apiError"]
-                eligible_failure = isinstance(error, int) and (500 <= error <= 599 or error == 529)
-                if eligible_failure:
-                    at = _utcnow()
-                    outage = {
-                        "model": row["model"],
-                        "status": error,
-                        "message": _clean_text(agent.get("apiMessage", ""), 160),
-                        "at": _iso(at),
-                        "until": _iso(at + timedelta(minutes=15)),
-                    }
-                    outage_data[lane_name] = outage
-                    if lane_name not in old_outages:
-                        lines.append(_outage_line(lane_name, outage, alternative_lane(home, lane_name)))
-                else:
-                    outage_data.pop(lane_name, None)
+                ended = _parse_time(agent.get("lastAt")) or _utcnow()
+                if isinstance(error, int) and (500 <= error <= 599 or error == 529):
+                    until = ended + timedelta(minutes=OUTAGE_MINUTES)
+                    known = _parse_time((outage_data.get(lane_name) or {}).get("at"))
+                    if until > _utcnow() and (known is None or ended >= known):
+                        outage_data[lane_name] = {
+                            "model": row["model"],
+                            "status": error,
+                            "message": _clean_text(agent.get("apiMessage", ""), 160),
+                            "at": _iso(ended),
+                            "until": _iso(until),
+                        }
+                elif not agent.get("isApiError"):
+                    # Only a run that ended after the failure proves the lane works again.
+                    failed_at = _parse_time((outage_data.get(lane_name) or {}).get("at"))
+                    if failed_at is not None and ended > failed_at:
+                        outage_data.pop(lane_name, None)
                 lane_notice = _lane_line({**row, "apiMessage": agent.get("apiMessage", ""), "isApiError": agent.get("isApiError", False)}, cwd)
                 if lane_notice:
                     lines.append(lane_notice)
-    # Expired entries are removed the next time any report updates the outage store.
+    # Alternatives are chosen once every failure of this scan is known, so two
+    # lanes failing together never recommend each other; the choice is stored
+    # for the fleet-status mod to show.
+    for lane_name, outage in outage_data.items():
+        if lane_name not in old_outages or "alternative" not in outage:
+            outage["alternative"] = alternative_lane(home, lane_name, outage_data)
+            if lane_name not in old_outages:
+                lines.append(_outage_line(lane_name, outage, outage["alternative"]))
     live = current_outages(home).get("lanes", {})
     if outage_data != live:
         _write_outages(home, outage_data)

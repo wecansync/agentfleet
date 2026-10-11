@@ -404,15 +404,23 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
             isinstance(item, dict) and item.get("id") == plugin_id
             for item in plugins
         )
-        if not already_in_cli and not already_in_meta:
-            result = run_claude(executable, home, "plugin", "install", plugin_id)
-            if result is None or result.returncode != 0:
-                print_mod_manual(mods_dir)
-                return True, False
-            if name == "lane-guard":
-                print("Added the lane-guard mod: fleet lanes can no longer commit, push, deploy, run migrations or destructive SQL, or revert the working tree. Turn it off with /plugin.")
+        if already_in_cli:
+            # Present already (perhaps disabled): its first registration is
+            # done, so a later removal by the user must not bring it back.
             if name not in installed:
                 installed.append(name)
+            continue
+        if already_in_meta:
+            continue
+        result = run_claude(executable, home, "plugin", "install", plugin_id)
+        if result is None or result.returncode != 0:
+            update_mods_metadata(home, {"modsInstalled": installed})
+            print_mod_manual(mods_dir)
+            return True, False
+        if name == "lane-guard":
+            print("Added the lane-guard mod: fleet lanes can no longer commit, push, deploy, run migrations or destructive SQL, or revert the working tree. Turn it off with /plugin.")
+        if name not in installed:
+            installed.append(name)
     update_mods_metadata(home, {"modsInstalled": installed})
     return True, True
 
@@ -1059,6 +1067,30 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
         if compact_percent != "off":
             set_top(effective_window)
             set_env(effective_window)
+
+
+def user_owned_compaction_window(existing: dict, previous: dict, home: Path) -> int | None:
+    """The window of a matching compaction pair the user set by hand, when no
+    compaction preference exists yet; None otherwise.
+
+    Until 2.2.0 nothing rewrote the window of a profile without a gateway, so
+    such a pair that differs from what the installer last wrote is the user's
+    own choice, and the startup watcher must keep leaving it alone."""
+    if provider_catalog.preferences_path(home).exists():
+        return None
+    env = existing.get("env") if isinstance(existing.get("env"), dict) else {}
+    top = compact_number(existing.get("autoCompactWindow"))
+    paired = compact_number(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"))
+    if top is None or top != paired:
+        return None
+    prior = previous_journal_map(previous)
+    owned = (prior_installed_matches(prior, "value:autoCompactWindow", existing.get("autoCompactWindow"))
+             and prior_installed_matches(prior, "value:env:CLAUDE_CODE_AUTO_COMPACT_WINDOW", env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")))
+    # Earlier bundle defaults are never a user's own choice, even when the
+    # journal of an old install did not record them.
+    if owned or top in {800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV), AUTO_COMPACT_WINDOW}:
+        return None
+    return top
 
 
 def set_nested(value: dict, path: list[str], item: object) -> None:
@@ -3268,6 +3300,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     except (OSError, UnicodeError):
         switched_to_native = False
     gateway_mode, gateway_state = determine_gateway(args, previous, existing, not dry, switched_to_native)
+    kept_window = None if dry else user_owned_compaction_window(existing, previous, home)
     # Require full gateway credentials before constructing any output. Dry-run
     # never prompts, but it may validate/read an explicitly named token
     # environment variable so the preview can render the gateway profile.
@@ -3413,6 +3446,12 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
                 store.rmdir()
         return 1
     print(f"Installed AgentFleet {version} ({profile}) under {home}")
+    if kept_window is not None and not gateway_mode:
+        try:
+            provider_catalog.write_preferences(home, {"compactPercent": "off"})
+            print(f"Kept your auto-compact window ({kept_window} tokens). To size it from each model's context instead: agentfleet config compact 70")
+        except (OSError, ValueError) as exc:
+            print(f"Could not record your auto-compact window as your own ({exc}); keep it with: agentfleet config compact off")
     in_path = str(bin_dir) in os.environ.get("PATH", "").split(os.pathsep)
     if not in_path:
         print(f"Tip: add {bin_dir} to your PATH to run agentfleet, claude-fleet-setup, claude-fleet-sync, and claude-agents-doctor directly.")

@@ -93,7 +93,7 @@ class FleetWatchTests(unittest.TestCase):
             assistant("done", [tool("Bash", {"command": "git restore -- site/index.html"})]),
             assistant("final", []),
         ])
-        self.assertEqual(fleet_watch.on_prompt(self.payload(), self.home), [])
+        # Reported as soon as the transcript is fully read and the last message ended its turn.
         lines = fleet_watch.on_prompt(self.payload(), self.home)
         self.assertEqual(len(lines), 1)
         self.assertIn("fleet-tests", lines[0])
@@ -104,17 +104,17 @@ class FleetWatchTests(unittest.TestCase):
         self.assertEqual(fleet_watch.on_prompt(self.payload(), self.home), [])
         self.assertEqual(len(report.read_text(encoding="utf-8").splitlines()), 1)
 
-    def test_usage_message_usage_once_when_records_repeat_id(self):
+    def test_usage_counts_each_message_once_at_its_final_value(self):
         self.write_records(self.agent, [
             assistant("same", [], usage={"input_tokens": 5, "output_tokens": 2}),
             assistant("same", [], usage={"input_tokens": 500, "output_tokens": 200}),
             assistant("final", []),
         ])
         fleet_watch.on_prompt(self.payload(), self.home)
-        fleet_watch.on_prompt(self.payload(), self.home)
         rows = (self.home / ".claude" / "agentfleet" / "lane-reports.jsonl").read_text().splitlines()
         report = json.loads(rows[0])
-        self.assertEqual((report["inputTokens"], report["outputTokens"]), (15, 5))
+        # The later record of a message carries its final counts: 500 + 10 in, 200 + 3 out.
+        self.assertEqual((report["inputTokens"], report["outputTokens"]), (510, 203))
 
     def test_outage_alternative_selection_clearing_expiry_and_alt_of(self):
         self._fleet({
@@ -143,21 +143,52 @@ class FleetWatchTests(unittest.TestCase):
         self.assertFalse(fleet_watch.current_outages(self.home)["lanes"])
 
         self.meta.write_text(json.dumps({"agentType": "fleet-docs", "description": "Docs"}), encoding="utf-8")
+        just_now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         failure = rec("assistant", {"id": "api", "role": "assistant", "model": "<synthetic>",
-            "content": [{"type": "text", "text": "API Error: 503 Service temporarily unavailable"}], "usage": {}})
+            "content": [{"type": "text", "text": "API Error: 503 Service temporarily unavailable"}], "usage": {}}, timestamp=just_now)
         # The synthetic API error is the last record a failed subagent writes.
         self.write_records(self.agent, [failure])
-        fleet_watch.on_prompt(self.payload(), self.home)
         lines = fleet_watch.on_prompt(self.payload(), self.home)
         self.assertTrue(any("AgentFleet outage" in line and "dispatch fleet-docs-alt" in line for line in lines), lines)
         self.assertEqual(fleet_watch.current_outages(self.home)["lanes"]["docs"]["status"], 503)
         # A later run of the same lane that succeeds clears the outage.
         retry = self.agent_dir / "agent-bd41f2.jsonl"
         (self.agent_dir / "agent-bd41f2.meta.json").write_text(json.dumps({"agentType": "fleet-docs", "description": "Docs retry"}), encoding="utf-8")
-        self.write_records(retry, [assistant("success", [])])
+        older = assistant("older-success", [])
+        later = {**assistant("success", []), "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat().replace("+00:00", "Z")}
+        # A run that ended before the failure proves nothing.
+        self.write_records(retry, [older])
         fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertIn("docs", fleet_watch.current_outages(self.home)["lanes"])
+        # A run that ends after it clears the outage.
+        second = self.agent_dir / "agent-ce52a3.jsonl"
+        (self.agent_dir / "agent-ce52a3.meta.json").write_text(json.dumps({"agentType": "fleet-docs", "description": "Docs again"}), encoding="utf-8")
+        self.write_records(second, [later])
         fleet_watch.on_prompt(self.payload(), self.home)
         self.assertNotIn("docs", fleet_watch.current_outages(self.home)["lanes"])
+
+    def test_old_failures_never_open_outages_and_two_failing_lanes_skip_each_other(self):
+        self._fleet({"review": {"model": "a"}, "review-alt": {"model": "b"}, "review-deep": {"model": "c"}})
+        now = datetime.now(timezone.utc)
+        def failure(when):
+            return rec("assistant", {"id": "api", "role": "assistant", "model": "<synthetic>",
+                "content": [{"type": "text", "text": "API Error: 529 Overloaded"}], "usage": {}},
+                timestamp=when.isoformat().replace("+00:00", "Z"))
+        # Three hours ago: reported, but the outage would already have expired.
+        self.meta.write_text(json.dumps({"agentType": "fleet-review", "description": "old"}), encoding="utf-8")
+        self.write_records(self.agent, [failure(now - timedelta(hours=3))])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertEqual(fleet_watch.current_outages(self.home)["lanes"], {})
+        # review and review-alt fail together: neither recommends the other.
+        for agent_id, lane in (("aa11", "review"), ("bb22", "review-alt")):
+            (self.agent_dir / f"agent-{agent_id}.meta.json").write_text(json.dumps({"agentType": f"fleet-{lane}", "description": lane}), encoding="utf-8")
+            self.write_records(self.agent_dir / f"agent-{agent_id}.jsonl", [failure(now)])
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        outages = fleet_watch.current_outages(self.home)["lanes"]
+        # review-alt is failing too, so review falls back to review-deep.
+        self.assertEqual(outages["review"]["alternative"], "review-deep")
+        self.assertNotEqual(outages["review-alt"].get("alternative"), "review")
+        self.assertFalse(any("fleet-review-alt (" in line and "dispatch fleet-review instead" in line for line in lines), lines)
 
     def test_incremental_offsets_partial_trailing_line_and_system_envelope(self):
         complete = json.dumps(assistant("finished", [tool("Edit", {"file_path": str(self.project / "a.py")})])) + "\n"
@@ -167,7 +198,7 @@ class FleetWatchTests(unittest.TestCase):
         path = str(self.agent.resolve())
         self.assertEqual(state["sessions"][self.session]["agents"][path]["offset"], len(complete.encode()))
         with self.agent.open("a", encoding="utf-8") as handle:
-            handle.write('age":{"id":"last","model":"sonnet","content":[]}}\n')
+            handle.write('age":{"id":"last","model":"sonnet","content":[],"stop_reason":"end_turn"}}\n')
         lines = fleet_watch.on_prompt(self.payload(prompt="<task notification>"), self.home)
         self.assertTrue(lines)
         self.assertIn("fleet-tests", lines[0])
