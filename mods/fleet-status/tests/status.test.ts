@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { CoreEngineInterface, On, RenderPropsOf } from 'claude-code'
-import { claudeDirectory, snapshotFromSources, notices, summary, parseOutages, outageAlternative, parseSuggestion } from '../hooks/status'
+import { claudeDirectory, snapshotFromSources, notices, summary, parseOutages, parseSuggestion } from '../hooks/status'
 import { readSnapshot } from '../hooks/register'
 
 // Test the installed layout rather than this repository's source layout.
@@ -233,19 +233,23 @@ test('invalid config values and format use defaults', () => {
   }
   expect(snapshotFromSources(null, [null, null, null, null, '{"format":"agentfleet.config.v1","reviewerAccess":"run"}']).reviewerAccess).toBe('run')
 })
-test('outages expire and skip alternatives that are also in outage', () => {
-  const current = parseOutages(outagesSource({ docs: outage, ui: outage, tests: { ...outage, until: '2026-10-09T09:00:00Z' } }), now)
+test('outages expire and alternatives come only from the watcher file', () => {
+  const current = parseOutages(outagesSource({ docs: { ...outage, alternative: 'custom-alt' }, ui: outage, tests: { ...outage, until: '2026-10-09T09:00:00Z' } }), now)
   expect(current.map(item => item.lane)).toEqual(['docs', 'ui'])
-  expect(outageAlternative('docs', current)).toBeNull()
-  expect(outageAlternative('docs', [])).toBe('ui')
-  expect(outageAlternative('implement-fast', [])).toBe('implement')
-  expect(outageAlternative('unknown', [])).toBeNull()
-  const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: outage })], null, now)
-  expect(notices(snapshot, null)[0]).toBe('fleet-docs is failing (503 at 08:58 UTC). Dispatch fleet-ui until 09:13 UTC.')
+  expect(current[0]?.alternative).toBe('custom-alt')
+  const snapshot = snapshotFromSources(null, [], null, now)
   snapshot.outages = current
-  expect(notices(snapshot, null)[0]).toContain('Retry it after 09:13 UTC.')
+  expect(notices(snapshot, null)[0]).toBe('fleet-docs is failing (503 at 08:58 UTC; claude-sonnet-4.6). Dispatch fleet-custom-alt until 09:13 UTC.')
+  expect(notices(snapshot, null)[1]).toContain('Retry it after 09:13 UTC.')
   expect(summary(snapshot, null)).toContain('Lane outages: fleet-docs 503 until 09:13 UTC')
 })
+for (const alternative of [undefined, null, '', 'Bad', '../ui', 'ui\n', 'ui‮', 7]) {
+  test(`missing or invalid alternative recommends retry: ${JSON.stringify(alternative)}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, alternative } })], null, now)
+    expect(snapshot.outages[0]?.alternative).toBeNull()
+    expect(notices(snapshot, null)[0]).toContain('Retry it after 09:13 UTC.')
+  })
+}
 test('suggestions match only the project and unseen catalog with pending work', () => {
   const source = suggestionsSource(suggestion)
   expect(parseSuggestion(source, '/other')).toBeNull()
@@ -258,23 +262,36 @@ test('suggestions match only the project and unseen catalog with pending work', 
 })
 for (const hostile of ['\u0000', '\u0085', '‮', ' ', ' ', '\n']) {
   test(`new status strings reject hostile character ${JSON.stringify(hostile)}`, () => {
-    for (const field of ['model', 'message', 'at', 'until']) expect(parseOutages(outagesSource({ docs: { ...outage, [field]: String(outage[field as keyof typeof outage]) + hostile } }), now).length).toBe(0)
+    for (const field of ['message', 'at', 'until']) expect(parseOutages(outagesSource({ docs: { ...outage, [field]: String(outage[field as keyof typeof outage]) + hostile } }), now).length).toBe(0)
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model: outage.model + hostile } })], null, now)
+    expect(snapshot.outages.length).toBe(1)
+    expect(snapshot.outages[0]?.model).toBe('unknown model')
+    expect(notices(snapshot, null)[0]).toContain('unknown model')
+    expect(notices(snapshot, null)[0]).not.toContain(hostile)
     expect(parseOutages(outagesSource({ ['docs' + hostile]: outage }), now).length).toBe(0)
     for (const field of ['name', 'catalog', 'seen']) expect(parseSuggestion(suggestionsSource({ ...suggestion, [field]: 'safe' + hostile }), '/test')).toBeNull()
     expect(parseSuggestion(suggestionsSource(suggestion), '/test' + hostile)).toBeNull()
   })
 }
-test('all documented outage alternatives are selected', () => {
-  const mapping = { docs: 'ui', tests: 'implement', ui: 'implement', implement: 'implement-alt', 'implement-alt': 'implement', plan: 'plan-alt', 'plan-alt': 'plan', review: 'review-alt', 'review-alt': 'review', 'review-deep': 'review', 'security-review': 'review-deep', 'diagnose-static': 'review', 'explore-narrow': 'research-codebase', 'research-codebase': 'explore-narrow', 'triage-static': 'plan' }
-  for (const [lane, alt] of Object.entries(mapping)) {
-    expect(outageAlternative(lane, [])).toBe(alt)
-    expect(outageAlternative(lane, [{ ...outage, lane: alt }])).toBeNull()
-  }
-})
+for (const model of ['codex-sol[1m]', 'claude-opus-4.6[1m]', 'vendor/model-name', 'vendor/model@v1+fast', 'a', 'a'.repeat(128)]) {
+  test(`gateway outage model is accepted and displayed: ${model}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model } })], null, now)
+    expect(snapshot.outages[0]?.model).toBe(model)
+    expect(notices(snapshot, null)[0]).toContain(model)
+  })
+}
+for (const model of [undefined, null, 7, '', '/vendor/model', 'a'.repeat(129), 'bad model']) {
+  test(`invalid outage model retains notice: ${JSON.stringify(model)}`, () => {
+    const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, model } })], null, now)
+    expect(snapshot.outages.length).toBe(1)
+    expect(snapshot.outages[0]?.model).toBe('unknown model')
+    expect(notices(snapshot, null)[0]).toContain('unknown model')
+  })
+}
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`outage and suggestions notice sets retain Hide behavior on ${surface}`, async ($, on) => {
     const files: Record<string, string> = healthy()
-    files['agentfleet/outages.json'] = outagesSource({ docs: outage })
+    files['agentfleet/outages.json'] = outagesSource({ docs: { ...outage, model: 'codex-sol[1m]', alternative: 'ui' } })
     files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
     const clock = sources(on, files)
     await $.session.start(start)

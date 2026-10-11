@@ -1,4 +1,4 @@
-export type Outage = { lane: string; model: string; status: number; message: string; at: string; until: string }
+export type Outage = { lane: string; model: string; alternative: string | null; status: number; message: string; at: string; until: string }
 export type Suggestion = { name: string; catalog: string; pending: number; seen: string | null }
 export type Snapshot = {
   claudeDir: string | null
@@ -17,7 +17,7 @@ export type Snapshot = {
   outages: Outage[]
   suggestion: Suggestion | null
 }
-export type LaneReport = { at: string; lane: string; files: string[]; rules: string[]; apiError: number | null }
+export type LaneReport = { at: string; lane: string; model: string; files: string[]; rules: string[]; apiError: number | null }
 export type LaneTask = { lane: string; status: string; description: string; elapsedSeconds: number | null }
 export type TasksState = { open: boolean; lanes: LaneTask[]; reports: LaneReport[]; outages: Outage[] }
 export type FleetState = {

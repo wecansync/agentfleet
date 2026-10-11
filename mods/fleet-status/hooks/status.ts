@@ -23,6 +23,7 @@ export function text(value: unknown, pattern: RegExp): string | null {
 const versionPattern = /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]{1,32})?$/
 
 export const lanePattern = /^[a-z][a-z0-9-]{0,63}$/
+export const modelPattern = /^[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,127}$/
 export function jsonRecord(source: string | null | undefined): Record<string, unknown> | null {
   try { return record(JSON.parse(source ?? 'null')) } catch { return null }
 }
@@ -38,25 +39,16 @@ export function parseOutages(source: string | null | undefined, now: number): Ou
   for (const [key, value] of Object.entries(record(data.lanes) ?? {})) {
     const item = record(value)
     const lane = text(key, lanePattern)
-    const model = text(item?.model, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/)
+    const model = text(item?.model, modelPattern) ?? 'unknown model'
+    const alternative = text(item?.alternative, lanePattern)
     const message = text(item?.message, /^.{0,1000}$/u)
     const at = timestamp(item?.at), until = timestamp(item?.until)
     const status = item?.status
-    if (lane && model && message !== null && at && until && typeof status === 'number' && Number.isInteger(status) && status >= 400 && status <= 599 && Date.parse(until) > now) {
-      result.push({ lane, model, message, status, at, until })
+    if (lane && message !== null && at && until && typeof status === 'number' && Number.isInteger(status) && status >= 400 && status <= 599 && Date.parse(until) > now) {
+      result.push({ lane, model, alternative, message, status, at, until })
     }
   }
   return result.sort((a, b) => a.lane.localeCompare(b.lane))
-}
-export function outageAlternative(lane: string, outages: Outage[]): string | null {
-  const alternatives: Record<string, string> = {
-    docs: 'ui', tests: 'implement', ui: 'implement', implement: 'implement-alt',
-    plan: 'plan-alt', 'plan-alt': 'plan', review: 'review-alt', 'review-alt': 'review',
-    'review-deep': 'review', 'security-review': 'review-deep', 'diagnose-static': 'review',
-    'explore-narrow': 'research-codebase', 'research-codebase': 'explore-narrow', 'triage-static': 'plan',
-  }
-  const alternative = alternatives[lane] ?? (/^implement-[a-z0-9-]+$/.test(lane) ? 'implement' : null)
-  return alternative && !outages.some(item => item.lane === alternative) ? alternative : null
 }
 export function parseSuggestion(source: string | null | undefined, project: string | null): Suggestion | null {
   const data = jsonRecord(source)
@@ -119,8 +111,8 @@ export function notices(snapshot: Snapshot, versionAtStart: string | null): stri
     lines.push('Model changes are waiting for review. Run /fleet-setup.')
   }
   for (const outage of snapshot.outages) {
-    const alt = outageAlternative(outage.lane, snapshot.outages)
-    lines.push(`fleet-${outage.lane} is failing (${outage.status} at ${utcTime(outage.at)}). ${alt ? `Dispatch fleet-${alt} until ${utcTime(outage.until)}.` : `Retry it after ${utcTime(outage.until)}.`}`)
+    const alt = outage.alternative
+    lines.push(`fleet-${outage.lane} is failing (${outage.status} at ${utcTime(outage.at)}; ${outage.model}). ${alt ? `Dispatch fleet-${alt} until ${utcTime(outage.until)}.` : `Retry it after ${utcTime(outage.until)}.`}`)
   }
   const suggestion = snapshot.suggestion
   if (suggestion && suggestion.pending > 0 && suggestion.seen !== suggestion.catalog) {
