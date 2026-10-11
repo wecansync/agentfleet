@@ -874,6 +874,64 @@ def release_lock(fd: int | None, path: Path) -> None:
             pass
 
 
+# The claude CLI child gets only these variables: never the gateway token or
+# any other credential from the caller's environment.
+CLAUDE_CLI_ENV_NAMES = {
+    "PATH", "PATHEXT", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA",
+    "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "USER", "USERNAME", "LOGNAME",
+    "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+    "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "CLAUDE_CONFIG_DIR",
+}
+
+
+def claude_cli_environment(home: Path) -> dict[str, str]:
+    environment = {name: value for name, value in os.environ.items() if name.upper() in CLAUDE_CLI_ENV_NAMES}
+    try:
+        real_home = Path.home().resolve(strict=False)
+    except RuntimeError:
+        real_home = home.resolve(strict=False)
+    if home.resolve(strict=False) != real_home:
+        environment["HOME"] = str(home)
+        environment.pop("CLAUDE_CONFIG_DIR", None)
+        if os.name == "nt":
+            environment["USERPROFILE"] = str(home)
+    return environment
+
+
+def claude_cli_executable() -> str | None:
+    import shutil
+
+    found = shutil.which("claude")
+    if not found or not os.path.isabs(found):
+        return None
+    # Trust only a claude found in an absolute PATH entry: on Windows,
+    # shutil.which also looks in the current directory first.
+    trusted = {Path(entry).resolve(strict=False) for entry in os.environ.get("PATH", "").split(os.pathsep)
+               if entry and os.path.isabs(entry)}
+    if Path(found).parent.resolve(strict=False) not in trusted:
+        return None
+    return str(Path(found).resolve(strict=False))
+
+
+def claude_cli(home: Path, *args: str, timeout: float = 60):
+    """Run the claude CLI for ``home``; None when it is missing, unsafe to
+    call with these arguments, fails to start, or times out."""
+    import subprocess
+
+    executable = claude_cli_executable()
+    if executable is None:
+        return None
+    # cmd.exe expands these characters in a .cmd/.bat shim's arguments.
+    if (os.name == "nt" and Path(executable).suffix.lower() in {".cmd", ".bat"}
+            and any(char in '&|<>^%!"' for arg in args for char in arg)):
+        return None
+    try:
+        return subprocess.run([executable, *args], text=True, encoding="utf-8", errors="replace",
+                              capture_output=True, check=False, timeout=timeout, env=claude_cli_environment(home))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
 def _main() -> int:
     import argparse
     import sys
