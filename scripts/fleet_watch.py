@@ -38,13 +38,42 @@ MAX_CONTEXT_TOTAL = 1500
 
 # Keep this in sync with route-to-fleet.py. Complete commands are redacted before
 # truncation so a credential cannot straddle the persisted boundary.
-SECRETS = re.compile(
-    r"(sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}"
+_RAW_SECRETS = re.compile(
+    r"(?:"
+    r"sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}"
+    r"|github_pat_[A-Za-z0-9_]{8,}|[sr]k_(?:live|test)_[A-Za-z0-9]{8,}"
+    r"|(?<=Bearer )\S+|(?<=bearer )\S+"
     r"|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{12,}"
-    r"|[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
     r"|\b(?:\d[ -]*?){13,19}\b"
-    r"|(?i:(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[=:]\s*)\S+)"
+    r"|(?<=--password=)\S+|(?<=--password )\S+"
+    r"|(?<=\s-p)\S+"
+    r"|(?<=MYSQL_PWD=)\S+|(?<=PGPASSWORD=)\S+|(?<=AWS_SECRET_ACCESS_KEY=)\S+"
+    r"|(?<![A-Za-z0-9_-])(?i:(?:password|passwd|secret|token|api[_-]?key|authorization)\s*[=:]\s*)\S+"
+    r")"
 )
+
+
+class _SecretsRegex:
+    def __init__(self, pattern: re.Pattern):
+        self._pattern = pattern
+        self.pattern = pattern.pattern
+
+    def search(self, text: str):
+        if re.search(r"[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@", text):
+            return True
+        return self._pattern.search(text)
+
+    def sub(self, repl: str, text: str) -> str:
+        text = re.sub(
+            r"([A-Za-z][A-Za-z0-9+.-]*://[^/\s:@]+:)[^/\s@]+(@)",
+            r"\g<1>[redacted]\2",
+            text,
+        )
+        return self._pattern.sub(repl, text)
+
+
+SECRETS = _SecretsRegex(_RAW_SECRETS)
 
 GIT_HISTORY = {
     "commit", "push", "merge", "rebase", "reset", "restore", "checkout", "switch",
@@ -371,78 +400,335 @@ def _split_shell(command: str) -> tuple[list[str], list[str]]:
     return segments, nested
 
 
+SHELL_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "time", "fi", "done"}
+
+
 def _words(segment: str) -> list[str]:
     try:
-        return shlex.split(segment, posix=True, comments=False)
+        raw = shlex.split(segment, posix=True, comments=False)
     except (ValueError, TypeError):
-        return re.findall(r"[^\s]+", segment)
+        raw = re.findall(r"[^\s]+", segment)
+    words = []
+    for w in raw:
+        cleaned = w
+        if not w.startswith("${") and not w.startswith("$("):
+            cleaned = re.sub(r"^[({!]+", "", cleaned)
+            cleaned = re.sub(r"[)}]+$", "", cleaned)
+        if cleaned:
+            words.append(cleaned)
+    return words
 
 
 def _skip_wrapper(words: list[str]) -> list[str]:
-    index = 0
-    while index < len(words):
-        token = words[index]
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token):
-            index += 1
+    idx = 0
+    changed = True
+    while idx < len(words) and changed:
+        changed = False
+        token = words[idx]
+
+        if token in SHELL_KEYWORDS:
+            idx += 1
+            changed = True
             continue
-        name = Path(token.replace("\\", "/")).name.lower()
-        if name.endswith((".exe", ".cmd", ".bat")):
-            name = name.rsplit(".", 1)[0]
-        if name not in WRAPPERS:
-            break
-        index += 1
-        if name == "sudo":
-            needs_value = {"-u", "-g", "-h", "-p", "-C", "-T"}
-            while index < len(words) and words[index].startswith("-"):
-                opt = words[index]
-                index += 1
-                if opt in needs_value and index < len(words):
-                    index += 1
+
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token):
+            idx += 1
+            changed = True
+            continue
+
+        base = Path(token.replace("\\", "/")).name.lower()
+        if base.endswith((".exe", ".cmd", ".bat")):
+            base = base.rsplit(".", 1)[0]
+
+        if base in {"sudo", "doas"}:
+            idx += 1
+            val_opts = {"-u", "-g", "-h", "-p", "-c", "-a", "-C", "-D", "-R", "-t", "-U", "-r", "-T"}
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
                 if opt == "--":
                     break
-        elif name == "env":
-            while index < len(words):
-                opt = words[index]
+                if opt in val_opts and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "env":
+            idx += 1
+            while idx < len(words):
+                opt = words[idx]
                 if opt in {"-i", "-0"}:
-                    index += 1
+                    idx += 1
                 elif opt in {"-u", "--unset", "-C", "--chdir"}:
-                    index += 2
+                    idx += 2
                 elif opt.startswith("-") and opt != "--":
-                    index += 1
+                    idx += 1
                 elif opt == "--":
-                    index += 1
+                    idx += 1
                     break
                 elif re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", opt):
-                    index += 1
+                    idx += 1
                 else:
                     break
-        elif name in {"command", "time", "exec"}:
-            while index < len(words) and words[index].startswith("-") and words[index] != "--":
-                index += 1
-            if index < len(words) and words[index] == "--":
-                index += 1
-        # nohup has no options to consume.
-    return words[index:]
+            changed = True
+            continue
+
+        if base in {"command", "nohup"}:
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-") and words[idx] != "--":
+                idx += 1
+            if idx < len(words) and words[idx] == "--":
+                idx += 1
+            changed = True
+            continue
+
+        if base == "exec":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt == "-a" and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "time":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt == "-o" and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "nice":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt == "-n" and idx < len(words):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "ionice":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt in {"-c", "-n", "-p"} and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "stdbuf":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt in {"-i", "-o", "-e"} and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "timeout":
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt in {"-s", "-k", "--signal", "--kill-after"} and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            if idx < len(words) and not words[idx].startswith("-"):
+                idx += 1
+            changed = True
+            continue
+
+        if base == "xargs":
+            idx += 1
+            val_opts = {
+                "-I", "-n", "-L", "-P", "-s", "-E", "-a", "-d", "-e",
+                "--max-args", "--max-procs", "--max-lines", "--arg-file", "--delimiter"
+            }
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt in val_opts and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "find":
+            exec_idx = -1
+            for j in range(idx + 1, len(words)):
+                if words[j] in {"-exec", "-execdir"}:
+                    exec_idx = j + 1
+                    break
+            if exec_idx != -1 and exec_idx < len(words):
+                idx = exec_idx
+                changed = True
+                continue
+
+        if base == "bundle" and idx + 1 < len(words) and words[idx + 1] == "exec":
+            idx += 2
+            while idx < len(words) and words[idx].startswith("-"):
+                idx += 1
+            changed = True
+            continue
+
+        if base in {"uv", "poetry", "pipenv"} and idx + 1 < len(words) and words[idx + 1] == "run":
+            idx += 2
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+            changed = True
+            continue
+
+        if base in {"npx", "bunx"}:
+            idx += 1
+            while idx < len(words) and words[idx].startswith("-"):
+                opt = words[idx]
+                idx += 1
+                if opt == "--":
+                    break
+                if opt in {"-p", "--package"} and idx < len(words) and not words[idx].startswith("-"):
+                    idx += 1
+            changed = True
+            continue
+
+        if base == "npm" and idx + 1 < len(words) and words[idx + 1] == "exec":
+            idx += 2
+            while idx < len(words) and words[idx].startswith("-") and words[idx] != "--":
+                idx += 1
+            if idx < len(words) and words[idx] == "--":
+                idx += 1
+            changed = True
+            continue
+
+        if base == "pnpm" and idx + 1 < len(words) and words[idx + 1] in {"exec", "dlx"}:
+            idx += 2
+            while idx < len(words) and words[idx].startswith("-") and words[idx] != "--":
+                idx += 1
+            if idx < len(words) and words[idx] == "--":
+                idx += 1
+            changed = True
+            continue
+
+        if base == "yarn" and idx + 1 < len(words) and words[idx + 1] == "dlx":
+            idx += 2
+            while idx < len(words) and words[idx].startswith("-") and words[idx] != "--":
+                idx += 1
+            if idx < len(words) and words[idx] == "--":
+                idx += 1
+            changed = True
+            continue
+
+        if base in {"docker", "docker-compose"}:
+            cur = idx + 1
+            if base == "docker" and cur < len(words) and words[cur] == "compose":
+                cur += 1
+            if cur < len(words) and words[cur] in {"exec", "run"}:
+                cur += 1
+                val_opts = {
+                    "-e", "-u", "-w", "-v", "--env", "--user", "--workdir", "--volume",
+                    "--entrypoint", "-p", "--publish", "--name"
+                }
+                while cur < len(words) and words[cur].startswith("-"):
+                    opt = words[cur]
+                    cur += 1
+                    if opt == "--":
+                        break
+                    if opt in val_opts and cur < len(words) and not words[cur].startswith("-"):
+                        cur += 1
+                if cur < len(words) and not words[cur].startswith("-"):
+                    cur += 1
+                    idx = cur
+                    changed = True
+                    continue
+
+        if base == "kubectl" and idx + 1 < len(words) and words[idx + 1] == "exec":
+            dash_idx = -1
+            for j in range(idx + 2, len(words)):
+                if words[j] == "--":
+                    dash_idx = j + 1
+                    break
+            if dash_idx != -1 and dash_idx < len(words):
+                idx = dash_idx
+                changed = True
+                continue
+
+        if base == "sail":
+            idx += 1
+            changed = True
+            continue
+
+    return words[idx:]
 
 
 def _program(words: list[str]) -> str:
     if not words:
         return ""
+    if words[0] == ".":
+        # The shell's source builtin; Path(".").name would be empty.
+        return "."
     name = Path(words[0].replace("\\", "/")).name.lower()
     return re.sub(r"\.(exe|cmd|bat)$", "", name)
 
 
+def _extract_subcommand(args: list[str]) -> tuple[str, list[str]]:
+    val_opts = {
+        "-n", "--namespace", "--context", "--kubeconfig", "-s", "--server",
+        "--cluster", "--user", "-chdir", "--kube-context", "-H", "--host",
+    }
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            i += 1
+            break
+        if a in val_opts:
+            i += 2
+        elif a.startswith(("-n=", "--namespace=", "--context=", "--kubeconfig=", "-chdir=", "--kube-context=", "-H=", "--host=")):
+            i += 1
+        elif a.startswith("-"):
+            i += 1
+        else:
+            break
+    if i >= len(args):
+        return "", []
+    return args[i].lower(), args[i + 1:]
+
+
 def _git_parts(words: list[str]) -> tuple[str, list[str]]:
     index = 1
+    val_opts = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
     while index < len(words):
         value = words[index]
-        if value in {"-C", "-c"}:
-            index += 2
-        elif value.startswith("-C") and len(value) > 2 or value.startswith("-c") and len(value) > 2:
-            index += 1
-        elif value == "--":
+        if value == "--":
             index += 1
             break
+        if value in val_opts:
+            index += 2
+        elif value.startswith(("-C", "-c", "--git-dir=", "--work-tree=", "--namespace=", "--super-prefix=", "--config-env=")):
+            index += 1
+        elif value.startswith("-"):
+            index += 1
         else:
             break
     return (words[index].lower(), words[index + 1:]) if index < len(words) else ("", [])
@@ -453,34 +739,60 @@ def _gh_write(words: list[str]) -> bool:
         return False
     group = words[1].lower()
     args = [value.lower() for value in words[2:]]
-    actions = GH_WRITES.get(group, set())
     if group == "release":
-        return bool(args)
+        return bool(args and args[0] not in {"list", "view", "download"})
+    if group == "run":
+        return bool(args and args[0] in {"rerun", "cancel", "delete"})
+    actions = GH_WRITES.get(group)
     if isinstance(actions, set) and args and args[0] in actions:
         return True
     if group == "api":
-        for index, value in enumerate(args):
-            method = ""
-            if value in {"-x", "--method"} and index + 1 < len(args):
-                method = args[index + 1]
-            elif value.startswith("-X") and len(value) > 2:
-                method = value[2:]
-            elif value.startswith("--method="):
-                method = value.partition("=")[2]
-            if method in {"post", "put", "patch", "delete"}:
-                return True
+        method = ""
+        has_field = False
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if a in {"-x", "--method"} and i + 1 < len(args):
+                method = args[i + 1].upper()
+                i += 2
+                continue
+            elif a.startswith("-x") and len(a) > 2:
+                method = a[2:].upper()
+            elif a.startswith("--method="):
+                method = a.partition("=")[2].upper()
+            elif a in {"-f", "-F", "--field", "--raw-field", "--input"} or a.startswith(("-f", "-F", "--field=", "--raw-field=", "--input=")):
+                has_field = True
+            i += 1
+        if method in {"POST", "PUT", "PATCH", "DELETE"}:
+            return True
+        if not method and has_field:
+            return True
+        if method and method != "GET" and has_field:
+            return True
     return False
 
 
 def _migration(words: list[str], program: str) -> bool:
     args = [part.lower() for part in words[1:]]
-    if program == "php" and len(args) >= 2 and args[0] == "artisan":
-        action = args[1]
-        if action.startswith("migrate") and action != "migrate:status" and "--pretend" not in args[2:]:
+    artisan_args = None
+    if program == "artisan":
+        artisan_args = args
+    elif program == "php" and len(args) >= 1 and args[0] == "artisan":
+        artisan_args = args[1:]
+    if artisan_args:
+        action = artisan_args[0]
+        if action.startswith("migrate"):
+            if action == "migrate:status" or "--pretend" in artisan_args:
+                pass
+            else:
+                return True
+        elif action == "db:wipe":
             return True
-        return action == "db:wipe"
+
     if program in {"rails", "rake"}:
-        return bool(args and args[0] in {"db:migrate", "db:drop", "db:reset", "db:rollback", "db:setup", "db:schema:load"})
+        if args and (args[0] == "db:migrate:status" or args[0] == "db:version"):
+            return False
+        return bool(args and re.match(r"^db:(migrate|drop|reset|rollback|setup|schema:load)", args[0]))
     if program == "prisma":
         return len(args) >= 2 and ((args[0] == "migrate" and args[1] in {"dev", "deploy", "reset"}) or args[:2] == ["db", "push"])
     if program == "alembic":
@@ -491,8 +803,8 @@ def _migration(words: list[str], program: str) -> bool:
         return len(args) >= 2 and args[1] in {"migrate", "flush"}
     if program == "knex":
         return bool(args and args[0].startswith("migrate:"))
-    if program == "sequelize":
-        return len(args) >= 2 and args[0] == "db" and args[1].startswith("migrate")
+    if program in {"sequelize", "sequelize-cli"}:
+        return bool(args and (args[0].startswith("db:migrate") or (len(args) >= 2 and args[0] == "db" and args[1].startswith("migrate"))))
     if program == "diesel":
         return len(args) >= 2 and args[0] == "migration" and args[1] in {"run", "revert", "redo"}
     if program == "goose":
@@ -553,22 +865,36 @@ def _segment_reason(segment: str) -> str | None:
     if not words:
         return None
     program = _program(words)
+    args = words[1:]
     if program == "git":
-        subcommand, args = _git_parts(words)
-        if subcommand in GIT_HISTORY:
-            if subcommand == "tag" and (not args or "-l" in args or "--list" in args):
-                pass
-            elif subcommand == "stash" and args and args[0] in {"list", "show"}:
-                pass
+        subcommand, sargs = _git_parts(words)
+        if subcommand in GIT_HISTORY or subcommand in {"pull", "bisect"}:
+            if subcommand == "bisect":
+                if sargs and sargs[0] in {"log", "visualize", "view"}:
+                    pass
+                else:
+                    return "git-history"
+            elif subcommand == "tag":
+                if any(a in {"-d", "-D", "-f", "--delete", "--force"} for a in sargs):
+                    return "git-history"
+                if not sargs or any(a in {"-l", "--list"} or a.startswith(("-l", "--list=", "--sort", "--points-at", "--contains")) or re.match(r"^-n\d*$", a) for a in sargs):
+                    pass
+                else:
+                    return "git-history"
+            elif subcommand == "stash":
+                if sargs and sargs[0] in {"list", "show"}:
+                    pass
+                else:
+                    return "git-history"
             else:
                 return "git-history"
         if subcommand == "branch" and any(
-            arg in {"-d", "-D", "-m", "-M", "--delete", "--move", "-f"}
+            arg in {"-d", "-D", "-m", "-M", "--delete", "--move", "-f", "--force"}
             or (arg.startswith("-") and not arg.startswith("--") and any(ch in arg[1:] for ch in "dDmMf"))
-            for arg in args
+            for arg in sargs
         ):
             return "git-history"
-        if subcommand == "worktree" and args and args[0] in {"remove", "prune"}:
+        if subcommand == "worktree" and sargs and sargs[0] in {"remove", "prune"}:
             return "git-history"
     elif program == "gh" and _gh_write(words):
         return "github-write"
@@ -581,14 +907,29 @@ def _segment_reason(segment: str) -> str | None:
         return "publish-deploy"
     if program == "gem" and len(words) > 1 and words[1].lower() == "push":
         return "publish-deploy"
-    if program == "docker" and len(words) > 1 and words[1].lower() == "push":
-        return "publish-deploy"
-    if program == "kubectl" and len(words) > 1 and words[1].lower() in {"apply", "delete", "rollout", "scale", "patch", "replace"}:
-        return "publish-deploy"
-    if program == "helm" and len(words) > 1 and words[1].lower() in {"install", "upgrade", "uninstall", "rollback"}:
-        return "publish-deploy"
-    if program == "terraform" and len(words) > 1 and words[1].lower() in {"apply", "destroy"}:
-        return "publish-deploy"
+    if program == "docker":
+        subcmd, _ = _extract_subcommand(args)
+        if subcmd == "push":
+            return "publish-deploy"
+    if program == "kubectl":
+        subcmd, _ = _extract_subcommand(args)
+        if subcmd in {"apply", "delete", "rollout", "scale", "patch", "replace"}:
+            if subcmd == "apply" and any(a == "--dry-run" or a.startswith("--dry-run=") for a in args):
+                pass
+            else:
+                return "publish-deploy"
+    if program == "helm":
+        subcmd, _ = _extract_subcommand(args)
+        if subcmd in {"install", "upgrade", "uninstall", "rollback"}:
+            return "publish-deploy"
+        if subcmd in {"template", "list", "status"}:
+            pass
+    if program == "terraform":
+        subcmd, _ = _extract_subcommand(args)
+        if subcmd in {"apply", "destroy"}:
+            return "publish-deploy"
+        if subcmd == "plan":
+            pass
     if program == "vercel" and ("--prod" in words[1:] or (len(words) > 1 and words[1].lower() == "deploy")):
         return "publish-deploy"
     if program == "firebase" and len(words) > 1 and words[1].lower() == "deploy":
@@ -596,6 +937,8 @@ def _segment_reason(segment: str) -> str | None:
     if program in {"fly", "flyctl"} and len(words) > 1 and words[1].lower() == "deploy":
         return "publish-deploy"
     if words[0].lower().endswith("deploy.sh"):
+        return "publish-deploy"
+    if program in {"bash", "sh", "zsh", "source", "."} and any(a.lower().endswith("deploy.sh") or "/deploy.sh" in a.lower() for a in args):
         return "publish-deploy"
     if _remote_target(words, program):
         return "publish-deploy"
@@ -620,7 +963,7 @@ def _db_client(segment: str) -> bool:
 
 
 def _sql_write(command: str) -> bool:
-    if re.search(r"\bDROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW)\b", command, re.IGNORECASE):
+    if re.search(r"\bDROP\s+(?:TABLE|DATABASE|SCHEMA|INDEX|VIEW|MATERIALIZED\s+VIEW|FUNCTION|PROCEDURE|TRIGGER|ROLE|USER|SEQUENCE|TYPE|EXTENSION)\b", command, re.IGNORECASE):
         return True
     if re.search(r"\bTRUNCATE\b", command, re.IGNORECASE):
         return True
@@ -656,13 +999,18 @@ def forbidden_reason(command: str) -> str | None:
     try:
         if not isinstance(command, str) or not command:
             return None
+        command = re.sub(r"\\\r?\n", "", command)
         segments = _all_segments(command)
         for segment in segments:
+            if _db_client(segment):
+                words = _skip_wrapper(_words(segment))
+                if "<" in segment or any(a in {"-f", "--file"} or a.startswith("--file=") for a in words):
+                    return "db-write"
+                if _sql_write(segment):
+                    return "db-write"
             reason = _segment_reason(segment)
             if reason:
                 return reason
-        if any(_db_client(segment) for segment in segments) and _sql_write(command):
-            return "db-write"
     except Exception:
         return None
     return None

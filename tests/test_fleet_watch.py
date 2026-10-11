@@ -340,3 +340,59 @@ class ForbiddenParityTests(unittest.TestCase):
         self.assertIsNone(fleet_watch.forbidden_reason("python3 manage.py test"))
         self.assertIsNone(fleet_watch.forbidden_reason("scp C:\\a.txt D:\\b.txt"))
         self.assertEqual(fleet_watch.forbidden_reason("rsync -a dist/ root@host:/var/www"), "publish-deploy")
+
+
+class LaneGuardHardeningParityTests(unittest.TestCase):
+    """Enforces shared rule parity across the Python and TypeScript implementations."""
+
+    def test_shared_cases_json_parity(self):
+        cases_file = ROOT / "mods" / "lane-guard" / "tests" / "cases.json"
+        self.assertTrue(cases_file.exists(), "cases.json must exist")
+        cases = json.loads(cases_file.read_text(encoding="utf-8"))
+        for tc in cases:
+            command = tc["command"]
+            expected = tc["rule"]
+            with self.subTest(command=command):
+                actual = fleet_watch.forbidden_reason(command)
+                self.assertEqual(
+                    actual,
+                    expected,
+                    f"Mismatch for command {command!r}: expected {expected!r}, got {actual!r}",
+                )
+
+    def test_secrets_redaction(self):
+        cases = [
+            ("mysql -pHunter2pass", "mysql -p[redacted]"),
+            ("mysqladmin -pHunter2pass status", "mysqladmin -p[redacted] status"),
+            ("--password=secret123", "--password=[redacted]"),
+            ("--password secret123", "--password [redacted]"),
+            ("MYSQL_PWD=hunter2", "MYSQL_PWD=[redacted]"),
+            ("PGPASSWORD=hunter2", "PGPASSWORD=[redacted]"),
+            ("https://user:pass123@github.com", "https://user:[redacted]@github.com"),
+            ("postgresql://alice:secret123@db:5432/app", "postgresql://alice:[redacted]@db:5432/app"),
+            ("sk_live_1234567890abcdef", "[redacted]"),
+            ("sk_test_1234567890abcdef", "[redacted]"),
+            ("rk_live_1234567890abcdef", "[redacted]"),
+            ("github_pat_1234567890abcdef", "[redacted]"),
+            ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "AWS_SECRET_ACCESS_KEY=[redacted]"),
+            ("Bearer my_token_12345", "Bearer [redacted]"),
+            ("sk-1234567890abcdef", "[redacted]"),
+            ("ghp_1234567890abcdef", "[redacted]"),
+            ("xoxb-1234567890abcdef", "[redacted]"),
+            ("user@example.com", "[redacted]"),
+        ]
+        for original, expected in cases:
+            with self.subTest(original=original):
+                redacted = fleet_watch.SECRETS.sub("[redacted]", original)
+                self.assertEqual(redacted, expected)
+                self.assertTrue(fleet_watch.SECRETS.search(original))
+
+
+class SharedCasesMirrorTests(unittest.TestCase):
+    def test_cases_ts_mirrors_cases_json(self):
+        root = Path(__file__).resolve().parent.parent / "mods" / "lane-guard" / "tests"
+        source = (root / "cases.ts").read_text(encoding="utf-8")
+        mirrored = json.loads(source[source.index("= [") + 2:source.rindex("]") + 1])
+        self.assertEqual(mirrored, json.loads((root / "cases.json").read_text(encoding="utf-8")),
+                         "regenerate mods/lane-guard/tests/cases.ts from cases.json")
+

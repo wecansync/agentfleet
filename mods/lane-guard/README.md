@@ -4,10 +4,11 @@ Claude Code mod for AgentFleet that guards fleet subagent lanes from running des
 
 ## What It Blocks
 
-`lane-guard` intercepts tool calls made by fleet subagents (any agent whose type starts with `fleet-`) and blocks actions across six categories:
+`lane-guard` intercepts tool calls made by fleet subagents (any agent whose type starts with `fleet-`) and blocks actions across six categories. It looks through common wrappers and shell forms first: pipes and `xargs`, `for … do … done` loops, subshells, `timeout`, `nice`, `sudo`, `env`, `find -exec`, `bundle exec`, `uv`/`poetry`/`pipenv run`, `npx`/`pnpm exec`/`bunx`, `docker [compose] exec|run`, `kubectl exec`, Laravel Sail, and `bash -c` strings. Git global options such as `--no-pager`, `-P`, `-C` and `-c` are skipped before the subcommand.
 
 1. **Git history or working-tree mutations (`[git-history]`)**:
-   - `git commit`, `push`, `merge`, `rebase`, `reset`, `restore`, `checkout`, `switch`, `clean`, `cherry-pick`, `revert`, `am`
+   - `git commit`, `push`, `pull`, `merge`, `rebase`, `reset`, `restore`, `checkout`, `switch`, `clean`, `cherry-pick`, `revert`, `am`, `bisect` (except `bisect log`)
+   - `Edit`, `Write`, `MultiEdit` and `NotebookEdit` on any path inside a `.git` directory (hooks, config)
    - `git tag` (creating or deleting tags; listing tags with bare `git tag`, `-l`, or `--list` remains allowed)
    - `git stash` (bare stash, `pop`, `drop`, `apply`, etc.; `stash list` and `stash show` remain allowed)
    - `git branch` with `-d`, `-D`, `-m`, `-M`, `--delete`, `--move`, `-f` (bare `git branch` remains allowed)
@@ -20,13 +21,13 @@ Claude Code mod for AgentFleet that guards fleet subagent lanes from running des
    - `gh repo create`, `delete`, `edit`, `rename`, `archive`, `fork`
    - `gh workflow run`, `enable`, `disable`
    - `gh issue create`, `close`, `edit`, `comment`, `delete`, `reopen`
-   - `gh api` with mutating methods (`-X`/`--method` `POST`, `PUT`, `PATCH`, `DELETE`)
+   - `gh api` with mutating methods (`-X`/`--method` `POST`, `PUT`, `PATCH`, `DELETE`), or with `-f`/`-F`/`--field`/`--input` unless `-X GET` is given
 
 3. **Publishing and deployment (`[publish-deploy]`)**:
    - Package publishing: `npm publish`, `pnpm publish`, `yarn publish`, `bun publish`, `twine upload`, `cargo publish`, `gem push`
    - Container / cluster deployment: `docker push`, `kubectl apply|delete|rollout|scale|patch|replace`, `helm install|upgrade|uninstall|rollback`
    - Infrastructure & cloud: `terraform apply|destroy`, `vercel --prod` / `vercel deploy`, `firebase deploy`, `fly deploy`, `flyctl deploy`
-   - Script deployment: any executable path ending in `deploy.sh`
+   - Script deployment: any path ending in `deploy.sh`, run directly or through `bash`, `sh`, `zsh`, `source` or `.`
    - Remote sync: `rsync` or `scp` targeting remote paths (`host:path`)
 
 4. **Database migrations (`[migration]`)**:
@@ -39,8 +40,9 @@ Claude Code mod for AgentFleet that guards fleet subagent lanes from running des
    - `dropdb`, `mysqladmin … drop`, `redis-cli … flushall|flushdb`
 
 5. **Destructive SQL (`[db-write]`)**:
-   - When a segment runs a database client (`mysql`, `mariadb`, `psql`, `sqlite3`, `sqlcmd`, `clickhouse-client`, `duckdb`, `cockroach sql`, `wp db query`), or when scanning MCP database tool arguments directly:
-     - `DROP (TABLE|DATABASE|SCHEMA|INDEX|VIEW)`
+   - In segments that run a database client anywhere (`mysql`, `mariadb`, `psql`, `sqlite3`, `sqlcmd`, `clickhouse-client`, `duckdb`, `cockroach sql`, `wp db query`, also after `docker compose exec db`), and in database-like MCP tools (names containing sql, db, postgres, mysql, sqlite, mongo, supabase or query, or arguments named `sql`, `query`, `statement(s)` or `command`). AgentFleet's own memory tools are never scanned:
+     - `DROP (TABLE|DATABASE|SCHEMA|INDEX|VIEW|MATERIALIZED VIEW|FUNCTION|PROCEDURE|TRIGGER|ROLE|USER|SEQUENCE|TYPE|EXTENSION)`
+     - feeding a SQL file to a client (`psql -f file`, `mysql < dump.sql`), since the file cannot be checked
      - `TRUNCATE`
      - `ALTER TABLE … DROP`
      - `DELETE FROM <name>` with no `WHERE` clause before `;` or command end
@@ -52,10 +54,12 @@ Claude Code mod for AgentFleet that guards fleet subagent lanes from running des
 ## What Stays Allowed
 
 The guard is targeted and non-disruptive:
-- Read operations and inspections: `git status`, `git diff`, `git log`, `git show`, `git blame`, `git grep`, `git ls-files`, `git rev-parse`, `git fetch`, bare `git branch`, `git stash list`, `git tag -l`.
+- Read operations and inspections: `git status`, `git diff`, `git log`, `git show`, `git blame`, `git grep`, `git ls-files`, `git rev-parse`, `git fetch`, `git branch` listing, `git stash list`, `git tag` listing (`-l`, `--sort`, `--points-at`, `--contains`).
+- Read-only GitHub and cluster commands: `gh pr view|list|diff`, `gh release list|view|download`, `gh api` GETs, `kubectl apply --dry-run`, `terraform plan`, `helm template|list|status`.
+- Exports: `pg_dump`, `mysqldump`.
 - Build tools, test runners, and linters: `npm test`, `pytest`, `cargo build`, `eslint`, etc.
 - Safe SQL: `psql -c "SELECT 1"`, `mysql -e "DELETE FROM t WHERE id = 1"`.
-- Migration checks: `php artisan migrate:status`, `php artisan migrate --pretend`.
+- Migration checks: `php artisan migrate:status`, `--pretend`, `rails db:migrate:status`, `alembic current|history`, `prisma migrate status`.
 - Normal build cleanup: `rm -rf build/ dist/ node_modules/ ./tmp`.
 - Local rsync: `rsync -a src/ dst/`.
 
@@ -71,7 +75,9 @@ AgentFleet lane-guard blocked this <label> command in <type>. Fleet lanes may no
 
 ## Main Conversation Is Never Blocked
 
-`lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked.
+`lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked. When a subagent's type cannot be resolved, a matching command is blocked rather than allowed. The `PowerShell` tool is checked like `Bash`, and secrets in the logged command are redacted.
+
+The rules are tested against a shared case table (`tests/cases.json`) that AgentFleet's Python lane reports use too, so both agree on what counts as forbidden.
 
 ## Installation
 

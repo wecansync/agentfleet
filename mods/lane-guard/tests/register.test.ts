@@ -46,6 +46,26 @@ test('Bash git push from fleet-review agent is denied', async () => {
   expect(logs[0]).toContain('git-history');
 });
 
+test('PowerShell git push from fleet agent is denied', async () => {
+  const { _$, hooks, logs } = setup([{ id: 'sub-fleet-ps', type: 'fleet-coder' }]);
+  const event = {
+    agentId: 'sub-fleet-ps',
+    tool: 'PowerShell',
+    command: 'git push',
+  };
+
+  let nextCalled = false;
+  const result = await hooks['tool.call'](_$, event, (e: any) => {
+    nextCalled = true;
+    return { result: 'ok' };
+  });
+
+  expect(nextCalled).toBe(false);
+  expect(result.deny).toContain('AgentFleet lane-guard blocked');
+  expect(logs.length).toBe(1);
+  expect(logs[0]).toContain('fleet-coder');
+});
+
 test('Bash git push from main loop passes through', async () => {
   const { _$, hooks } = setup([{ id: 'sub-fleet-1', type: 'fleet-review' }]);
   const event = {
@@ -106,7 +126,53 @@ test('MCP call with DROP TABLE users from a fleet agent is denied', async () => 
   expect(logs[0]).toContain('db-write');
 });
 
-test('internal error passes through', async () => {
+test('mcp__agent-brain-memory__memory_save passes through even with truncate/delete phrasing', async () => {
+  const { _$, hooks } = setup([{ id: 'sub-fleet-mem', type: 'fleet-review' }]);
+  const event = {
+    agentId: 'sub-fleet-mem',
+    tool: 'mcp__agent-brain-memory__memory_save',
+    content: 'Logs truncate at 120 chars; delete from the queue',
+  };
+
+  let nextCalled = false;
+  const result = await hooks['tool.call'](_$, event, (e: any) => {
+    nextCalled = true;
+    return { result: 'ok' };
+  });
+
+  expect(nextCalled).toBe(true);
+  expect(result.result).toBe('ok');
+});
+
+test('Edit and Write to .git directories are denied', async () => {
+  const { _$, hooks } = setup([{ id: 'sub-fleet-edit', type: 'fleet-coder' }]);
+
+  const editEvent = {
+    agentId: 'sub-fleet-edit',
+    tool: 'Edit',
+    file_path: '/repo/.git/hooks/pre-commit',
+  };
+  let nextCalled = false;
+  const editResult = await hooks['tool.call'](_$, editEvent, () => {
+    nextCalled = true;
+    return { result: 'ok' };
+  });
+  expect(nextCalled).toBe(false);
+  expect(editResult.deny).toContain('AgentFleet lane-guard blocked');
+
+  const writeEvent = {
+    agentId: 'sub-fleet-edit',
+    tool: 'Write',
+    file_path: '.git/config',
+  };
+  const writeResult = await hooks['tool.call'](_$, writeEvent, () => {
+    nextCalled = true;
+    return { result: 'ok' };
+  });
+  expect(writeResult.deny).toContain('AgentFleet lane-guard blocked');
+});
+
+test('when agent type cannot be resolved, forbidden command is denied (fail closed)', async () => {
   const { _$, hooks } = setup();
   _$.agent = {
     list: async () => {
@@ -125,8 +191,46 @@ test('internal error passes through', async () => {
     return { result: 'passthrough' };
   });
 
+  expect(nextCalled).toBe(false);
+  expect(result.deny).toContain('unknown subagent');
+});
+
+test('when agent type cannot be resolved, allowed command passes through', async () => {
+  const { _$, hooks } = setup();
+  _$.agent = {
+    list: async () => {
+      throw new Error('agent list failed');
+    },
+  };
+  const event = {
+    agentId: 'sub-err-2',
+    tool: 'Bash',
+    command: 'npm test',
+  };
+
+  let nextCalled = false;
+  const result = await hooks['tool.call'](_$, event, (e: any) => {
+    nextCalled = true;
+    return { result: 'passthrough' };
+  });
+
   expect(nextCalled).toBe(true);
   expect(result.result).toBe('passthrough');
+});
+
+test('secrets are redacted in ui.log', async () => {
+  const { _$, hooks, logs } = setup([{ id: 'sub-fleet-sec', type: 'fleet-coder' }]);
+  const event = {
+    agentId: 'sub-fleet-sec',
+    tool: 'Bash',
+    command: 'mysql -pHunter2pass -e "DROP TABLE users"',
+  };
+
+  await hooks['tool.call'](_$, event, () => ({ result: 'ok' }));
+
+  expect(logs.length).toBe(1);
+  expect(logs[0]).not.toContain('Hunter2pass');
+  expect(logs[0]).toContain('-p[redacted]');
 });
 
 test('a tool that throws is run once, not retried', async () => {
