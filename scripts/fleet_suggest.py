@@ -905,8 +905,8 @@ def _pending_notice(cwd: str, home: Path) -> tuple[str | None, int]:
             return None, pending_count
 
         line = (
-            f"AgentFleet: {pending_count} suggestions (skills, plugins, MCP servers, mods, hooks) "
-            f"match this project. Mention once, briefly, at the end of your reply that "
+            f"AgentFleet: {pending_count} suggestion{'' if pending_count == 1 else 's'} (skills, plugins, MCP servers, mods, hooks) "
+            f"{'matches' if pending_count == 1 else 'match'} this project. Mention once, briefly, at the end of your reply that "
             f"/fleet-suggest lists them; do not install anything."
         )
         return sanitize_text(line), pending_count
