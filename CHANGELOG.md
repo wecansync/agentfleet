@@ -3,6 +3,35 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.2.0] - 2026-10-11
+
+Auto-compact percentages based on model context, reviewer command execution
+and fix modes, lane-guard safety mod, outage failover, subagent reports,
+project suggestions, and Windows hardening.
+
+### Added
+- Auto-compact percentage: `compactPercent` (default 70, range 40–95, or `off`) in `~/.claude/agentfleet/config.json`. The context watcher sets Claude Code's auto-compact window to that percentage of the active model's context length at startup and on model switch (native Claude login profiles use a 1,000,000-token basis). Manage via `agentfleet config compact <40-95|off>`, `claude-fleet-setup --compact-percent P`, or `/fleet-setup`. `claude-fleet-setup --compaction N` sets an absolute token override and turns the percentage off.
+- `lane-guard` mod: installed and on by default, intercepting tool calls from subagent lanes (`fleet-*`) to block git history and tree mutations, GitHub writes, package publishing and deployments, database migrations, destructive SQL via database CLI tools or MCP servers, and dangerous `rm` targets. Read operations and the main conversation remain unblocked.
+- Reviewers with execution and editing capability: `fleet-review`, `fleet-review-alt`, `fleet-review-deep`, and `fleet-security-review` have `Bash`, `Edit`, and `Write` tools; they run in CHECK mode by default (linters, test suites, builds, queries; no file edits) and enter FIX MODE only when requested by the brief with a specified file list. `fleet-diagnose-static` can run shell commands to reproduce issues, with no edit tools.
+- `agentfleet config reviewer-access full|run|read-only` (default `full`): global reviewer access control, complemented by per-lane `tools` overrides in `fleet.json`.
+- Outage failover: models failing with 5xx gateway errors are marked failing for 15 minutes in `~/.claude/agentfleet/outages.json`. Routing prompts recommend alternative non-outage lanes and route new requests away from failing models.
+- Lane reports: records modified files and blocked command attempts after each subagent finishes in `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Inspect via `agentfleet report [--days N] [--json]`.
+- Project capability suggestions: `/fleet-suggest` and `scripts/fleet_suggest.py` inspect the current repository locally against a 57-entry catalog (`config/suggestions.json`) covering plugins, MCP servers, optional mods, drafted hooks, and project skills. Mentions suggestions at most once per project per catalog version, never reads `.env` secrets, and installs only selected items. Manage via `agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]`.
+- Opt-in usage learning: `agentfleet config learn on` (off by default) aggregates command names, tool calls, documentation domains, and slash commands per project without recording prompt text in `~/.claude/agentfleet/usage/`. `agentfleet suggest --forget` deletes recorded usage data.
+- Per-project lane configuration: `agentfleet project pin LANE MODEL [--fallbacks A,B] [--dir DIR]`, `agentfleet project unpin LANE [--dir DIR]`, and `agentfleet project show [--dir DIR]` manage project overrides in `<project>/.claude/fleet.local.json` and project agents in `<project>/.claude/agents/`.
+- Plugin and MCP health auditing: `claude-fleet-setup --audit`, `/fleet-setup`, and `agentfleet status` check enabled plugins, plugin errors, and failing or unauthenticated MCP servers (`--no-health` skips health checks).
+- `/fleet-tasks` pane in `fleet-status` 1.1.0: closable UI showing active fleet subagents, recent lane reports, and active provider outages.
+
+### Changed
+- Existing installations migrate automatically from the former fixed 800,000-token window to 70% of context on update.
+- `fleet-status` mod 1.1.0: displays the auto-compact percentage, reviewer access level, learning status, active outages, and project suggestions.
+- `fast-jev-compaction` mod simplified: removed separate 60% trigger and `compactAtPercent` option; runs only on compactions initiated by Claude Code in the main conversation; reads TypeSafe API key only from `/plugin` or `TYPESAFE_API_KEY` (never `settings.json`); logs a single no-key notice per session; manageable via `agentfleet jev on|off|status`.
+- Global delegation policy in `CLAUDE.md`: documents reviewer CHECK vs FIX modes, lane-guard policy, outage failover handling, lane report verification, and capability suggestions.
+
+### Fixed
+- `/fleet-status` no longer shows "Profile: default" and "Auto-update: unknown": AgentFleet now writes the active profile marker and records the auto-update setting at session start, and the mod shows "enabled (default)" when no setting was recorded.
+- Windows hardening: `.cmd` shims prevent loading executables from the current directory via `NoDefaultCurrentDirectoryInExePath` and explicit `where.exe` paths; hook command generators reject install paths containing `$` or backticks; `.ps1` shims include a UTF-8 BOM for Windows PowerShell 5.1 compatibility.
+
 ## [2.1.0] - 2026-10-09
 
 Claude Code mods: a status band when something needs action, with optional
@@ -134,6 +163,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.2.0]: PR_URL
 [2.1.0]: https://github.com/wecansync/claude-agents-config/pull/23
 [2.0.6]: https://github.com/wecansync/claude-agents-config/pull/22
 [2.0.5]: https://github.com/wecansync/claude-agents-config/pull/20

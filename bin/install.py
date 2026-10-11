@@ -96,11 +96,9 @@ LEGACY_MODEL_CACHE_NAME = "omniroute-models-cache.json"
 def is_first_party(model: object) -> bool:
     return isinstance(model, str) and (model in FIRST_PARTY_MODELS or model.removesuffix("[1m]") in NATIVE_MODELS)
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
-# Codex/gpt-5.6-luna-max is advertised at 872,000 input tokens. Claude Code
-# counts the full request envelope, so leave material headroom rather than
-# compacting at the provider's hard limit. This is intentionally static: the
-# settings format has no model-conditional autoCompactWindow expression.
-AUTO_COMPACT_WINDOW = 800_000
+# Default compaction window basis (70% of 1M context basis). The effective
+# default window for an install is derived from preferences.
+AUTO_COMPACT_WINDOW = 700_000
 AUTO_COMPACT_ENV = str(AUTO_COMPACT_WINDOW)
 LEGACY_AUTO_COMPACT_WINDOW = 872_000
 LEGACY_AUTO_COMPACT_ENV = "950000"
@@ -321,7 +319,8 @@ def claude_json(executable: str, home: Path, *args: str) -> object | None:
 
 def manual_mod_commands(mods_dir: Path) -> str:
     return (f'claude plugin marketplace add "{mods_dir}" and '
-            'claude plugin install fleet-status@agentfleet')
+            'claude plugin install fleet-status@agentfleet and '
+            'claude plugin install lane-guard@agentfleet')
 
 
 def marketplace_is_ours(item: dict, mods_dir: Path) -> bool:
@@ -356,9 +355,9 @@ def print_mod_manual(mods_dir: Path) -> None:
 
 
 def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
-    """Register the agentfleet marketplace and install fleet-status, once.
+    """Register the agentfleet marketplace and default plugins, once.
 
-    Answers (our marketplace is registered, fleet-status is installed). A plugin
+    Answers (our marketplace is registered, default plugins installed). A plugin
     already listed is left alone: `plugin install` would re-enable one the user
     disabled."""
     executable = claude_executable()
@@ -382,11 +381,39 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
     if not isinstance(plugins, list):
         print_mod_manual(mods_dir)
         return True, False
-    if not any(isinstance(item, dict) and item.get("id") == "fleet-status@agentfleet" for item in plugins):
-        result = run_claude(executable, home, "plugin", "install", "fleet-status@agentfleet")
-        if result is None or result.returncode != 0:
-            print_mod_manual(mods_dir)
-            return True, False
+    meta = old_metadata(home)
+    raw_installed = meta.get("modsInstalled")
+    if market is None:
+        # A catalog added just now holds no installed plugins, so nothing was
+        # removed by the user: install every default (fresh installs, and
+        # rollbacks that re-register a catalog an uninstall had removed).
+        installed = []
+    elif isinstance(raw_installed, list):
+        installed = [item for item in raw_installed if isinstance(item, str)]
+    elif meta.get("modsState") == "registered":
+        installed = ["fleet-status"]
+    else:
+        installed = []
+    default_mods = [
+        ("fleet-status", "fleet-status@agentfleet"),
+        ("lane-guard", "lane-guard@agentfleet"),
+    ]
+    for name, plugin_id in default_mods:
+        already_in_meta = any(item in {name, plugin_id} for item in installed)
+        already_in_cli = any(
+            isinstance(item, dict) and item.get("id") == plugin_id
+            for item in plugins
+        )
+        if not already_in_cli and not already_in_meta:
+            result = run_claude(executable, home, "plugin", "install", plugin_id)
+            if result is None or result.returncode != 0:
+                print_mod_manual(mods_dir)
+                return True, False
+            if name == "lane-guard":
+                print("Added the lane-guard mod: fleet lanes can no longer commit, push, deploy, run migrations or destructive SQL, or revert the working tree. Turn it off with /plugin.")
+            if name not in installed:
+                installed.append(name)
+    update_mods_metadata(home, {"modsInstalled": installed})
     return True, True
 
 
@@ -496,7 +523,7 @@ def reconcile_mods_after_restore(home: Path, before: dict) -> None:
                                             "modsState": "registered" if registered else None})
         elif mods_owned(before):
             remove_mod_marketplace(home, mods_dir)
-            update_mods_metadata(home, {"modsMarketplace": None, "modsState": None})
+            update_mods_metadata(home, {"modsMarketplace": None, "modsState": None, "modsInstalled": None})
     except (Exception, SystemExit) as exc:  # noqa: BLE001 - the rollback itself succeeded
         print(f"Could not update the Claude Code plugin catalog after rollback ({exc.__class__.__name__}); run: agentfleet update")
 
@@ -631,9 +658,13 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
         fail("config/delegate-fleet.json is not a delegate-fleet.v1 map")
     if not fleet["lanes"]:
         fail("bundle fleet must contain at least one lane")
-    for rel in (PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT):
+    for rel in (
+        PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT,
+        "scripts/fleet_watch.py", "scripts/fleet_suggest.py",
+        "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
+    ):
         if not (bundle / rel).is_file():
-            fail(f"bundle is incomplete; missing provider reconciliation file {bundle / rel}")
+            fail(f"bundle is incomplete; missing required source file {bundle / rel}")
     policy = load_json(bundle / PROVIDER_POLICY_PATH, "provider policy")
     if policy.get("version") != "provider-policy.v1" or not isinstance(policy.get("provider"), str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", policy["provider"]):
         fail("provider policy has an invalid format or provider")
@@ -948,7 +979,7 @@ def prior_installed_matches(prior: dict[str, dict], identity: str, current: obje
     )
 
 
-def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, dict], journal: dict[str, dict]) -> None:
+def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, dict], journal: dict[str, dict], home: Path | None = None) -> None:
     """Keep the two global compaction controls valid and ownership-aware.
 
     Claude Code accepts one global window, so an update must never refresh one
@@ -956,6 +987,16 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
     refused unless it is the exact legacy pair recorded as bundle-installed;
     a one-sided value is mirrored so a deliberate user value remains intact.
     """
+    compact_percent = 70
+    if home is not None:
+        try:
+            compact_percent = provider_catalog.load_preferences(home).get("compactPercent", 70)
+        except Exception:
+            pass
+    target_window = provider_catalog.compaction_window(provider_catalog.NATIVE_CONTEXT_BASIS, compact_percent)
+    fallback_window = 700_000
+    effective_window = target_window if target_window is not None else fallback_window
+
     top_identity = "value:autoCompactWindow"
     env_identity = "value:env:CLAUDE_CODE_AUTO_COMPACT_WINDOW"
     top_current = existing.get("autoCompactWindow", ABSENT)
@@ -980,8 +1021,8 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
     if top_current is ABSENT and env_current is ABSENT:
         if top_identity in prior or env_identity in prior:
             fail("both compaction controls are missing after an earlier install; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to the same value before updating")
-        set_top(AUTO_COMPACT_WINDOW)
-        set_env(AUTO_COMPACT_WINDOW)
+        set_top(effective_window)
+        set_env(effective_window)
         return
 
     if top_current is ABSENT or env_current is ABSENT:
@@ -1009,13 +1050,15 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
         )
         if not legacy_owned:
             fail("autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW differ; set both controls to the same token count before updating")
-        set_top(AUTO_COMPACT_WINDOW)
-        set_env(AUTO_COMPACT_WINDOW)
-    elif pair_owned and top_number != AUTO_COMPACT_WINDOW:
-        # Refresh an unchanged bundle-owned pair atomically.  If either side
-        # was edited, pair_owned is false and both user values are preserved.
-        set_top(AUTO_COMPACT_WINDOW)
-        set_env(AUTO_COMPACT_WINDOW)
+        if compact_percent != "off":
+            set_top(effective_window)
+            set_env(effective_window)
+    elif pair_owned and top_number != effective_window:
+        # Refresh an unchanged bundle-owned pair atomically unless compactPercent is 'off'.
+        # If either side was edited, pair_owned is false and both user values are preserved.
+        if compact_percent != "off":
+            set_top(effective_window)
+            set_env(effective_window)
 
 
 def set_nested(value: dict, path: list[str], item: object) -> None:
@@ -1043,9 +1086,15 @@ def windows_command(*parts: str) -> str:
     # Quote every part unconditionally. list2cmdline only quotes parts with
     # spaces, but bare "C:\..." paths lose their backslashes when Claude Code
     # runs the hook through Git Bash or PowerShell ("C:\a" parses as "C:a"),
-    # so the executable is never found. Double quotes are literal-safe under
-    # cmd.exe, bash, and PowerShell alike, and '"' cannot appear in a Windows
-    # path, so no escape handling is required.
+    # so the executable is never found. '"' cannot appear in a Windows path,
+    # but "$" and "`" can, and both shells expand them inside double quotes,
+    # so a path containing either is refused instead of being misquoted.
+    for part in parts:
+        if "$" in str(part) or "`" in str(part):
+            raise InstallerError(
+                f"cannot write a safe hook command for {part!r}: Git Bash and PowerShell expand '$' and '`' "
+                "inside quotes; install from a path without those characters"
+            )
     return " ".join(f'"{part}"' for part in parts)
 
 
@@ -1797,7 +1846,7 @@ def merge_settings(
     # pairing logic reads the merged state, not the pre-merge original, so any
     # earlier merge step that touched a compaction value is still re-paired and
     # no output can reach the write stage with a mismatched pair.
-    merge_compaction_controls(desired, desired, prior, journal)
+    merge_compaction_controls(desired, desired, prior, journal, home=home)
     env = desired.get("env") if isinstance(desired.get("env"), dict) else {}
 
     # Merge maps without clobbering user choices.
@@ -2222,6 +2271,12 @@ def posix_python_wrapper(script: Path, home: Path, prefix: Path, config_root: Pa
     return ("#!/usr/bin/env bash\nset -euo pipefail\nexec " + command + " \"$@\"\n").encode("utf-8")
 
 
+# cmd.exe looks in the current directory before PATH, so a repo-local
+# where.bat, node.bat or python.bat would run instead of the real program.
+NO_CWD_SEARCH = 'set "NoDefaultCurrentDirectoryInExePath=1"\r\n'
+WHERE_EXE = '"%SystemRoot%\\System32\\where.exe"'
+
+
 def cmd_dispatch(
     script: Path,
     runtime: str,
@@ -2244,7 +2299,7 @@ def cmd_dispatch(
         args += " --config-home " + quote(config_root)
     script_arg = quote(script)
     if runtime == "node":
-        body = f"@echo off\r\nsetlocal\r\nwhere node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\nnode {script_arg}{args} %*\r\nexit /b %errorlevel%\r\n"
+        body = f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{WHERE_EXE} node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\nnode {script_arg}{args} %*\r\nexit /b %errorlevel%\r\n"
     else:
         # Try the interpreter this installer ran under first: on a machine
         # whose only Python is off PATH (e.g. uv-managed), bare "python" is
@@ -2256,11 +2311,12 @@ def cmd_dispatch(
         pinned = quote(sys.executable)
         body = (
             f"@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"
+            f"{NO_CWD_SEARCH}"
             f"if not exist {pinned} goto no_pin\r\n"
             f"{pinned} {script_arg}{args} %*\r\n"
             f"exit /b %errorlevel%\r\n"
             f":no_pin\r\n"
-            f"where py >nul 2>nul\r\n"
+            f"{WHERE_EXE} py >nul 2>nul\r\n"
             f"if not errorlevel 1 goto run_py\r\n"
             f"python {script_arg}{args} %*\r\n"
             f"exit /b %errorlevel%\r\n"
@@ -2303,7 +2359,9 @@ def powershell_dispatch(
             f"else {{ $python = Get-Command python -ErrorAction Stop; & $python.Source {path}{target_args} @args }}\n"
             f"exit $LASTEXITCODE\n"
         )
-    return body.encode("utf-8")
+    # Windows PowerShell 5.1 reads a script without a byte-order mark in the
+    # ANSI code page, which garbles non-ASCII profile paths.
+    return b"\xef\xbb\xbf" + body.encode("utf-8")
 
 
 def merged_policy_bytes(bundle: Path, config_root: Path) -> bytes:
@@ -2509,6 +2567,7 @@ def managed_specs(
     policy_data: bytes,
     mods_state: str | None = None,
     mods_marketplace: bool = False,
+    mods_installed: list[str] | None = None,
 ) -> dict[Path, tuple[bytes, int, str]]:
     claude = home / ".claude"
     fleet = config_root / "delegate-skills"
@@ -2526,7 +2585,11 @@ def managed_specs(
     add(claude / "sync-model-context.py", source_bytes(bundle, "scripts/sync-model-context.py"), 0o755, "home:.claude/sync-model-context.py")
     add(claude / "provider_catalog.py", source_bytes(bundle, PROVIDER_CATALOG_MODULE), 0o755, "home:.claude/provider_catalog.py")
     add(claude / "fleet-reconcile.py", source_bytes(bundle, RECONCILE_SCRIPT), 0o755, "home:.claude/fleet-reconcile.py")
+    add(claude / "fleet_watch.py", source_bytes(bundle, "scripts/fleet_watch.py"), 0o755, "home:.claude/fleet_watch.py")
+    add(claude / "fleet_suggest.py", source_bytes(bundle, "scripts/fleet_suggest.py"), 0o755, "home:.claude/fleet_suggest.py")
+    add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")
+    add(claude / "skills" / "fleet-suggest" / "SKILL.md", source_bytes(bundle, "skills/fleet-suggest/SKILL.md"), 0o644, "home:.claude/skills/fleet-suggest/SKILL.md")
     add(fleet / "provider-policy.json", policy_data, 0o644, "config:provider-policy.json")
     add(fleet / "config.json", fleet_bytes, 0o644, "config:delegate-fleet.json")
     add(claude / "fleet.json", fleet_bytes, 0o644, "home:.claude/fleet.json")
@@ -2582,6 +2645,8 @@ def managed_specs(
         metadata["modsState"] = mods_state
     if mods_marketplace:
         metadata["modsMarketplace"] = True
+    if mods_installed is not None:
+        metadata["modsInstalled"] = list(mods_installed)
     add(metadata_path, json_bytes(metadata), 0o600, "home:.claude/.claude-agents-config-install.json")
     return specs
 
@@ -3120,6 +3185,28 @@ def run_provider_wizard(args: argparse.Namespace) -> None:
     args.interactive_review = True
 
 
+def ask_compact_percent(home: Path) -> None:
+    """First-run question: the share of a model's context at which Claude
+    Code compacts. Stored as a preference before the install runs, so the
+    install and the startup watcher both use it."""
+    default = provider_catalog.PREFERENCE_DEFAULTS["compactPercent"]
+    print("\nClaude Code compacts the conversation when it fills part of the model's context.")
+    while True:
+        answer = prompt(f"Auto-compact at what percent of the model's context? ({provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX} or off)", str(default)).strip().lower()
+        value: object = answer if answer == "off" else (int(answer) if answer.isdigit() else None)
+        if provider_catalog.valid_compact_percent(value):
+            break
+        print(f"Type a number from {provider_catalog.COMPACT_PERCENT_MIN} to {provider_catalog.COMPACT_PERCENT_MAX}, or off.")
+    if value == default:
+        return
+    try:
+        provider_catalog.write_preferences(home, {"compactPercent": value})
+    except (OSError, ValueError) as exc:
+        print(f"Could not save the auto-compact preference ({exc}); change it later with: agentfleet config compact {value}")
+        return
+    print(f"Saved. Change it later with: agentfleet config compact <{provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX}|off>")
+
+
 def lane_summary(fleet: dict, template: dict) -> None:
     lanes = fleet.get("lanes", {})
     width = max((len(name) for name in lanes), default=10)
@@ -3262,9 +3349,16 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     # Ownership outlives consent: a --no-mods after registering still lets
     # uninstall remove the marketplace this install added.
     mods_marketplace = mods_owned(previous)
+    prev_installed = previous.get("modsInstalled")
+    if isinstance(prev_installed, list):
+        mods_installed = [item for item in prev_installed if isinstance(item, str)]
+    elif previous.get("modsState") == "registered":
+        mods_installed = ["fleet-status"]
+    else:
+        mods_installed = None
     specs = managed_specs(
         bundle, home, config_root, bin_dir, settings_bytes, fleet_bytes, agent_bytes, {}, version, profile,
-        journal, gateway_owned, permission_owned, policy_data, mods_state, mods_marketplace,
+        journal, gateway_owned, permission_owned, policy_data, mods_state, mods_marketplace, mods_installed,
     )
     meta = old_metadata(home)
     conflicts = check_parent_conflicts(specs, meta, bundle, args.force_owned)
@@ -3292,10 +3386,10 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             fsync_dir(path.parent)
         if retired:
             print(f"Removed {len(retired)} retired file(s); copies are kept in {backup}")
-        if custom_lanes:
-            # The generator renders custom lanes exactly as claude-fleet-sync
-            # would. It runs under this installer's lock (--lock-held); a
-            # failure here rolls the install back with everything else.
+        if custom_lanes or provider_catalog.load_preferences(home).get("reviewerAccess") != "full":
+            # The generator renders custom lanes or reviewerAccess adjustments
+            # exactly as claude-fleet-sync would. It runs under this installer's
+            # lock (--lock-held); a failure here rolls the install back with everything else.
             runtime = node_path(require=True)
             generator = config_root / "delegate-skills" / "generate-claude-agents.mjs"
             result = subprocess.run(
@@ -3303,7 +3397,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
                 text=True, capture_output=True,
             )
             if result.returncode != 0:
-                raise InstallerError(f"rendering custom lane agents failed: {(result.stderr or result.stdout).strip()}")
+                raise InstallerError(f"rendering lane agents failed: {(result.stderr or result.stdout).strip()}")
         result = run_doctor(bundle, home, config_root, bin_dir, profile)
         if result != 0:
             raise InstallerError(f"post-install doctor failed with exit code {result}")
@@ -3326,7 +3420,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     print("      agentfleet profiles | agentfleet use native | agentfleet status | agentfleet doctor")
     if declined_mods and not getattr(args, "mods", False):
         print("Claude Code plugin registration was declined; pass --mods to enable it.")
-    elif mods_state != "registered":
+    elif mods_state != "registered" or not {"fleet-status", "lane-guard"}.issubset(set(previous.get("modsInstalled") or [])):
         mods_dir = mods_dir_for_home(home)
         try:
             owned, registered = register_mods(home, mods_dir)
@@ -3525,7 +3619,7 @@ def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: P
     mods_root = store / "mods"
     store_files = sorted(
         path for path in store.rglob("*")
-        if path.is_file() and not path.is_symlink() and mods_root not in path.parents
+        if path.is_file() and not path.is_symlink() and mods_root not in path.parents and path.name != "config.json"
     ) if store.is_dir() and not store.is_symlink() else []
     removable.extend(store_files)
     metadata_path = home / ".claude" / ".claude-agents-config-install.json"
@@ -3568,6 +3662,9 @@ def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: P
         for directory in (store / "secrets", store / "profiles", store):
             if directory.is_dir() and not directory.is_symlink() and not any(directory.iterdir()):
                 directory.rmdir()
+        for skill_dir in (home / ".claude" / "skills" / "fleet-suggest", home / ".claude" / "skills" / "fleet-setup", home / ".claude" / "skills"):
+            if skill_dir.is_dir() and not skill_dir.is_symlink() and not any(skill_dir.iterdir()):
+                skill_dir.rmdir()
         if store_files:
             print(f"Removed saved AgentFleet profiles and gateway tokens. The backup snapshot keeps copies for rollback; delete {backup} when you no longer need it.")
         # Keep metadata when an edited managed file remains, so a later clean
@@ -3587,7 +3684,7 @@ def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: P
     if mods_owned(meta):
         remove_mod_marketplace(home, mods_dir)
     # Only matters when uninstall kept the metadata for user-edited files.
-    update_mods_metadata(home, {"modsState": None, "modsMarketplace": None})
+    update_mods_metadata(home, {"modsState": None, "modsMarketplace": None, "modsInstalled": None})
     return 0
 
 
@@ -3703,6 +3800,7 @@ def main() -> int:
     installing = args.apply and not (args.check or args.uninstall or args.rollback)
     if installing and wizard_eligible(args, target_home(args)):
         run_provider_wizard(args)
+        ask_compact_percent(target_home(args))
     if args.provider == "gateway":
         args.enable_model_discovery = True
         if not args.gateway_url:

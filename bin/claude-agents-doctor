@@ -48,12 +48,27 @@ FORBIDDEN_SOURCE_STRINGS = (
 # Lanes that must never get write or nested-agent tools, whatever the fleet
 # map says; any other lane marked readOnly is held to the same rule.
 STATIC_ROLES = {
-    "plan", "plan-alt", "review", "review-alt", "review-deep", "diagnose-static", "security-review",
-    "research-codebase", "research-web", "explore-narrow", "triage-static",
+    "plan", "plan-alt", "research-codebase", "research-web", "explore-narrow", "triage-static",
 }
-AUTO_COMPACT_WINDOW = 800000
+BUILTIN_REVIEW_LANES = {
+    "review", "review-alt", "review-deep", "security-review",
+}
+AUTO_COMPACT_WINDOW = 700000
 AUTO_COMPACT_MIN = 100000
 AUTO_COMPACT_MAX = 1000000
+
+
+def load_reviewer_access(home: Path) -> str:
+    path = home / ".claude" / "agentfleet" / "config.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            access = data.get("reviewerAccess")
+            if access in {"full", "run", "read-only"}:
+                return access
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        pass
+    return "full"
 
 
 def fail(errors: list[str], message: str) -> None:
@@ -303,6 +318,7 @@ def validate_fleet_and_picker(fleet: dict, settings: dict, errors: list[str], la
 
 
 def validate_agents(home: Path, config_root: Path, fleet: dict, settings: dict, errors: list[str], profile: str | None) -> None:
+    reviewer_access = load_reviewer_access(home)
     agents_dir = home / ".claude" / "agents"
     picker = settings.get("modelPicker") if isinstance(settings.get("modelPicker"), dict) else {}
     options = picker.get("options") if isinstance(picker.get("options"), list) else []
@@ -335,8 +351,35 @@ def validate_agents(home: Path, config_root: Path, fleet: dict, settings: dict, 
         if GENERATED_MARKER not in text:
             fail(errors, f"agent is not generator-owned: {path}")
         tools = {part.strip() for part in fm.get("tools", "").split(",")}
-        if (lane in STATIC_ROLES or (isinstance(config, dict) and config.get("readOnly") is True)) and tools.intersection({"Bash", "Edit", "Write", "Agent"}):
-            fail(errors, f"static lane has write or nested-agent tools: {path}")
+        has_tools_override = isinstance(config, dict) and isinstance(config.get("tools"), list)
+        is_review_lane = lane in BUILTIN_REVIEW_LANES
+        is_diagnose_lane = lane == "diagnose-static"
+        is_static_lane = lane in STATIC_ROLES or (isinstance(config, dict) and config.get("readOnly") is True)
+
+        if is_review_lane or is_diagnose_lane or is_static_lane or has_tools_override:
+            if "Agent" in tools:
+                fail(errors, f"static lane has write or nested-agent tools: {path}")
+
+        if not has_tools_override:
+            if is_review_lane:
+                if reviewer_access == "full":
+                    forbidden = {"Agent"}
+                elif reviewer_access == "run":
+                    forbidden = {"Edit", "Write", "Agent"}
+                else:
+                    forbidden = {"Bash", "Edit", "Write", "Agent"}
+                if tools.intersection(forbidden):
+                    fail(errors, f"static lane has write or nested-agent tools: {path}")
+            elif is_diagnose_lane:
+                if reviewer_access in {"full", "run"}:
+                    forbidden = {"Edit", "Write", "Agent"}
+                else:
+                    forbidden = {"Bash", "Edit", "Write", "Agent"}
+                if tools.intersection(forbidden):
+                    fail(errors, f"static lane has write or nested-agent tools: {path}")
+            elif is_static_lane:
+                if tools.intersection({"Bash", "Edit", "Write", "Agent"}):
+                    fail(errors, f"static lane has write or nested-agent tools: {path}")
         if lane == "research-web" and not {"WebSearch", "WebFetch"}.issubset(tools):
             fail(errors, f"research-web lacks WebSearch/WebFetch: {path}")
         if lane == "research-codebase" and tools.intersection({"WebSearch", "WebFetch"}):
@@ -512,6 +555,9 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
         home / ".claude" / "fleet-reconcile.py",
         home / ".claude" / "claude-fleet-setup.py",
         home / ".claude" / "agentfleet.py",
+        home / ".claude" / "fleet_watch.py",
+        home / ".claude" / "fleet_suggest.py",
+        home / ".claude" / "fleet-suggestions.json",
         config_root / "delegate-skills" / "provider-policy.json",
         config_root / "delegate-skills" / "generate-claude-agents.mjs",
     ]

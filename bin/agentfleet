@@ -65,7 +65,6 @@ NATIVE_PICKER = [
     {"model": "sonnet", "label": "Sonnet", "description": "Claude Sonnet through your Claude login"},
     {"model": "haiku", "label": "Haiku", "description": "Claude Haiku through your Claude login"},
 ]
-NATIVE_COMPACT_WINDOW = 800_000
 
 
 class Paths:
@@ -82,6 +81,8 @@ class Paths:
         self.legacy_fleet = self.config / "delegate-skills" / "config.json"
         self.policy = self.config / "delegate-skills" / "provider-policy.json"
         self.generator = self.config / "delegate-skills" / "generate-claude-agents.mjs"
+        if not self.generator.is_file() and (SCRIPTS / "generate-claude-agents.mjs").is_file():
+            self.generator = SCRIPTS / "generate-claude-agents.mjs"
         self.store = self.claude / "agentfleet"
         self.profiles = self.store / "profiles"
         self.secrets = self.store / "secrets"
@@ -138,6 +139,17 @@ def reconcile_module(paths: Paths):
     if script is None:
         die("fleet-reconcile.py is missing; reinstall AgentFleet")
     spec = importlib.util.spec_from_file_location("agentfleet_reconcile", script)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
+def context_sync_module(paths: Paths):
+    candidates = [SCRIPTS / "sync-model-context.py", paths.claude / "sync-model-context.py"]
+    script = next((path for path in candidates if path.is_file()), None)
+    if script is None:
+        die("sync-model-context.py is missing; reinstall AgentFleet")
+    spec = importlib.util.spec_from_file_location("agentfleet_context_sync", script)
     module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
@@ -300,26 +312,37 @@ def load_profile(paths: Paths, name: str) -> tuple[dict, str | None]:
     return profile, token
 
 
-def native_profile(fleet: dict, paths: Paths) -> dict:
+def native_profile(fleet: dict, paths: Paths, current_settings: dict | None = None) -> dict:
     resolved = reconcile_module(paths).native_fleet(fleet)
     chosen = {
         lane: {key: config[key] for key in LANE_KEYS if key in config}
         for lane, config in resolved.get("lanes", {}).items() if isinstance(config, dict)
     }
+    native_settings = {
+        "model": "default",
+        "advisorModel": "opus",
+        "modelPicker": {"options": NATIVE_PICKER, "replaceBuiltInOptions": True},
+    }
+    native_env = {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"}
+    percent = provider_catalog.load_preferences(paths.home)["compactPercent"]
+    window = provider_catalog.compaction_window(provider_catalog.NATIVE_CONTEXT_BASIS, percent)
+    if window is not None:
+        native_settings["autoCompactWindow"] = window
+        native_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(window)
+    elif isinstance(current_settings, dict):
+        current_env = current_settings.get("env") if isinstance(current_settings.get("env"), dict) else {}
+        existing = current_settings.get("autoCompactWindow")
+        if isinstance(existing, int) and not isinstance(existing, bool):
+            native_settings["autoCompactWindow"] = existing
+        existing_env = current_env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+        if isinstance(existing_env, str):
+            native_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = existing_env
     return {
         "format": PROFILE_FORMAT,
         "name": "native",
         "kind": "native",
-        "settings": {
-            "model": "default",
-            "advisorModel": "opus",
-            "modelPicker": {"options": NATIVE_PICKER, "replaceBuiltInOptions": True},
-            "autoCompactWindow": NATIVE_COMPACT_WINDOW,
-        },
-        "env": {
-            "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0",
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(NATIVE_COMPACT_WINDOW),
-        },
+        "settings": native_settings,
+        "env": native_env,
         "lanes": chosen,
         "modelTiers": fleet.get("modelTiers", {}),
         "excludedModels": [],
@@ -425,12 +448,36 @@ def apply_profile(paths: Paths, profile: dict, token: str | None) -> bool:
     return profile.get("kind") == "gateway" and target_policy is None
 
 
+def generator_path(paths: Paths) -> Path:
+    if paths.generator.is_file():
+        return paths.generator
+    fallback = SCRIPTS / "generate-claude-agents.mjs"
+    if fallback.is_file():
+        return fallback
+    return paths.generator
+
+
 def run_generator(paths: Paths) -> int:
     node = shutil.which("node")
-    if not node or not paths.generator.is_file():
+    gen = generator_path(paths)
+    if not node or not gen.is_file():
         print("agentfleet: node or the agent generator is missing; run 'claude-fleet-sync' after fixing it", file=sys.stderr)
         return 1
-    return subprocess.run([node, str(paths.generator), "--home", str(paths.home), "--config-home", str(paths.config), "--quiet"]).returncode
+    return subprocess.run([node, str(gen), "--home", str(paths.home), "--config-home", str(paths.config), "--quiet"]).returncode
+
+
+def run_project_generator(paths: Paths, project: Path) -> tuple[int, str]:
+    node = shutil.which("node")
+    gen = generator_path(paths)
+    if not node or not gen.is_file():
+        return 1, "agentfleet: node or the agent generator is missing; run 'claude-fleet-sync' after fixing it"
+    proc = subprocess.run(
+        [node, str(gen), "--home", str(paths.home), "--config-home", str(paths.config), "--project", str(project), "--quiet"],
+        capture_output=True,
+        text=True,
+    )
+    err = proc.stderr.strip() if proc.stderr else (proc.stdout.strip() if proc.stdout else "")
+    return proc.returncode, err
 
 
 def with_lock(paths: Paths):
@@ -442,8 +489,52 @@ def with_lock(paths: Paths):
     return fd, lock
 
 
+def _auto_update_state_path(paths: Paths) -> Path:
+    return paths.store / "auto-update.json"
+
+
+def _read_auto_update_state(paths: Paths) -> dict:
+    p = _auto_update_state_path(paths)
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_auto_update_state(paths: Paths, state: dict) -> None:
+    paths.store.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(paths.store, 0o700)
+    except OSError:
+        pass
+    atomic_write(_auto_update_state_path(paths), json_bytes(state), 0o600)
+
+
+def self_heal_markers(paths: Paths, settings: dict | None) -> None:
+    """Silently restore AgentFleet's status markers without changing update intent."""
+    try:
+        if isinstance(settings, dict):
+            name = active_name(paths, settings)
+            if (name == "native" or (paths.profiles / f"{name}.json").is_file()) and not paths.active.is_file():
+                paths.store.mkdir(parents=True, exist_ok=True, mode=0o700)
+                os.chmod(paths.store, 0o700)
+                atomic_write(paths.active, (name + "\n").encode("utf-8"), 0o600)
+    except Exception:
+        pass
+    try:
+        state_path = _auto_update_state_path(paths)
+        state = _read_auto_update_state(paths)
+        if not state_path.is_file() or "enabled" not in state:
+            state["enabled"] = True
+            _write_auto_update_state(paths, state)
+    except Exception:
+        pass
+
+
 def cmd_profiles(paths: Paths, _args: argparse.Namespace) -> int:
     settings = read_json(paths.settings)
+    self_heal_markers(paths, settings)
     active = active_name(paths, settings)
     names = {"native"}
     if paths.profiles.is_dir():
@@ -501,7 +592,9 @@ def cmd_use(paths: Paths, args: argparse.Namespace) -> int:
         if not target:
             if name != "native":
                 die(f"no saved profile '{name}'. Saved profiles: agentfleet profiles")
-            target = native_profile(fleet, paths)
+            target = native_profile(fleet, paths, settings)
+        if target.get("kind") == "native":
+            target = native_profile(fleet, paths, settings)
         if target.get("kind") == "gateway" and not target_token:
             die(f"profile '{name}' has no saved gateway token; switch to that gateway and run: agentfleet save {name}")
         # Save where we are first, so switching back restores it exactly.
@@ -611,19 +704,25 @@ def cmd_add(paths: Paths, args: argparse.Namespace) -> int:
             die("could not assign a model to every lane: " + "; ".join(missing[:3]))
         resolved.pop("_reconcile", None)
         chosen = reconcile.gateway_settings(resolved, catalog)
-        sized, _message, _budget = reconcile.reconcile_context({"model": chosen["model"], "env": {}}, catalog)
-        window = sized.get("autoCompactWindow") if isinstance(sized.get("autoCompactWindow"), int) else NATIVE_COMPACT_WINDOW
-        env = {"ANTHROPIC_BASE_URL": url, **chosen["env"], "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1",
-               "CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(window)}
+        sized, _message, _budget = reconcile.reconcile_context(
+            {"model": chosen["model"], "env": {"ANTHROPIC_BASE_URL": url}}, catalog, paths.home,
+        )
+        window = sized.get("autoCompactWindow")
+        env = {"ANTHROPIC_BASE_URL": url, **chosen["env"], "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"}
+        if isinstance(window, int):
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(window)
         max_context = (sized.get("env") or {}).get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
         if max_context:
             env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = max_context
+        profile_settings = {"model": chosen["model"], "advisorModel": chosen["advisorModel"], "modelPicker": picker}
+        if isinstance(window, int):
+            profile_settings["autoCompactWindow"] = window
         profile = {
             "format": PROFILE_FORMAT,
             "name": name,
             "kind": "gateway",
             "savedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "settings": {"model": chosen["model"], "advisorModel": chosen["advisorModel"], "modelPicker": picker, "autoCompactWindow": window},
+            "settings": profile_settings,
             "env": env,
             "lanes": {lane: {key: config[key] for key in LANE_KEYS if key in config}
                       for lane, config in resolved.get("lanes", {}).items() if isinstance(config, dict)},
@@ -702,6 +801,7 @@ def run_tool(paths: Paths, script: str, extra: list[str]) -> int:
 
 def cmd_status(paths: Paths, _args: argparse.Namespace) -> int:
     settings = read_json(paths.settings)
+    self_heal_markers(paths, settings)
     label = ""
     if current_kind(settings) == "gateway":
         try:
@@ -718,6 +818,353 @@ def cmd_doctor(paths: Paths, _args: argparse.Namespace) -> int:
 
 def cmd_sync(paths: Paths, _args: argparse.Namespace) -> int:
     return run_generator(paths)
+
+
+def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
+    preferences = provider_catalog.load_preferences(paths.home)
+    raw = provider_catalog.load_json(provider_catalog.preferences_path(paths.home))
+    raw = raw if isinstance(raw, dict) else {}
+    explicit = set()
+    if provider_catalog.valid_compact_percent(raw.get("compactPercent")):
+        explicit.add("compactPercent")
+    if raw.get("reviewerAccess") in provider_catalog.REVIEWER_ACCESS:
+        explicit.add("reviewerAccess")
+    if isinstance(raw.get("learn"), bool):
+        explicit.add("learn")
+    return preferences, explicit
+
+
+def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
+    setting = args.setting
+    value = args.value
+    preferences, explicit = _effective_preferences(paths)
+    if setting is None:
+        compact = preferences["compactPercent"]
+        compact_text = "off" if compact == "off" else f"{compact}%"
+        reviewer = preferences["reviewerAccess"]
+        learn = "on" if preferences["learn"] else "off"
+        for key, display in (
+            ("compactPercent", f"compact: {compact_text}"),
+            ("reviewerAccess", f"reviewer-access: {reviewer}"),
+            ("learn", f"learn: {learn}"),
+        ):
+            suffix = " (default)" if key not in explicit else ""
+            print(display + suffix)
+        settings = read_json(paths.settings)
+        window = settings.get("autoCompactWindow")
+        if not isinstance(window, int) or isinstance(window, bool):
+            env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+            window = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+        if isinstance(window, (int, str)) and str(window).isdigit():
+            print(f"auto-compact window: {window} tokens")
+        else:
+            print("auto-compact window: not set")
+        return 0
+
+    if value is None:
+        print(f"agentfleet: config {setting} requires a value", file=sys.stderr)
+        return 2
+    change: dict
+    if setting == "compact":
+        compact_value: object = value
+        if value != "off":
+            try:
+                compact_value = int(value)
+            except ValueError:
+                compact_value = value
+        try:
+            provider_catalog.write_preferences(paths.home, {"compactPercent": compact_value})
+        except ValueError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 2
+        if compact_value == "off":
+            print("AgentFleet will no longer change the auto-compact window.")
+            return 0
+        fd, lock = with_lock(paths)
+        try:
+            settings = read_json(paths.settings)
+            sync_payload = {}
+            if isinstance(settings, dict):
+                sync_payload["model"] = settings.get("model")
+            result = context_sync_module(paths).update_context(
+                sync_payload, paths.home, paths.config, already_locked=True, percent_override=compact_value,
+            )
+        finally:
+            provider_catalog.release_lock(fd, lock)
+        if result is None:
+            print("Auto-compact preference saved; the active model's context is unavailable, so the window was not changed.")
+            return 0
+        percent = result["percent"]
+        print(
+            f"Auto-compact: {percent}% of {result['model']}'s context ({result['window']} tokens). "
+            "Restart Claude Code to apply."
+        )
+        return 0
+
+    if setting == "reviewer-access":
+        try:
+            provider_catalog.write_preferences(paths.home, {"reviewerAccess": value})
+        except ValueError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 2
+        code = cmd_sync(paths, args)
+        if code != 0:
+            return code
+        print(f"Reviewer access set to {value}. Restart Claude Code to apply.")
+        return 0
+
+    if setting == "learn":
+        learn = value == "on"
+        if value not in {"on", "off"}:
+            print("agentfleet: learn must be on or off", file=sys.stderr)
+            return 2
+        try:
+            provider_catalog.write_preferences(paths.home, {"learn": learn})
+        except ValueError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 2
+        status = "on" if learn else "off"
+        print(
+            f"Learning is {status}. When on, it counts command names, tool names, documentation sites and slash commands "
+            "per project (never prompt text) in ~/.claude/agentfleet/usage/. "
+            "Run agentfleet suggest --forget to delete it."
+        )
+        return 0
+    return 2
+
+
+def cmd_jev(paths: Paths, args: argparse.Namespace) -> int:
+    plugin_id = "fast-jev-compaction@agentfleet"
+    if args.action == "on":
+        try:
+            metadata = json.loads((paths.claude / ".claude-agents-config-install.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            metadata = {}
+        if not isinstance(metadata, dict) or (metadata.get("modsMarketplace") is not True and metadata.get("modsState") != "registered"):
+            print("AgentFleet mods are not registered. Run: agentfleet update --mods", file=sys.stderr)
+            return 1
+        result = provider_catalog.claude_cli(paths.home, "plugin", "install", plugin_id)
+        if result is None:
+            print("agentfleet: Claude CLI is missing or could not install fast-jev-compaction", file=sys.stderr)
+            return 1
+        if result.returncode != 0:
+            print("agentfleet: Claude CLI failed to install fast-jev-compaction", file=sys.stderr)
+            return 1
+        print(
+            "fast-jev-compaction is on. It needs a TypeSafe API key: set it in Claude Code with /plugin "
+            "(fast-jev-compaction → Configure), or export TYPESAFE_API_KEY in your shell profile. "
+            "AgentFleet never stores or asks for the key. When Claude Code compacts the main conversation, "
+            "its text is sent to api.typesafe.ai. Restart Claude Code to apply."
+        )
+        return 0
+    if args.action == "off":
+        result = provider_catalog.claude_cli(paths.home, "plugin", "disable", plugin_id)
+        if result is None:
+            print("agentfleet: Claude CLI is missing or could not disable fast-jev-compaction", file=sys.stderr)
+            return 1
+        if result.returncode != 0:
+            print("agentfleet: Claude CLI failed to disable fast-jev-compaction", file=sys.stderr)
+            return 1
+        print("fast-jev-compaction is off. Restart Claude Code to apply.")
+        return 0
+    result = provider_catalog.claude_cli(paths.home, "plugin", "list", "--json")
+    if result is None:
+        print("agentfleet: Claude CLI is missing or could not list plugins", file=sys.stderr)
+        return 1
+    if result.returncode != 0:
+        print("agentfleet: Claude CLI failed to list plugins", file=sys.stderr)
+        return 1
+    try:
+        installed = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        print("agentfleet: Claude CLI returned invalid plugin JSON", file=sys.stderr)
+        return 1
+    if isinstance(installed, dict):
+        installed = installed.get("plugins")
+    if not isinstance(installed, list) or any(not isinstance(item, dict) for item in installed):
+        print("agentfleet: Claude CLI returned an unsupported plugin list", file=sys.stderr)
+        return 1
+    plugin = next((item for item in installed if item.get("id") == plugin_id), None)
+    if plugin is None:
+        state = "not installed"
+    elif plugin.get("enabled") is True:
+        state = "installed, enabled"
+    else:
+        state = "installed, disabled"
+    key_state = "set" if "TYPESAFE_API_KEY" in os.environ else "not set"
+    print(f"fast-jev-compaction: {state}")
+    print(f"TYPESAFE_API_KEY in this shell: {key_state}")
+    return 0
+
+
+def cmd_report(paths: Paths, args: argparse.Namespace) -> int:
+    import fleet_watch
+    days = getattr(args, "days", 7) or 7
+    data = fleet_watch.report(paths.home, days=days)
+    if getattr(args, "json", False):
+        print(json.dumps(data, indent=2))
+        return 0
+    if not data.get("lanes"):
+        print("No lane reports yet.")
+        return 0
+    print(fleet_watch.format_report(data))
+    return 0
+
+
+def cmd_suggest(paths: Paths, args: argparse.Namespace) -> int:
+    import fleet_suggest
+    forwarded: list[str] = ["--home", str(paths.home)]
+    if getattr(args, "project", None):
+        forwarded.extend(["--project", args.project])
+    if getattr(args, "json", False):
+        forwarded.append("--json")
+    if getattr(args, "dismiss", None):
+        forwarded.append("--dismiss")
+        forwarded.extend(args.dismiss)
+    if getattr(args, "seen", False):
+        forwarded.append("--seen")
+    if getattr(args, "forget", False):
+        forwarded.append("--forget")
+    return fleet_suggest.main(forwarded)
+
+
+def cmd_project_pin(paths: Paths, args: argparse.Namespace) -> int:
+    project_dir = Path(args.dir).expanduser().resolve() if getattr(args, "dir", None) else Path.cwd().resolve()
+    lane = args.lane
+    if lane.startswith("fleet-"):
+        lane = lane[len("fleet-"):]
+
+    fleet_data = read_json(paths.fleet)
+    if not fleet_data or not isinstance(fleet_data.get("lanes"), dict):
+        if paths.legacy_fleet.is_file():
+            fleet_data = read_json(paths.legacy_fleet)
+        else:
+            die("no fleet map found; install AgentFleet first")
+    valid_lanes = fleet_data.get("lanes", {})
+    if not isinstance(valid_lanes, dict) or lane not in valid_lanes:
+        available = ", ".join(sorted(valid_lanes.keys())) if isinstance(valid_lanes, dict) else ""
+        die(f"unknown lane '{lane}'; available lanes: {available}")
+
+    local_path = project_dir / ".claude" / "fleet.local.json"
+    previous_bytes: bytes | None = None
+    if local_path.is_file():
+        try:
+            previous_bytes = local_path.read_bytes()
+            local_fleet = json.loads(previous_bytes.decode("utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            die(f"cannot read {local_path}: {exc}")
+        if not isinstance(local_fleet, dict) or local_fleet.get("version") != "delegate-fleet.local.v1" or not isinstance(local_fleet.get("lanes"), dict):
+            die(f"{local_path} is not a valid delegate-fleet.local.v1 map")
+    else:
+        local_fleet = {"version": "delegate-fleet.local.v1", "lanes": {}}
+
+    lane_override: dict[str, object] = {"model": args.model}
+    if getattr(args, "fallbacks", None):
+        fallbacks = [f.strip() for f in args.fallbacks.split(",") if f.strip()]
+        if fallbacks:
+            lane_override["fallbacks"] = fallbacks
+    local_fleet["lanes"][lane] = lane_override
+
+    local_path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    atomic_write(local_path, json_bytes(local_fleet), 0o644)
+
+    code, err = run_project_generator(paths, project_dir)
+    if code != 0:
+        if previous_bytes is not None:
+            atomic_write(local_path, previous_bytes, 0o644)
+        else:
+            local_path.unlink(missing_ok=True)
+        if err:
+            print(err, file=sys.stderr)
+        return 1
+
+    agent_file = project_dir / ".claude" / "agents" / f"fleet-{lane}.md"
+    print(f"Wrote {agent_file}.")
+    print("Restart Claude Code (or start a new session) in this project to use it.")
+    return 0
+
+
+def cmd_project_unpin(paths: Paths, args: argparse.Namespace) -> int:
+    project_dir = Path(args.dir).expanduser().resolve() if getattr(args, "dir", None) else Path.cwd().resolve()
+    lane = args.lane
+    if lane.startswith("fleet-"):
+        lane = lane[len("fleet-"):]
+
+    local_path = project_dir / ".claude" / "fleet.local.json"
+    if not local_path.is_file():
+        die(f"lane '{lane}' is not pinned in this project")
+
+    try:
+        previous_bytes = local_path.read_bytes()
+        local_fleet = json.loads(previous_bytes.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        die(f"cannot read {local_path}: {exc}")
+
+    if not isinstance(local_fleet, dict) or local_fleet.get("version") != "delegate-fleet.local.v1" or not isinstance(local_fleet.get("lanes"), dict):
+        die(f"{local_path} is not a valid delegate-fleet.local.v1 map")
+
+    if lane not in local_fleet["lanes"]:
+        die(f"lane '{lane}' is not pinned in this project")
+
+    del local_fleet["lanes"][lane]
+    atomic_write(local_path, json_bytes(local_fleet), 0o644)
+
+    code, err = run_project_generator(paths, project_dir)
+    if code != 0:
+        atomic_write(local_path, previous_bytes, 0o644)
+        if err:
+            print(err, file=sys.stderr)
+        return 1
+
+    agent_file = project_dir / ".claude" / "agents" / f"fleet-{lane}.md"
+    print(f"Unpinned lane '{lane}' from {local_path}.")
+    print(f"Pruned {agent_file}.")
+    return 0
+
+
+def cmd_project_show(paths: Paths, args: argparse.Namespace) -> int:
+    project_dir = Path(args.dir).expanduser().resolve() if getattr(args, "dir", None) else Path.cwd().resolve()
+    local_path = project_dir / ".claude" / "fleet.local.json"
+    agents_dir = project_dir / ".claude" / "agents"
+    agent_files = sorted(agents_dir.glob("fleet-*.md")) if agents_dir.is_dir() else []
+
+    local_fleet: dict = {}
+    if local_path.is_file():
+        try:
+            local_fleet = json.loads(local_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            local_fleet = {}
+
+    lanes = local_fleet.get("lanes", {}) if isinstance(local_fleet, dict) else {}
+    if not lanes and not agent_files:
+        print("No project lane overrides.")
+        return 0
+
+    if lanes:
+        print("Project lane pins:")
+        for lane_name, cfg in sorted(lanes.items()):
+            model = cfg.get("model", "unknown") if isinstance(cfg, dict) else "unknown"
+            fallbacks = cfg.get("fallbacks") if isinstance(cfg, dict) else None
+            fb_str = f" (fallbacks: {', '.join(fallbacks)})" if fallbacks else ""
+            print(f"  {lane_name} -> {model}{fb_str}")
+    if agent_files:
+        print("Project agent files:")
+        for af in agent_files:
+            print(f"  {af.name}")
+    return 0
+
+
+def cmd_project(paths: Paths, args: argparse.Namespace) -> int:
+    sub_handlers = {
+        "pin": cmd_project_pin,
+        "unpin": cmd_project_unpin,
+        "show": cmd_project_show,
+    }
+    action = getattr(args, "project_command", None)
+    if not action or action not in sub_handlers:
+        print("agentfleet: project requires an action: pin, unpin, show", file=sys.stderr)
+        return 2
+    return sub_handlers[action](paths, args)
 
 
 def current_release(paths: Paths) -> Path | None:
@@ -778,28 +1225,6 @@ def _run_installer(paths: Paths, extra_args: list, version: str | None = None, o
 # ---------------------------------------------------------------------------
 # Auto-update state helpers
 # ---------------------------------------------------------------------------
-
-def _auto_update_state_path(paths: Paths) -> Path:
-    return paths.store / "auto-update.json"
-
-
-def _read_auto_update_state(paths: Paths) -> dict:
-    p = _auto_update_state_path(paths)
-    try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def _write_auto_update_state(paths: Paths, state: dict) -> None:
-    paths.store.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(paths.store, 0o700)
-    except OSError:
-        pass
-    atomic_write(_auto_update_state_path(paths), json_bytes(state), 0o600)
-
 
 def _parse_version(v: str) -> tuple[int, int, int] | None:
     m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", v)
@@ -995,6 +1420,17 @@ def cmd_auto_update(paths: Paths, args: argparse.Namespace) -> int:
 
 def _auto_update_hook(paths: Paths) -> None:
     """Core logic for --hook; exceptions are caught by caller."""
+    settings = read_json(paths.settings)
+    self_heal_markers(paths, settings)
+    if current_kind(settings) == "native":
+        try:
+            result = context_sync_module(paths).update_context(
+                {"hook_event_name": "SessionStart"}, paths.home, paths.config,
+            )
+            if result and result.get("systemMessage"):
+                print(result["systemMessage"])
+        except Exception:
+            pass
     state = _read_auto_update_state(paths)
 
     # 1a. Report finished background update
@@ -1147,6 +1583,33 @@ def main() -> int:
     sub.add_parser("status", help="show the active profile and audit models, settings, hooks, agents, skills")
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
+    config = sub.add_parser("config", help="show or change AgentFleet preferences")
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn"))
+    config.add_argument("value", nargs="?")
+    jev = sub.add_parser("jev", help="enable, disable, or inspect fast-jev-compaction")
+    jev.add_argument("action", choices=("on", "off", "status"))
+    rep = sub.add_parser("report", help="summarize subagent runs and active provider outages")
+    rep.add_argument("--days", type=int, default=7, help="number of days to report (default: 7)")
+    rep.add_argument("--json", action="store_true", help="output report as JSON")
+    sugg = sub.add_parser("suggest", help="propose plugins, MCP servers, mods, and hooks for the project")
+    sugg.add_argument("--project", metavar="DIR", help="project directory to scan")
+    sugg.add_argument("--json", action="store_true", help="output suggestions as JSON")
+    sugg.add_argument("--dismiss", nargs="+", metavar="ID", help="dismiss suggestion IDs for this project")
+    sugg.add_argument("--seen", action="store_true", help="mark suggestions as seen for this catalog version")
+    sugg.add_argument("--forget", action="store_true", help="delete usage stats and suggestions store")
+    sugg.add_argument("--home", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    proj = sub.add_parser("project", help="manage project-level lane overrides")
+    proj_sub = proj.add_subparsers(dest="project_command", metavar="action")
+    p_pin = proj_sub.add_parser("pin", help="pin a lane to a model for this project")
+    p_pin.add_argument("lane", help="lane name (with or without 'fleet-' prefix)")
+    p_pin.add_argument("model", help="model name")
+    p_pin.add_argument("--fallbacks", metavar="A,B", help="comma-separated fallback models")
+    p_pin.add_argument("--dir", metavar="DIR", help="project directory (default: current directory)")
+    p_unpin = proj_sub.add_parser("unpin", help="remove a project-level lane pin")
+    p_unpin.add_argument("lane", help="lane name (with or without 'fleet-' prefix)")
+    p_unpin.add_argument("--dir", metavar="DIR", help="project directory (default: current directory)")
+    p_show = proj_sub.add_parser("show", help="show project-level lane overrides")
+    p_show.add_argument("--dir", metavar="DIR", help="project directory (default: current directory)")
     update = sub.add_parser("update", help="download and install the latest release")
     update.add_argument("installer_args", nargs=argparse.REMAINDER, help="extra arguments for the installer")
     sub.add_parser("uninstall", help="remove AgentFleet and restore your earlier settings")
@@ -1167,8 +1630,10 @@ def main() -> int:
     paths = Paths(args)
     handlers = {
         "profiles": cmd_profiles, "use": cmd_use, "save": cmd_save, "status": cmd_status,
-        "doctor": cmd_doctor, "sync": cmd_sync, "update": cmd_update, "uninstall": cmd_uninstall, "rollback": cmd_rollback,
+        "doctor": cmd_doctor, "sync": cmd_sync, "config": cmd_config, "jev": cmd_jev,
+        "update": cmd_update, "uninstall": cmd_uninstall, "rollback": cmd_rollback,
         "version": cmd_version, "auto-update": cmd_auto_update, "add": cmd_add, "remove": cmd_remove,
+        "report": cmd_report, "suggest": cmd_suggest, "project": cmd_project,
     }
     return handlers[args.command](paths, args)
 

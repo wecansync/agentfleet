@@ -118,9 +118,11 @@ class ShimGenerationTests(unittest.TestCase):
         pinned = '"' + sys.executable.replace('"', '""') + '"'
         self.assertIn(pinned, body, "the shim must reference the installer's own interpreter")
         self.assertIn("if not exist", body)
-        self.assertIn("where py", body, "the py launcher fallback must still be present")
+        where_py = '"%SystemRoot%\\System32\\where.exe" py'
+        self.assertIn('set "NoDefaultCurrentDirectoryInExePath=1"', body, "cmd.exe must not search the current directory")
+        self.assertIn(where_py, body, "the py launcher fallback must use the full where.exe path")
         self.assertIn("python ", body, "the bare python fallback must still be present")
-        self.assertLess(body.index(pinned), body.index("where py"), "the pinned interpreter must be tried first")
+        self.assertLess(body.index(pinned), body.index(where_py), "the pinned interpreter must be tried first")
         if_lines = [line for line in body.split("\r\n") if line.lower().startswith("if ")]
         self.assertTrue(if_lines, "expected at least one if line")
         for line in if_lines:
@@ -129,7 +131,9 @@ class ShimGenerationTests(unittest.TestCase):
 
     def test_ps1_shim_tries_pinned_interpreter_before_py_and_python(self):
         script = Path("C:/fleet/claude-agents-doctor.py")
-        body = self.installer.powershell_dispatch(script, "python").decode("utf-8")
+        raw = self.installer.powershell_dispatch(script, "python")
+        self.assertTrue(raw.startswith(b"\xef\xbb\xbf"), "Windows PowerShell 5.1 needs a UTF-8 BOM for non-ASCII paths")
+        body = raw.decode("utf-8-sig")
         pinned = "'" + sys.executable.replace("'", "''") + "'"
         self.assertIn(pinned, body)
         self.assertIn("Test-Path -LiteralPath", body)
@@ -142,15 +146,16 @@ class ShimGenerationTests(unittest.TestCase):
         self.assertIn("exit $LASTEXITCODE", body)
         self.assertNotIn('\\"', body, "PowerShell 5.1 strips a double quote embedded in a native-command argument")
 
-    def test_node_shims_are_unchanged(self):
+    def test_node_shims(self):
         script = Path("fleet") / "generate-claude-agents.mjs"
         cmd_body = self.installer.cmd_dispatch(script, "node").decode("utf-8")
         self.assertEqual(
             cmd_body,
-            '@echo off\r\nsetlocal\r\nwhere node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n'
+            '@echo off\r\nsetlocal\r\nset "NoDefaultCurrentDirectoryInExePath=1"\r\n'
+            '"%SystemRoot%\\System32\\where.exe" node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n'
             f'node "{script}" %*\r\nexit /b %errorlevel%\r\n',
         )
-        ps1_body = self.installer.powershell_dispatch(script, "node").decode("utf-8")
+        ps1_body = self.installer.powershell_dispatch(script, "node").decode("utf-8-sig")
         self.assertEqual(
             ps1_body,
             "$node = Get-Command node -ErrorAction SilentlyContinue\nif (-not $node) { throw 'Node.js >=18 is required' }\n"
@@ -646,3 +651,13 @@ class HookRepairUnitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowsHookQuotingTests(unittest.TestCase):
+    def test_hook_command_refuses_paths_that_shells_would_expand(self):
+        installer = load_installer()
+        self.assertEqual(installer.windows_command("C:/py/python.exe", "C:/h/x.py"), '"C:/py/python.exe" "C:/h/x.py"')
+        for hostile in ("C:/Users/a$b/python.exe", "C:/Users/a`b/python.exe"):
+            with self.assertRaises(installer.InstallerError):
+                installer.windows_command(hostile)
+

@@ -36,12 +36,15 @@ location, so you can run scripts directly from the clone.
 ```
 bin/          install.py (installer), agentfleet, claude-fleet-setup,
               claude-agents-doctor (CLIs)
-scripts/      provider_catalog.py, fleet-reconcile.py,
-              generate-claude-agents.mjs, hook scripts
+scripts/      provider_catalog.py, fleet-reconcile.py, fleet_watch.py,
+              fleet_suggest.py, generate-claude-agents.mjs, hook scripts
 config/       delegate-fleet.json (fleet map), provider-policy.json,
-              settings.template.json, CLAUDE.md (installed into ~/.claude/)
+              settings.template.json, suggestions.json,
+              CLAUDE.md (installed into ~/.claude/)
+mods/         Claude Code mods catalog (fleet-status, lane-guard,
+              fast-jev-compaction, token-weather)
 agents/       generated lane templates
-skills/       /fleet-setup skill
+skills/       skills (/fleet-setup, /fleet-suggest)
 tests/        test suite (tests/test_*.py)
 packaging/    release tooling — never part of an installed bundle
 site/         docs site — never part of an installed bundle

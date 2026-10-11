@@ -43,6 +43,9 @@ from provider_catalog import (
     strip_known_suffix,
     supports_reasoning,
     TIER_RANK,
+    compaction_window,
+    load_preferences,
+    NATIVE_CONTEXT_BASIS,
     model_tier,
     native_lane_model,
     excluded_models,
@@ -51,10 +54,6 @@ from provider_catalog import (
     context_length,
 )
 
-MIN_CONTEXT = 100_000
-MAX_CONTEXT = 800_000
-HEADROOM_NUMERATOR = 9
-HEADROOM_DENOMINATOR = 10
 TRANSACTION_MARKER = ".fleet-reconcile-pending.json"
 TRANSACTION_FORMAT = "claude-agents-config.reconcile-transaction.v1"
 # Picker rows this bundle writes always carry one of these description markers,
@@ -315,26 +314,18 @@ def gateway_credentials(settings: dict) -> tuple[str, str] | None:
     return None
 
 
-def safe_context(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    if number < MIN_CONTEXT:
-        return None
-    return min(MAX_CONTEXT, max(MIN_CONTEXT, number * HEADROOM_NUMERATOR // HEADROOM_DENOMINATOR))
-
-
-def compact_control(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if MIN_CONTEXT <= number <= 1_000_000 else None
+def _model_info(model: str, catalog: dict[str, dict]) -> dict | None:
+    clean = strip_known_suffix(model.strip())
+    model_info = catalog.get(model.strip())
+    if not isinstance(model_info, dict):
+        if clean in catalog:
+            model_info = catalog[clean]
+        elif f"{clean}[1m]" in catalog:
+            model_info = catalog[f"{clean}[1m]"]
+        else:
+            model_info = next((row for runtime_id, row in catalog.items()
+                               if strip_known_suffix(runtime_id) == clean), None)
+    return model_info if isinstance(model_info, dict) else None
 
 
 def _row_for_picker(model: str, row: dict) -> dict:
@@ -780,40 +771,47 @@ def reconcile_settings(
     return result
 
 
-def reconcile_context(settings: dict, catalog: dict[str, dict]) -> tuple[dict, str | None, int | None]:
+def reconcile_context(
+    settings: dict,
+    catalog: dict[str, dict],
+    home: Path | None = None,
+) -> tuple[dict, str | None, int | None]:
     result = copy.deepcopy(settings)
     active = result.get("model")
-    if not isinstance(active, str):
-        return result, None, None
-    clean = strip_known_suffix(active.strip())
-    model_info = catalog.get(active.strip())
-    if not isinstance(model_info, dict):
-        if clean in catalog:
-            model_info = catalog[clean]
-        elif f"{clean}[1m]" in catalog:
-            model_info = catalog[f"{clean}[1m]"]
-        else:
-            model_info = next((row for runtime_id, row in catalog.items() if strip_known_suffix(runtime_id) == clean), None)
-    if not isinstance(model_info, dict):
-        return result, None, None
-    budget = safe_context(model_info.get("context_length"))
-    if budget is None:
+    if not isinstance(active, str) or not active.strip():
         return result, None, None
     env = result.get("env")
     if not isinstance(env, dict):
+        env = {}
+        result["env"] = env
+    percent = load_preferences(home or Path.home())["compactPercent"]
+    model_info = _model_info(active, catalog)
+    has_gateway = bool(env.get("ANTHROPIC_BASE_URL")) or isinstance(model_info, dict)
+    native = not has_gateway
+    if native:
+        context = NATIVE_CONTEXT_BASIS
+    else:
+        if not isinstance(model_info, dict):
+            return result, None, None
+        context = context_length(model_info)
+    target = compaction_window(context, percent)
+    if target is None:
         return result, None, None
-    top = compact_control(result.get("autoCompactWindow"))
-    env_value = compact_control(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"))
-    max_context = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
-    target = budget
-    changed = top != target or env_value != target or max_context != str(target)
+    value = str(target)
+    changed = (
+        result.get("autoCompactWindow") != target
+        or env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != value
+    )
+    if not native:
+        changed = changed or env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != value
     if changed:
         result["autoCompactWindow"] = target
-        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target)
-        env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(target)
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = value
+        if not native:
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = value
     if not changed:
         return result, None, target
-    return result, f"Verified paired compaction controls and context for {active}: {target} tokens. Restart Claude Code to apply startup-only limits.", target
+    return result, f"Auto-compact set to {percent}% of {active.strip()}'s context ({target} tokens). Restart Claude Code to apply.", target
 
 
 def reconcile_home(home: Path, config_home: Path, policy_path: Path, rows: list[dict], *, catalog_valid: bool = True, already_locked: bool = False) -> dict:
@@ -856,7 +854,7 @@ def reconcile_home(home: Path, config_home: Path, policy_path: Path, rows: list[
         lane_changes = resolved.get("_reconcile", {}).get("changes", {}) if isinstance(resolved.get("_reconcile"), dict) else {}
         resolved.pop("_reconcile", None)
         new_settings = reconcile_settings(settings, picker, resolved, policy)
-        new_settings, context_notice, context_budget = reconcile_context(new_settings, catalog)
+        new_settings, context_notice, context_budget = reconcile_context(new_settings, catalog, home)
         changed = resolved != fleet or new_settings != settings
         if changed:
             updates: dict[Path, tuple[bytes, int]] = {}
@@ -877,6 +875,7 @@ def reconcile_home(home: Path, config_home: Path, policy_path: Path, rows: list[
             "lane_changes": lane_changes,
             "context_budget": context_budget,
             "context_notice": context_notice,
+            "active_model": new_settings.get("model"),
             "lanes": len(resolved.get("lanes", {})),
         }
 

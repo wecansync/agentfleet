@@ -6,11 +6,12 @@ provider offers: a Claude subscription, an Anthropic API key, or any
 Anthropic-compatible gateway whose models are discovered from `GET /v1/models`.
 
 It also installs a routing hook, a model-sync startup hook, a context-budget
-hook, a privacy-safe status line, a global `CLAUDE.md`, the `/fleet-setup`
-skill, and a local Claude Code mods catalog with `fleet-status` on by default.
-Everything lives under your home directory; no root or admin access is required.
+hook, a privacy-safe status line, a global `CLAUDE.md`, the `/fleet-setup` and
+`/fleet-suggest` skills, and a local Claude Code mods catalog with `fleet-status`
+and `lane-guard` on by default. Everything lives under your home directory; no
+root or admin access is required.
 
-Version: **2.1.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.2.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -127,12 +128,12 @@ variable. See [Mods](#mods) for requirements and optional plugins.
 |---|---|---|
 | `fleet-plan` | Planning and architecture | No |
 | `fleet-implement` | General implementation | Yes |
-| `fleet-review` | Code review | No |
+| `fleet-review` | Code review (runs checks; edits in FIX MODE) | In FIX MODE |
 | `fleet-tests` | Test writing | Yes |
 | `fleet-ui` | UI/frontend work | Yes |
 | `fleet-docs` | Documentation | Yes |
-| `fleet-security-review` | Security review | No |
-| `fleet-diagnose-static` | Static diagnosis | No |
+| `fleet-security-review` | Security review (runs checks; edits in FIX MODE) | In FIX MODE |
+| `fleet-diagnose-static` | Diagnostic command execution (no edits) | No |
 | `fleet-explore-narrow` | Bounded exploration | No |
 | `fleet-triage-static` | Issue triage | No |
 | `fleet-research-codebase` | Repository research (no web tools) | No |
@@ -150,15 +151,22 @@ changes.
 | `fleet-implement-fast` | Low-latency implementation |
 | `fleet-implement-deep` | Reasoning-capable implementation |
 | `fleet-implement-cheap` | Budget or free-tier implementation |
-| `fleet-review-alt` | Independent review model |
-| `fleet-review-deep` | Deep review (security, migration, concurrency, data-loss) |
+| `fleet-review-alt` | Independent review model (runs checks; edits in FIX MODE) |
+| `fleet-review-deep` | Deep review (runs checks; edits in FIX MODE) |
 
-Read-only lanes receive no `Bash`, `Edit`, or `Write` tools, so they cannot
-change files, commit, or push. All lanes are background agents with
-`omitClaudeMd: true`, and none has the `Agent` tool, so none can spawn nested
-agents. Writable lanes are instructed never to commit, push, deploy, or take
-other outward-facing actions (a prompt rule, not a tool restriction). The main
-agent owns integration, final gates, and all external actions.
+Read-only lanes (`plan`, `explore-narrow`, `triage-static`, `research-*`) receive
+no `Bash`, `Edit`, or `Write` tools. `fleet-diagnose-static` receives `Bash` to
+reproduce failures from the command line, but no edit tools. Reviewer lanes
+(`review`, `review-alt`, `review-deep`, `security-review`) have `Bash`, `Edit`,
+and `Write` tools: they run in CHECK mode by default (executing test suites,
+linters, builds, and read-only queries; never editing files) and enter FIX MODE
+only when the brief explicitly requests fixes and lists target files. Writable
+lanes implement assigned changes. All subagents are guarded by the `lane-guard`
+mod, which deterministically intercepts tool calls and blocks git history mutations,
+GitHub writes, deployments, migrations, and destructive SQL. All lanes are
+background agents with `omitClaudeMd: true`, and none has the `Agent` tool, so none
+can spawn nested agents. The main agent owns integration, final gates, and all
+external actions.
 
 ---
 
@@ -212,6 +220,11 @@ claude-fleet-setup --tier my-model-id=
 claude-fleet-setup --exclude my-model-id
 claude-fleet-setup --include my-model-id
 
+# Set auto-compact percentage (40-95 or 'off'):
+claude-fleet-setup --compact-percent 70
+# Override with an absolute compaction window (turns compact-percent to 'off'):
+claude-fleet-setup --compaction 250000
+
 # Re-rank now:
 claude-fleet-setup --reconcile
 ```
@@ -224,6 +237,44 @@ model by model: for each model it proposes the best-fitting lanes, and you pick
 lanes, skip the model (auto-ranking decides), or exclude it. It shows the final
 fleet for approval, or you can start over, and it pins only the lanes whose choice
 differs from auto-ranking.
+
+---
+
+## Preferences and configuration
+
+Global preferences live in `~/.claude/agentfleet/config.json`:
+
+```bash
+agentfleet config                                    # view effective preferences
+agentfleet config compact <40-95|off>                # set auto-compact percentage (default: 70)
+agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
+agentfleet config learn on|off                       # opt in/out of command usage learning (default: off)
+```
+
+### Reviewer modes
+
+Reviewer lanes (`fleet-review`, `fleet-review-alt`, `fleet-review-deep`, `fleet-security-review`) run in **CHECK mode** by default: they have `Bash`, `Edit`, and `Write` tools to execute test suites, linters, builds, and read-only checks, but do not edit files.
+
+To allow a reviewer to apply corrections, the brief must explicitly state **FIX MODE** and list the target files it may modify. A reviewer in FIX MODE requires disjoint file scopes from any other active writable lane. A lane must never review its own fixes; dispatch fixes to `fleet-review-alt` or another independent reviewer. `fleet-diagnose-static` receives `Bash` to reproduce failures, but never has edit tools.
+
+Global reviewer access is configured via `agentfleet config reviewer-access`:
+- `full` (default): reviewers receive `Bash`, `Edit`, and `Write` (CHECK mode by default, edits in FIX MODE).
+- `run`: reviewers receive `Bash` for test and diagnostic execution, but no editing tools.
+- `read-only`: reviewers receive no `Bash`, `Edit`, or `Write` tools.
+
+Per-lane `tools` arrays in `fleet.json` can also override specific tools per lane.
+
+### Project-level lane configuration
+
+Pin models for a specific project without affecting global settings:
+
+```bash
+agentfleet project pin LANE MODEL [--fallbacks A,B] [--dir DIR]
+agentfleet project unpin LANE [--dir DIR]
+agentfleet project show [--dir DIR]
+```
+
+Project overrides write to `<project>/.claude/fleet.local.json` and generate project agents in `<project>/.claude/agents/`, which Claude Code prioritizes over global fleet agents of the same name.
 
 ---
 
@@ -314,7 +365,14 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet save <name>` | Save the current setup as a profile. |
 | `agentfleet add <name> --gateway-url URL` | Add a gateway profile without reinstalling (`--token-env VAR`, `--use`, `--force`, `--allow-insecure-http`). |
 | `agentfleet remove <name> [--yes]` | Delete a saved profile and its token. The active profile and `native` cannot be removed. |
-| `agentfleet status` | Show the active profile and run the audit (live models, stale settings, hook health, agents and skills with token cost). |
+| `agentfleet config [setting] [value]` | View preferences or configure `compact`, `reviewer-access`, or `learn`. |
+| `agentfleet jev <on\|off\|status>` | Enable, disable, or inspect optional `fast-jev-compaction` plugin. |
+| `agentfleet report [--days N] [--json]` | Summarize subagent runs (files changed, blocked commands) and active provider outages. |
+| `agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]` | Propose plugins, MCP servers, mods, and hooks for the project (`--forget` clears usage history). |
+| `agentfleet project pin LANE MODEL` | Pin a lane to a model for the current project (`--fallbacks A,B`, `--dir DIR`). |
+| `agentfleet project unpin LANE` | Remove a project-level lane pin (`--dir DIR`). |
+| `agentfleet project show` | Show project-level lane overrides (`--dir DIR`). |
+| `agentfleet status` | Show the active profile and run the audit (live models, stale settings, hook health, agents, skills, and plugins). |
 | `agentfleet doctor` | Verify the installation (`claude-agents-doctor --check`). |
 | `agentfleet sync` | Regenerate fleet agents from `~/.claude/fleet.json`; pass `--check` to verify without writing. |
 | `agentfleet update` | Re-run the download script to install the latest release. |
@@ -322,7 +380,9 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet uninstall` | Remove AgentFleet and restore earlier settings. |
 | `agentfleet rollback [--backup DIR]` | Restore the files and settings from before the last install or update (the newest backup, or a named one). |
 | `agentfleet version` | Print the installed version. |
-| `claude-fleet-setup --audit` | Scan models, settings, hooks, agents, and skills for health and bloat. |
+| `claude-fleet-setup --audit [--no-health]` | Scan models, settings, hooks, agents, skills, and plugin/MCP health (`--no-health` skips health checks). |
+| `claude-fleet-setup --compact-percent P` | Set the auto-compaction percentage (40–95 or `off`). |
+| `claude-fleet-setup --compaction N` | Set an absolute auto-compact window override (sets `compactPercent` to `off`). |
 | `claude-fleet-setup --archive-agents <categories>` | Archive agent files by category. |
 | `claude-fleet-setup --restore-agents <categories>` | Restore archived agents. |
 | `claude-fleet-setup --archive-skills` / `--restore-skills` | Archive or restore skills. |
@@ -335,23 +395,26 @@ install command (or an update) keeps the gateway you switched to.
   an optional fallback model chain (at most three entries, for provider
   unavailability or overload only).
 - `~/.claude/agentfleet/mods/` — the local `agentfleet` plugin catalog.
-  `fleet-status` is installed and on by default; `token-weather` and
-  `fast-jev-compaction` are opt-in. See [Mods](#mods).
+  `fleet-status` and `lane-guard` are installed and on by default; `token-weather`
+  and `fast-jev-compaction` are opt-in. See [Mods](#mods).
 - `~/.claude/settings.json` — merged settings. Unrelated permissions, hooks,
   plugins, and environment values are preserved. Mode 0600 because it can
   contain a gateway token.
+- `~/.claude/agentfleet/config.json` — user preferences (`compactPercent`,
+  `reviewerAccess`, `learn`).
 - `~/.claude/CLAUDE.md` — the global delegation policy. AgentFleet manages this
   file and rewrites it on update; keep your own instructions in
   `~/.claude/rules/*.md`, which Claude Code loads in every session and
   AgentFleet never touches.
 - `~/.claude/route-to-fleet.py` — UserPromptSubmit routing hook.
+- `~/.claude/fleet_watch.py` — subagent reports, outage failover, and usage tracker.
+- `~/.claude/fleet_suggest.py` — project capability suggestions engine.
 - `~/.claude/subagent-statusline.py` — native subagent status rendering.
 - `~/.claude/sync-provider-models.mjs` — startup hook for gateway model
   discovery and fleet reconciliation.
 - `~/.claude/sync-model-context.py` — PostModelSwitch/SessionStart hook that
-  reads the active model's `context_length`, applies 90% headroom to
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and keeps `autoCompactWindow` paired with
-  `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Never inflates a lower user budget. Fail-open.
+  sets the auto-compact window to `compactPercent` of the model's context length
+  and keeps `autoCompactWindow` paired with `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Fail-open.
 - `~/.claude/provider_catalog.py` and `fleet-reconcile.py` — provider identity,
   cache, and approved-family reconciliation helpers.
 - `~/.claude/fleet-model-drift.py` — fail-open drift detector that writes a
@@ -385,46 +448,50 @@ in the terminal and Claude Desktop's Code tab, not in the VS Code extension's
 chat panel, `claude -p`, the Agent SDK, or Desktop WSL sessions. They run with
 your user permissions and are not sandboxed.
 
-**fleet-status** is installed and on by default. Its band above the prompt
-appears only when something needs action: an update during the session says
-“Restart Claude Code to use it”; a failed automatic update points to
-`~/.claude/agentfleet/auto-update.log`; lanes without an available model or
-model changes waiting for review say “Run /fleet-setup”. The band has a Hide
-button. `/fleet-status` prints the version, profile, auto-update state, model
-proposals, and notices. It reads only the install manifest, active profile
-marker, `auto-update.json`, and `fleet-model-proposal.json`, never
-`settings.json` or tokens. It sends nothing anywhere and adds nothing to
-Claude's context except the command reply. Turn it off with:
+### Installed by default
 
-```bash
-claude plugin disable fleet-status@agentfleet
-```
+- **fleet-status** (v1.1.0): displays an advisory band above the prompt when
+  action is needed: restart after an update, inspect a failed update, review
+  missing models or proposals with `/fleet-setup`, dispatch a fallback for a
+  failing lane, or review suggestions with `/fleet-suggest`. The band has a
+  Hide button. `/fleet-status` prints version, active profile ("not recorded"
+  if absent), auto-update state ("enabled (default)" if unconfigured), model
+  proposals, auto-compact percentage, reviewer access level, learning state,
+  active outages, and project suggestions. `/fleet-tasks` opens a focused,
+  closable pane showing active subagents, recent lane execution reports, and
+  active provider outages. Turn it off with `claude plugin disable fleet-status@agentfleet`.
+- **lane-guard**: deterministically guards subagents (`fleet-*`) from executing
+  dangerous or outward-facing actions:
+  - Git mutations: `commit`, `push`, `merge`, `rebase`, `reset`, `restore`, `checkout`, `switch`, `clean`, `revert`, mutating `branch`/`tag`/`stash` flags.
+  - GitHub writes: `gh pr create|merge|close`, `gh release`, `gh repo`, `gh issue`, mutating `gh api` calls.
+  - Publishing and deployment: package publishing (`npm`, `pnpm`, `cargo`, `twine`), container deployment (`docker push`, `kubectl`, `helm`), cloud deploy (`terraform`, `vercel`, `fly`), and `deploy.sh`.
+  - Migrations: `artisan migrate`, `rails db:migrate`, `prisma migrate`, `alembic`, `manage.py migrate`, etc.
+  - Destructive SQL: `DROP`, `TRUNCATE`, `ALTER TABLE … DROP`, and unconstrained `DELETE`/`UPDATE` without a `WHERE` clause across DB CLI tools and MCP servers.
+  - Dangerous file removal: `rm -rf` targeting root, home, parent directories, `.git`, or wildcard.
+  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`.
 
-Two optional mods are in the catalog, neither installed by default:
+### Optional mods
 
 - **token-weather**, Anthropic's sample mod (Apache-2.0), forecasts how full
-  the context window is above the prompt.
+  the context window is above the prompt. Install with `claude plugin install token-weather@agentfleet`.
 - **fast-jev-compaction**, by tamaratran (MIT), replaces Claude Code's
-  compaction summary. A fast request to TypeSafe's Jev model chooses which
-  old tool calls and results to drop or truncate; everything kept stays word
-  for word. It needs a paid TypeSafe API key (`TYPESAFE_API_KEY` or its
-  `apiKey` option). At each compaction it sends conversation text and tool
-  inputs to `api.typesafe.ai`; tool results are replaced by short notes.
-  It compacts at 60% by default; set `compactAtPercent` to 80 to match
-  AgentFleet. AgentFleet's copy never forces compaction without a configured key.
+  compaction summary with TypeSafe's Jev model decisions: obsolete tool calls
+  and results are dropped or truncated while retained turns remain verbatim.
+  It answers only compactions initiated by Claude Code in the main conversation
+  (subagents and precomputes pass through). It requires a TypeSafe API key
+  configured via `/plugin` or `TYPESAFE_API_KEY` (never stored in `settings.json`).
+  If no key is configured, it logs a single notice per session and falls back to
+  Claude Code's built-in summary. Manage with `agentfleet jev on|off|status` or
+  `claude plugin install fast-jev-compaction@agentfleet`. At compaction time,
+  main conversation text and tool inputs are sent to `api.typesafe.ai`.
 
-```bash
-claude plugin install token-weather@agentfleet
-claude plugin install fast-jev-compaction@agentfleet
-```
-
-On install, if Claude Code 2.1.287 or later is on PATH, the installer runs
-these commands once. Otherwise it prints them to run by hand and retries on
-the next update:
+On install, if Claude Code 2.1.287 or later is on PATH, the installer registers
+the catalog and installs default mods once:
 
 ```bash
 claude plugin marketplace add ~/.claude/agentfleet/mods
 claude plugin install fleet-status@agentfleet
+claude plugin install lane-guard@agentfleet
 ```
 
 Updates, including automatic ones, rewrite mod files in place for the next
@@ -436,28 +503,57 @@ remembered, and `agentfleet update` honors the variable. `--mods` opts back in.
 
 ## Context compaction
 
-The context-budget hook keeps `autoCompactWindow` and
-`CLAUDE_CODE_AUTO_COMPACT_WINDOW` paired and bounded. At SessionStart and
-PostModelSwitch it reads the active model's reported context, applies 90%
-headroom (e.g. 272K context → 244800 budget), and writes both controls to the
-same value. An existing lower user budget is never inflated. These are
-startup-only settings; the hook emits a restart notice when they change.
+AgentFleet sizes Claude Code's auto-compact window as a percentage of the active model's context length:
+
+- **Configured percentage**: `compactPercent` (default `70`, allowed range `40`–`95`, or `'off'`) in `~/.claude/agentfleet/config.json`.
+- **Startup and model switch**: The context watcher calculates the auto-compact window when Claude Code starts (via `fleet-reconcile.py` on the `SessionStart` model-sync hook) and when you switch models (via `sync-model-context.py`). Claude Code loads its compaction window at startup, so a model switch applies its new window upon restart.
+- **Native Claude profiles**: Profiles using direct Claude login (`native`) use a 1,000,000-token basis; smaller models retain their own smaller upper limits, ensuring compaction never triggers earlier than intended.
+- **Disabling or overriding**: Setting `compactPercent` to `off` instructs AgentFleet to leave the compaction window untouched. Passing `claude-fleet-setup --compaction <tokens>` sets an absolute token threshold and automatically switches `compactPercent` to `off`.
+- **Automatic migration**: On upgrade to 2.2.0, existing installations migrate from the previous static 800,000-token threshold to 70% of context.
+
+Configure compaction using:
+
+```bash
+agentfleet config compact 75             # set percentage
+agentfleet config compact off            # stop managing the compaction window
+claude-fleet-setup --compact-percent 75  # CLI configuration
+claude-fleet-setup --compaction 300000   # absolute token override (disables percentage)
+```
+
+---
+
+## Outages and lane reports
+
+When a provider gateway responds to a lane model with a 5xx gateway error:
+- **Automatic outage tracking**: The failing model is marked as experiencing an outage for 15 minutes in `~/.claude/agentfleet/outages.json`.
+- **Intelligent failover**: AgentFleet's routing hook alerts the main agent and suggests a configured non-outage alternative lane with a different model. New prompts are routed away from the failing model while the outage record remains active.
+- **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, forbidden commands intercepted by `lane-guard`, and API errors, allowing the main agent to verify lane actions before merging.
+- **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.
+
+---
+
+## Capability suggestions
+
+The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current repository to recommend relevant capabilities:
+- **Local repository inspection**: Scans project files and configuration locally without network requests and never reads `.env` files or secret values.
+- **Curated catalog**: Evaluates a 57-entry catalog (`config/suggestions.json`) including official-marketplace plugins (language servers, MCP server integrations), AgentFleet optional mods, pre-drafted hooks (`format-after-edit`, `protect-secrets`), project skill generators for repeated tasks, and `/init` if `CLAUDE.md` is absent.
+- **Local availability**: Recommends only plugins available in your local marketplaces that are not yet installed.
+- **Controlled presentation**: Mentions suggestions at most once per project per catalog version, and never installs anything without explicit user selection.
+- **Opt-in usage learning**: When enabled via `agentfleet config learn on` (off by default), AgentFleet tallies command names, tools used, documentation sites visited, and slash commands executed per project (never recording prompt text) under `~/.claude/agentfleet/usage/`. Run `agentfleet suggest --forget` to wipe usage data.
+- **Management**:
+  ```bash
+  agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]
+  ```
 
 ---
 
 ## Privacy and routing policy
 
-The routing hook writes only to a mode-0600 JSONL log. Routed entries contain
-the lane, reason, timestamp, and character count — never the prompt text. Only
-a `no-match` entry keeps a maximum 160-character excerpt, with
-credential-shaped values redacted. Text excerpts are removed after 14 days;
-entries after 90 days. Purging runs at most daily. The log rotates at
-2,000,000 bytes. The hook is fail-open: logging failure does not block a
-prompt. The doctor checks these values in the packaged and installed hook.
-
-`fleet-status` sends nothing anywhere. The opt-in `fast-jev-compaction` mod
-sends conversation text and tool inputs to TypeSafe at each compaction, with
-tool results replaced by short notes. See [Mods](#mods).
+- **Routing log**: The routing hook writes to a mode-0600 JSONL log (`~/.claude/agentfleet/routing.jsonl`). Routed entries record only lane name, routing reason, timestamp, and character count — never prompt text. A `no-match` entry stores at most a 160-character snippet with credential-shaped tokens redacted. Excerpts purge after 14 days; entries purge after 90 days. Rotates at 2,000,000 bytes. Fail-open.
+- **Outages, reports, and suggestions**: Outage records (`outages.json`), subagent execution logs (`lane-reports.jsonl`), and suggestions metadata stay completely local to your machine.
+- **Usage learning opt-in**: Learning (`agentfleet config learn on`) is disabled by default. When enabled, it records only sanitized command names, tool identifiers, doc URLs, and slash commands without prompt text in `~/.claude/agentfleet/usage/`.
+- **Local mod safety**: `fleet-status` and `lane-guard` run locally, access no external network, and never read `settings.json`, profiles, or secrets.
+- **Optional JEV egress**: The opt-in `fast-jev-compaction` mod transmits main-conversation message text and tool inputs to `api.typesafe.ai` when compaction occurs, with tool results replaced by summary notes. API keys are loaded strictly from `/plugin` or `TYPESAFE_API_KEY` and are never saved to `settings.json`.
 
 ---
 

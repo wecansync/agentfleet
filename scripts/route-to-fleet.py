@@ -10,8 +10,21 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+_HOOK_DIR = str(Path(__file__).resolve().parent)
+if _HOOK_DIR not in sys.path:
+    sys.path.insert(0, _HOOK_DIR)
+try:
+    import fleet_watch
+except ImportError:
+    fleet_watch = None
+try:
+    import fleet_suggest
+except ImportError:
+    fleet_suggest = None
 
 # Ordered: the first lane whose pattern matches wins. Specific before general.
 LANES = [
@@ -196,14 +209,52 @@ def record(reason, prompt, lane=None):
     except Exception:
         pass
 
+prompt = (payload.get("prompt") or "").strip()
+watcher_lines = []
+if fleet_watch is not None:
+    try:
+        watcher_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+        watcher_lines = fleet_watch.on_prompt(payload, watcher_home)
+    except Exception:
+        watcher_lines = []
+
+
+def emit_context(lines):
+    lines = [line for line in lines if isinstance(line, str) and line]
+    routing = [line for line in lines if line.startswith("Routing:")]
+    suggestions = [line for line in lines if line.startswith("AgentFleet:")]
+    notices = [line[:400] for line in lines if not line.startswith(("Routing:", "AgentFleet:"))]
+    essential = suggestions + routing
+    essential_size = sum(len(line) for line in essential) + max(0, len(essential) - 1)
+    remaining = max(0, 1500 - essential_size - (1 if notices and essential else 0))
+    bounded = []
+    for line in notices:
+        line = line.replace("\n", " ")
+        extra = len(line) + (1 if bounded else 0)
+        if extra > remaining:
+            if remaining > (1 if bounded else 0):
+                bounded.append(line[:remaining - (1 if bounded else 0)])
+            break
+        bounded.append(line)
+        remaining -= extra
+    lines = bounded + essential
+    if lines:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": "\n".join(lines),
+            }
+        }))
+
 
 def leave(reason, prompt, lane=None):
     record(reason, prompt, lane)
+    emit_context(watcher_lines)
     sys.exit(0)
 
 
-prompt = (payload.get("prompt") or "").strip()
 if not prompt:
+    emit_context(watcher_lines)
     sys.exit(0)
 # System-injected envelopes (task notifications, reminders) are not user requests.
 if prompt.startswith("<"):
@@ -216,6 +267,15 @@ if ALREADY_ROUTED.search(prompt):
     leave("already-named", prompt)
 if INLINE.search(prompt):
     leave("inline-requested", prompt)
+
+suggestion_line = None
+if fleet_suggest is not None:
+    try:
+        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
+        suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+        suggestion_line = fleet_suggest.notice(cwd, suggestion_home)
+    except Exception:
+        suggestion_line = None
 
 # A leading "add/write tests" is test work; otherwise the earliest signal in the
 # prompt wins, so "add X and add tests" routes to implement, not tests.
@@ -233,10 +293,45 @@ else:
     if not hits:
         leave("no-match", prompt)
     lane = min(hits)[2]
+original_lane = lane
+outage = None
+alternative = None
+if fleet_watch is not None:
+    try:
+        home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+        lane_key = lane[len("fleet-"):] if lane.startswith("fleet-") else lane
+        outage = fleet_watch.current_outages(home).get("lanes", {}).get(lane_key)
+        if outage:
+            alternative = fleet_watch.alternative_lane(home, lane)
+            if alternative and not alternative.startswith("fleet-"):
+                alternative = f"fleet-{alternative}"
+    except Exception:
+        outage = None
+        alternative = None
 
-context = (
-    f"Routing: this request has {lane.replace('fleet-', '')} shape. "
-    f"Dispatch `{lane}` via the Agent tool rather than doing it yourself, and say in one line that you did. "
+shape = original_lane.replace("fleet-", "")
+if outage:
+    status = outage.get("status", "unknown")
+    try:
+        failed_at = datetime.fromisoformat(outage.get("at", "").replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M UTC")
+    except (AttributeError, TypeError, ValueError):
+        failed_at = "unknown time"
+    if alternative:
+        context = (
+            f"Routing: this request has {shape} shape, but `{original_lane}` is failing ({status} since {failed_at}). "
+            f"Dispatch `{alternative}` via the Agent tool instead, and say in one line that you did. "
+        )
+    else:
+        context = (
+            f"Routing: this request has {shape} shape, but `{original_lane}` is failing ({status} since {failed_at}) "
+            f"and no configured alternative is available; retry later instead of dispatching it. "
+        )
+else:
+    context = (
+        f"Routing: this request has {shape} shape. "
+        f"Dispatch `{lane}` via the Agent tool rather than doing it yourself, and say in one line that you did. "
+    )
+context += (
     f"Give it a brief carrying the goal, scope, exclusions, the project instructions it needs "
     f"(it does not load CLAUDE.md), verification commands, and what to report back. "
     f"Then verify its work yourself before reporting done. "
@@ -244,11 +339,5 @@ context = (
     f"you need output from — say why in one line if you do."
 )
 
-record("routed", prompt, lane)
-
-print(json.dumps({
-    "hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit",
-        "additionalContext": context,
-    }
-}))
+record("routed", prompt, original_lane)
+emit_context(watcher_lines + ([suggestion_line] if suggestion_line else []) + [context])

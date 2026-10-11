@@ -24,6 +24,8 @@ import {
 import { homedir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
+const projectArgIndex = process.argv.indexOf("--project");
+const projectDir = projectArgIndex >= 0 && process.argv[projectArgIndex + 1] ? resolve(process.argv[projectArgIndex + 1]) : null;
 const homeArgIndex = process.argv.indexOf("--home");
 const configArgIndex = process.argv.indexOf("--config-home");
 const home = homeArgIndex >= 0 && process.argv[homeArgIndex + 1]
@@ -56,6 +58,15 @@ function realpathOrResolve(path) {
   }
 }
 
+const agentfleetConfigPath = join(home, ".claude", "agentfleet", "config.json");
+let reviewerAccess = "full";
+try {
+  const af = JSON.parse(readFileSync(agentfleetConfigPath, "utf8"));
+  if (af && typeof af === "object" && af.format === "agentfleet.config.v1" && ["full", "run", "read-only"].includes(af.reviewerAccess)) {
+    reviewerAccess = af.reviewerAccess;
+  }
+} catch {
+}
 const claudeFleetPath = join(home, ".claude", "fleet.json");
 const legacyFleetPath = join(configHome, "delegate-skills", "config.json");
 let fleetPath = legacyFleetPath;
@@ -71,7 +82,8 @@ if (existsSync(claudeFleetPath) && existsSync(legacyFleetPath)) {
   fleetPath = claudeFleetPath;
 }
 const settingsPath = join(home, ".claude", "settings.json");
-const agentsDir = join(home, ".claude", "agents");
+const globalAgentsDir = join(home, ".claude", "agents");
+const agentsDir = projectDir ? join(projectDir, ".claude", "agents") : globalAgentsDir;
 const installMetadataPath = join(home, ".claude", ".claude-agents-config-install.json");
 const installManifestPath = join(home, ".claude", ".claude-agents-config-manifest.json");
 // Scoped physically under the resolved home rather than the system temp
@@ -293,7 +305,9 @@ function withinManagedSyncPaths(targetPath) {
   const resolved = realpathOrResolve(targetPath);
   if (resolved === realpathOrResolve(installManifestPath) || resolved === realpathOrResolve(installMetadataPath)) return true;
   const rel = relative(realpathOrResolve(agentsDir), resolved);
-  return Boolean(rel) && !rel.startsWith("..") && !rel.includes("/") && !rel.includes("\\");
+  if (Boolean(rel) && !rel.startsWith("..") && !rel.includes("/") && !rel.includes("\\")) return true;
+  const relGlobal = relative(realpathOrResolve(globalAgentsDir), resolved);
+  return Boolean(relGlobal) && !relGlobal.startsWith("..") && !relGlobal.includes("/") && !relGlobal.includes("\\");
 }
 
 function recoverSyncTransaction() {
@@ -513,13 +527,15 @@ function laneRole(lane, config) {
   if (lane === "research-web") return "research-web";
   if (lane === "explore-narrow") return "explore";
   if (lane === "triage-static") return "triage";
-  // A lane declared read-only never gets write tools, whatever its name.
-  if (config?.readOnly === true) return "review";
+  // Custom lanes with readOnly: true stay static read-only whatever the preference.
+  // Note: config/delegate-fleet.json has readOnly: true on built-in review lanes, which drives
+  // model-tier selection elsewhere; readOnly no longer means "no tools" for built-in review lanes.
+  if (config?.readOnly === true) return "review-static";
   if (lane === "ui") return "ui";
   if (lane === "tests") return "tests";
   if (lane === "docs") return "docs";
   if (lane === "implement" || lane.startsWith("implement-")) return "implement";
-  return config.readOnly ? "review" : "implement";
+  return "implement";
 }
 
 const memoryTools = "mcp__agent-brain-memory__memory_search, mcp__agent-brain-memory__memory_save, mcp__agent-brain-memory__session_summary";
@@ -533,104 +549,108 @@ const staticTools = `Read, Glob, Grep, LSP, ${memoryTools}`;
 const webTools = `Read, Glob, Grep, WebSearch, WebFetch, ${memoryTools}`;
 const writableTools = `Read, Glob, Grep, LSP, Bash, Edit, Write, ${memoryTools}`;
 
-const roleConfig = {
-  plan: {
-    trigger: 'Plan before coding: architecture, multi-file design, comparing approaches, or deciding how to build something.',
-    tools: staticTools,
-    color: "blue",
-    maxTurns: 60,
-    description: "Static planning and architecture analysis",
-    prompt: `Produce an implementation plan grounded in the repository. Trace the relevant code and constraints, name concrete files and gates, and surface unresolved decisions. You have a static read-only tool surface; report any question that would require command execution rather than guessing.`,
-  },
-  review: {
-    trigger: 'Review changes for defects: a diff, branch, pull request, plan, or specification.',
-    tools: staticTools,
-    color: "purple",
-    maxTurns: 60,
-    description: "Read-only adversarial review",
-    prompt: `Review the requested code, plan, or specification adversarially. Report only verified, consequential findings with file paths, concrete failure scenarios, and evidence. Separate confirmed defects from uncertainty. Do not modify files.`,
-  },
-  diagnose: {
-    trigger: 'Diagnose a failure from source: root-cause an error, crash, or wrong behavior by tracing the code.',
-    tools: staticTools,
-    color: "orange",
-    maxTurns: 70,
-    description: "Static source diagnosis without command execution",
-    prompt: `Diagnose the reported behavior from source and existing evidence. Trace the execution path, distinguish root cause from symptom, and state what runtime reproduction or measurement is still needed. Your tool surface is static and cannot execute commands, so never claim a reproduction you did not observe.`,
-  },
-  security: {
-    trigger: 'Security review: authorization, authentication, secrets, input validation, injection, or trust boundaries.',
-    tools: staticTools,
-    color: "red",
-    maxTurns: 70,
-    description: "Static security review",
-    prompt: `Perform a static security review of the requested scope. Trace trust boundaries, authorization, validation, secret handling, and failure behavior. Report exploitable or defense-relevant findings with paths and concrete scenarios. Do not run scanners or modify files.`,
-  },
-  research: {
-    trigger: 'Research the repository broadly: sweep many files to answer how a system works or where behavior lives.',
-    tools: staticTools,
-    color: "cyan",
-    maxTurns: 60,
-    description: "Repository-only research",
-    prompt: `Research the requested question inside the repository. Sweep the relevant files and naming variants, reconcile conflicting evidence, and return a compact answer with paths. This is codebase research, not web research.`,
-  },
-  "research-web": {
-    trigger: 'Research beyond the repository: evaluate an external tool, library, service or API, check current documentation, or answer a question the codebase cannot.',
-    tools: webTools,
-    color: "cyan",
-    maxTurns: 60,
-    description: "External research over the web",
-    prompt: `Research the requested question against primary sources: official documentation, the project's own repository, and the API or product itself. Prefer what a vendor publishes as reference over what it publishes as marketing, and read the two separately. Separate a verified fact from a vendor claim from your own inference, and say which each one is. When a number decides the question, report how it was measured and against what baseline. Return a compact answer with links.`,
-  },
-  explore: {
-    trigger: 'Find code fast: locate a symbol, file, config, route, or call site.',
-    tools: staticTools,
-    color: "cyan",
-    maxTurns: 40,
-    description: "Narrow codebase exploration",
-    prompt: `Locate the requested code, symbol, configuration, or execution seam with minimal breadth. Return the relevant paths, relationships, and the smallest useful conclusion. Do not review unrelated code.`,
-  },
-  triage: {
-    trigger: 'Triage an issue: determine ownership, affected surface, risk, and the next concrete action.',
-    tools: staticTools,
-    color: "yellow",
-    maxTurns: 45,
-    description: "Static task triage",
-    prompt: `Triage the requested issue from repository evidence. Identify likely ownership, affected surface, dependencies, risk, and the next concrete action. State what remains unknown and avoid proposing broad implementation work without evidence.`,
-  },
-  implement: {
-    trigger: 'Implement code: build a feature, fix a bug, refactor, migrate, or change behavior across files.',
-    tools: writableTools,
-    color: "green",
-    maxTurns: 100,
-    description: "Implementation with focused verification",
-    prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the applicable focused gates. Never commit, push, merge, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`,
-  },
-  ui: {
-    trigger: 'Build or change user-facing interface code: components, screens, styling, accessibility, responsive or localized layout.',
-    tools: writableTools,
-    color: "pink",
-    maxTurns: 100,
-    description: "UI implementation and verification",
-    prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run focused UI tests or builds. Never commit, push, deploy, publish, or start nested agents. Report touched files and measured evidence.`,
-  },
-  tests: {
-    trigger: 'Test work: write new tests, fix failing tests, or investigate a flaky suite.',
-    tools: writableTools,
-    color: "yellow",
-    maxTurns: 90,
-    description: "Test implementation and failure analysis",
-    prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Never commit, push, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`,
-  },
-  docs: {
-    trigger: 'Document: write or update a README, guide, API reference, runbook, or changelog.',
-    tools: writableTools,
-    color: "cyan",
-    maxTurns: 80,
-    description: "Documentation implementation and validation",
-    prompt: `Write the assigned documentation from repository evidence. Preserve authority order, avoid unsupported claims, and run the applicable documentation and formatting checks. Never commit, push, publish, or start nested agents. Report changed files and verification results.`,
-  },
-};
+const reviewFullPrompt = `Review the requested code, plan, or specification adversarially. Work in CHECK mode unless the brief says FIX MODE. CHECK mode: run the project's tests, linters, type checkers, builds, and read-only database queries to confirm or refute findings; do not edit files. FIX MODE: only when the brief says FIX MODE and lists the files you may change; fix only the listed findings inside those files, rerun the relevant checks, and report each fix with a diff summary and the check results. In both modes never commit, push, merge, deploy, publish, run database migrations or write/destructive SQL, run git restore/checkout/reset/stash/clean, or start nested agents. Report only verified, consequential findings with file paths, concrete failure scenarios, and evidence (commands with exit codes); separate confirmed defects from uncertainty.`;
+const reviewRunPrompt = `Review the requested code, plan, or specification adversarially. Work in CHECK mode unless the brief says FIX MODE. CHECK mode: run the project's tests, linters, type checkers, builds, and read-only database queries to confirm or refute findings; do not edit files. In both modes never commit, push, merge, deploy, publish, run database migrations or write/destructive SQL, run git restore/checkout/reset/stash/clean, or start nested agents. Report only verified, consequential findings with file paths, concrete failure scenarios, and evidence (commands with exit codes); separate confirmed defects from uncertainty. You cannot edit files; when a fix is needed, describe it precisely.`;
+const reviewStaticPrompt = `Review the requested code, plan, or specification adversarially. Report only verified, consequential findings with file paths, concrete failure scenarios, and evidence. Separate confirmed defects from uncertainty. Do not modify files.`;
+
+const securityFullPrompt = `Perform a security review of the requested scope: trace trust boundaries, authorization, validation, secret handling, and failure behavior. Work in CHECK mode unless the brief says FIX MODE. CHECK mode: run the project's tests, linters, type checkers, builds, and read-only database queries to confirm or refute findings; do not run automated scanners or edit files. FIX MODE: only when the brief says FIX MODE and lists the files you may change; fix only the listed findings inside those files, rerun the relevant checks, and report each fix with a diff summary and the check results. In both modes never commit, push, merge, deploy, publish, run database migrations or write/destructive SQL, run git restore/checkout/reset/stash/clean, or start nested agents. Report exploitable or defense-relevant findings with paths, concrete scenarios, and evidence (commands with exit codes); separate confirmed defects from uncertainty.`;
+const securityRunPrompt = `Perform a security review of the requested scope: trace trust boundaries, authorization, validation, secret handling, and failure behavior. Work in CHECK mode unless the brief says FIX MODE. CHECK mode: run the project's tests, linters, type checkers, builds, and read-only database queries to confirm or refute findings; do not run automated scanners or edit files. In both modes never commit, push, merge, deploy, publish, run database migrations or write/destructive SQL, run git restore/checkout/reset/stash/clean, or start nested agents. Report exploitable or defense-relevant findings with paths, concrete scenarios, and evidence (commands with exit codes); separate confirmed defects from uncertainty. You cannot edit files; when a fix is needed, describe it precisely.`;
+const securityStaticPrompt = `Perform a static security review of the requested scope. Trace trust boundaries, authorization, validation, secret handling, and failure behavior. Report exploitable or defense-relevant findings with paths and concrete scenarios. Do not run scanners or modify files.`;
+
+const diagnoseRunPrompt = `Diagnose the reported behavior. You may run commands to reproduce the failure, read logs, and run focused tests or read-only queries; never edit files, commit, push, deploy, run migrations or destructive commands, or start nested agents. Distinguish root cause from symptom; report the reproduction you observed with commands and exit codes, and state what remains unverified.`;
+const diagnoseStaticPrompt = `Diagnose the reported behavior from source and existing evidence. Trace the execution path, distinguish root cause from symptom, and state what runtime reproduction or measurement is still needed. Your tool surface is static and cannot execute commands, so never claim a reproduction you did not observe.`;
+
+function getRoleSpec(role, access) {
+  const isFull = access === "full";
+  const isRun = access === "run" || access === "full";
+  
+  const runTools = `Read, Glob, Grep, LSP, Bash, ${memoryTools}`;
+  
+  const base = {
+    plan: {
+      trigger: 'Plan before coding: architecture, multi-file design, comparing approaches, or deciding how to build something.',
+      tools: staticTools, color: "blue", maxTurns: 60,
+      description: "Static planning and architecture analysis",
+      prompt: `Produce an implementation plan grounded in the repository. Trace the relevant code and constraints, name concrete files and gates, and surface unresolved decisions. You have a static read-only tool surface; report any question that would require command execution rather than guessing.`
+    },
+    "review-static": {
+      trigger: 'Review changes for defects: a diff, branch, pull request, plan, or specification.',
+      tools: staticTools, color: "purple", maxTurns: 60,
+      description: "Read-only adversarial review",
+      prompt: reviewStaticPrompt
+    },
+    review: {
+      trigger: 'Review changes for defects: a diff, branch, pull request, plan, or specification.',
+      tools: isFull ? writableTools : isRun ? runTools : staticTools,
+      color: "purple", maxTurns: isRun ? 80 : 60,
+      description: isFull ? "Adversarial review with verification and fixes" : isRun ? "Adversarial review with verification" : "Read-only adversarial review",
+      prompt: isFull ? reviewFullPrompt : isRun ? reviewRunPrompt : reviewStaticPrompt
+    },
+    diagnose: {
+      trigger: 'Diagnose a failure from source: root-cause an error, crash, or wrong behavior by tracing the code.',
+      tools: isRun ? runTools : staticTools,
+      color: "orange", maxTurns: isRun ? 80 : 70,
+      description: isRun ? "Source diagnosis and reproduction" : "Static source diagnosis without command execution",
+      prompt: isRun ? diagnoseRunPrompt : diagnoseStaticPrompt
+    },
+    security: {
+      trigger: 'Security review: authorization, authentication, secrets, input validation, injection, or trust boundaries.',
+      tools: isFull ? writableTools : isRun ? runTools : staticTools,
+      color: "red", maxTurns: isRun ? 80 : 70,
+      description: isFull ? "Security review with verification and fixes" : isRun ? "Security review with verification" : "Static security review",
+      prompt: isFull ? securityFullPrompt : isRun ? securityRunPrompt : securityStaticPrompt
+    },
+    research: {
+      trigger: 'Research the repository broadly: sweep many files to answer how a system works or where behavior lives.',
+      tools: staticTools, color: "cyan", maxTurns: 60,
+      description: "Repository-only research",
+      prompt: `Research the requested question inside the repository. Sweep the relevant files and naming variants, reconcile conflicting evidence, and return a compact answer with paths. This is codebase research, not web research.`
+    },
+    "research-web": {
+      trigger: 'Research beyond the repository: evaluate an external tool, library, service or API, check current documentation, or answer a question the codebase cannot.',
+      tools: webTools, color: "cyan", maxTurns: 60,
+      description: "External research over the web",
+      prompt: `Research the requested question against primary sources: official documentation, the project's own repository, and the API or product itself. Prefer what a vendor publishes as reference over what it publishes as marketing, and read the two separately. Separate a verified fact from a vendor claim from your own inference, and say which each one is. When a number decides the question, report how it was measured and against what baseline. Return a compact answer with links.`
+    },
+    explore: {
+      trigger: 'Find code fast: locate a symbol, file, config, route, or call site.',
+      tools: staticTools, color: "cyan", maxTurns: 40,
+      description: "Narrow codebase exploration",
+      prompt: `Locate the requested code, symbol, configuration, or execution seam with minimal breadth. Return the relevant paths, relationships, and the smallest useful conclusion. Do not review unrelated code.`
+    },
+    triage: {
+      trigger: 'Triage an issue: determine ownership, affected surface, risk, and the next concrete action.',
+      tools: staticTools, color: "yellow", maxTurns: 45,
+      description: "Static task triage",
+      prompt: `Triage the requested issue from repository evidence. Identify likely ownership, affected surface, dependencies, risk, and the next concrete action. State what remains unknown and avoid proposing broad implementation work without evidence.`
+    },
+    implement: {
+      trigger: 'Implement code: build a feature, fix a bug, refactor, migrate, or change behavior across files.',
+      tools: writableTools, color: "green", maxTurns: 100,
+      description: "Implementation with focused verification",
+      prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the applicable focused gates. Never commit, push, merge, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`
+    },
+    ui: {
+      trigger: 'Build or change user-facing interface code: components, screens, styling, accessibility, responsive or localized layout.',
+      tools: writableTools, color: "pink", maxTurns: 100,
+      description: "UI implementation and verification",
+      prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run focused UI tests or builds. Never commit, push, deploy, publish, or start nested agents. Report touched files and measured evidence.`
+    },
+    tests: {
+      trigger: 'Test work: write new tests, fix failing tests, or investigate a flaky suite.',
+      tools: writableTools, color: "yellow", maxTurns: 90,
+      description: "Test implementation and failure analysis",
+      prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Never commit, push, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`
+    },
+    docs: {
+      trigger: 'Document: write or update a README, guide, API reference, runbook, or changelog.',
+      tools: writableTools, color: "cyan", maxTurns: 80,
+      description: "Documentation implementation and validation",
+      prompt: `Write the assigned documentation from repository evidence. Preserve authority order, avoid unsupported claims, and run the applicable documentation and formatting checks. Never commit, push, publish, or start nested agents. Report changed files and verification results.`
+    }
+  };
+  return base[role];
+}
 
 const autoLanes = new Set([
   "plan",
@@ -650,7 +670,7 @@ const autoLanes = new Set([
 const FLEET_FALLBACK_DESCRIPTION = "Required by delegate fleet";
 
 function descriptionFor(lane, model, role, config) {
-  const spec = roleConfig[role];
+  const spec = getRoleSpec(role, reviewerAccess);
   if (config.description) return `${config.description} Runs on ${model}.`;
   if (autoLanes.has(lane)) {
     return `${spec.trigger} Runs on ${model}.`;
@@ -660,12 +680,28 @@ function descriptionFor(lane, model, role, config) {
 
 function renderAgent(lane, config, sourceHash, picker) {
   const role = laneRole(lane, config);
-  const spec = roleConfig[role];
+  const spec = getRoleSpec(role, reviewerAccess);
   if (!spec) fail(`no agent role mapping for lane ${lane}`);
   const agentName = `fleet-${lane}`;
   const fallbacks = candidatesFor(config).slice(1, 4).filter((model) => !picker || picker.has(model));
   const fallbackLine = fallbacks.length ? `fallbackModel: ${yamlString(fallbacks.join(","))}\n` : "";
-  const tools = agentBrain ? spec.tools : spec.tools.replace(MEMORY_TOOLS_SUFFIX, "");
+    let baseTools = spec.tools;
+  // Per-lane tools override
+  if (Array.isArray(config.tools)) {
+    const validTool = (t) => /^[A-Z][A-Za-z0-9]*$/.test(t) || /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_-]+$/.test(t);
+    const overrides = [];
+    for (const t of config.tools) {
+      if (!validTool(t)) fail(`invalid tool override in lane ${lane}: ${t}`);
+      overrides.push(t);
+    }
+    // Filter out memory tools from override if any, since we append them below based on agentBrain
+    baseTools = overrides.filter(t => !memoryTools.includes(t)).join(", ");
+    if (baseTools && agentBrain) baseTools += MEMORY_TOOLS_SUFFIX;
+    else if (!baseTools && agentBrain) baseTools = memoryTools;
+  } else {
+    baseTools = agentBrain ? spec.tools : spec.tools.replace(MEMORY_TOOLS_SUFFIX, "");
+  }
+  const tools = baseTools || "";
   const lifecycle = agentBrain ? MEMORY_LIFECYCLE : "";
   return `---\nname: ${agentName}\ndescription: ${yamlString(descriptionFor(lane, config.model, role, config))}\nmodel: ${yamlString(config.model)}\n${fallbackLine}effort: ${config.effort || "high"}\ntools: ${tools}\nbackground: true\nomitClaudeMd: true\ncolor: ${spec.color}\nmaxTurns: ${spec.maxTurns}\n---\n\n<!-- ${marker}; source-sha256: ${sourceHash} -->\n\n# Fleet lane: ${lane}\n\nYou are the native Claude Code subagent for global fleet lane \`${lane}\`. The main agent owns decomposition, integration, final gates, and outward-facing actions. You own only the bounded assignment in your invocation.\n\n${spec.prompt}\n\nThe main agent must put every applicable project instruction, gate, and handoff requirement in the brief because this generated agent omits CLAUDE.md to keep context bounded and avoid delegated handoff writes.${lifecycle} If the brief lacks a decision required to continue safely, stop and report the gap instead of expanding scope.\n`;
 }
@@ -694,8 +730,44 @@ writerLockFd = lockHeld ? undefined : acquireWriterLock();
 // reads the fleet config or settings as fresh input, so a partially-applied
 // generation is never built upon.
 recoverSyncTransaction();
-const fleetRaw = readFileSync(fleetPath, "utf8");
-const fleet = readJson(fleetPath);
+
+let globalFleetRaw, globalFleet;
+try {
+  globalFleetRaw = readFileSync(fleetPath, "utf8");
+  globalFleet = readJson(fleetPath);
+  if (globalFleet.version !== "delegate-fleet.v1" || !globalFleet.lanes || typeof globalFleet.lanes !== "object") {
+    fail(`${fleetPath} is not a delegate-fleet.v1 map`);
+  }
+} catch (error) {
+  fail(`cannot read global fleet: ${error.message}`);
+}
+
+let fleetRaw, fleet;
+if (projectDir) {
+  const localFleetPath = join(projectDir, ".claude", "fleet.local.json");
+  fleet = { version: globalFleet.version, integrations: globalFleet.integrations, lanes: {} };
+  let hasOverrides = false;
+  if (existsSync(localFleetPath)) {
+    const local = readJson(localFleetPath);
+    if (local.version !== "delegate-fleet.local.v1") fail(`${localFleetPath} is not a delegate-fleet.local.v1 map`);
+    if (local.lanes) {
+      for (const [lane, ov] of Object.entries(local.lanes)) {
+        if (!globalFleet.lanes[lane]) fail(`invalid override: lane ${lane} does not exist in global fleet`);
+        const allowed = new Set(["model", "fallbacks", "effort", "tools"]);
+        for (const k of Object.keys(ov)) {
+          if (!allowed.has(k)) fail(`invalid override: key ${k} is not allowed`);
+        }
+        fleet.lanes[lane] = { ...globalFleet.lanes[lane], ...ov };
+        hasOverrides = true;
+      }
+    }
+  }
+  // Claude Code gives project agents in .claude/agents/ precedence over user agents with the same name; that is how the override takes effect.
+  fleetRaw = JSON.stringify(fleet); // used for sourceHash
+} else {
+  fleetRaw = globalFleetRaw;
+  fleet = globalFleet;
+}
 const settings = readJson(settingsPath);
 if (fleet.version !== "delegate-fleet.v1" || !fleet.lanes || typeof fleet.lanes !== "object") {
   fail(`${fleetPath} is not a delegate-fleet.v1 map`);
@@ -728,7 +800,9 @@ for (const filename of [...desired.keys()]) {
 
 const stale = [];
 // Discover stale generated fleet files without touching hand-authored agents.
-for (const filename of readdirSync(agentsDir)) {
+let existingDirFiles = [];
+try { existingDirFiles = readdirSync(agentsDir); } catch {}
+for (const filename of existingDirFiles) {
   if (!filename.startsWith("fleet-") || !filename.endsWith(".md") || desired.has(filename)) continue;
   const path = join(agentsDir, filename);
   const content = readFileSync(path, "utf8");
@@ -766,7 +840,7 @@ if (checkOnly) {
 }
 
 try {
-  const verification = buildInstalledVerification(desired, fleetHash);
+  const verification = projectDir ? new Map() : buildInstalledVerification(desired, fleetHash);
   commitGeneratedFiles(desired, verification, stale);
 } finally {
   releaseWriterLock(writerLockFd);

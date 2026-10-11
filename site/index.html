@@ -59,7 +59,7 @@
       <h1>A fleet of specialist agents that runs on any provider</h1>
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.1.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 9, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.2.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 11, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -120,13 +120,13 @@ How should Claude Code reach its models?
     <p class="eyebrow">Why AgentFleet</p>
     <h2>A team of specialists, not one all-powerful agent</h2>
     <p class="lede">Most standard AI tools act as a single, all-powerful agent that can easily make accidental changes and break your software. AgentFleet innovates by replacing this risky setup with a highly structured team of specialized AI assistants.</p>
-    <p class="why-body">Just like a real engineering agency, our AI planners are restricted to reading and strategizing, while separate AI coders and testers handle the actual execution. By strictly limiting what each AI is allowed to touch, planning and review can never edit your code, and changes happen only in the lanes built to make them. This brings true enterprise-grade safety and organization to AI development, letting your team build faster with far less risk of breaking things.</p>
+    <p class="why-body">Planners read and strategize, while coders and testers handle implementation. Reviewers run checks to verify findings and edit only when the brief explicitly requests FIX MODE and lists the files they may change. The main agent integrates the work and owns outward-facing actions; the included lane-guard mod blocks covered destructive and publishing commands in fleet subagents.</p>
 
     <div class="features-grid features-grid-two">
       <div class="feature-card">
         <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></div>
-        <h3>11 lanes read, search, and plan</h3>
-        <p>Planning, review, security review, diagnosis, research, exploration, and triage lanes get no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> tools. The doctor fails any read-only lane that has them.</p>
+        <h3>Planning stays read-only</h3>
+        <p>Planning, research, exploration, and triage lanes get no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> tools by default. Diagnosis can run checks but never edits; reviewers verify findings in CHECK mode by default.</p>
       </div>
       <div class="feature-card">
         <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></div>
@@ -144,6 +144,31 @@ How should Claude Code reach its models?
     <p class="lede">Every design decision in AgentFleet exists so that switching providers, or switching models within one provider, never means rewriting your workflow.</p>
 
     <div class="features-grid">
+      <div class="feature-card">
+        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg></div>
+        <h3>Auto-compact by percentage</h3>
+        <p>Default to 70% of the active model's context, not a fixed window. Choose 40–95% or turn it off. Model-switch changes apply after a restart. <a href="/docs/#auto-compact">Configure auto-compact</a>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><rect x="4" y="3" width="16" height="18" rx="2"/></svg></div>
+        <h3>Reviewers that verify and fix</h3>
+        <p>Review lanes run tests, linters, and builds to verify findings. They edit only in explicit FIX MODE with a file scope. Restrict their tools with reviewer-access preferences. <a href="/docs/#reviewer-modes">See reviewer modes</a>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.4 8 11 4.6-2.6 8-6 8-11V5z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <h3>Lane guard</h3>
+        <p>The default lane-guard mod blocks covered git mutations, GitHub writes, publishing, deployment, migrations, destructive SQL, and dangerous deletions in fleet subagents. It never blocks the main conversation. <a href="/docs/#lane-guard">See guard limits</a>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M17 3l4 4-4 4M21 17H3M7 13l-4 4 4 4"/></svg></div>
+        <h3>Outage failover</h3>
+        <p>A gateway 5xx failure marks a lane failing for 15 minutes. Routing avoids it and tells the main agent which alternative to use. Local lane reports record changed files and forbidden commands. <a href="/docs/#outages">See outage reports</a>.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="4"/></svg></div>
+        <h3>Project suggestions</h3>
+        <p><code class="il">/fleet-suggest</code> scans locally for useful plugins, language servers, MCP-server plugins, mods, hooks, and project skills. It installs only what you pick. Usage learning is off by default. <a href="/docs/#suggestions">Explore suggestions</a>.</p>
+      </div>
       <div class="feature-card">
         <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v4M15 2v4M6 8h12l-1 5a5 5 0 0 1-10 0z"/><path d="M12 17v3M9 22h6"/></svg></div>
         <h3>Any provider</h3>
@@ -259,19 +284,19 @@ How should Claude Code reach its models?
   <div class="container">
     <p class="eyebrow">The fleet</p>
     <h2>19 lanes: 12 task lanes, 7 variants</h2>
-    <p class="lede">Read-only lanes get no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> tools. No lane can spawn nested agents, and writable lanes are instructed never to commit, push, or deploy — the main agent owns integration and every outward-facing action.</p>
+    <p class="lede">Planners and research lanes are read-only by default. Reviewers run checks and fix only in explicit FIX MODE; diagnosis runs checks but never edits. No lane can spawn nested agents. The main agent owns integration and outward-facing actions, with lane-guard blocking covered forbidden commands in fleet subagents.</p>
 
     <div class="lane-group">
       <h3>Task lanes</h3>
       <div class="lane-grid">
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-plan</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Planning and architecture</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-implement</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">General implementation</p></div>
-        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Code review</p></div>
+        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review</span><span class="tag tag-rw">Check / Fix</span></div><p class="lane-desc">Code review</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-tests</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">Test writing</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-ui</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">UI/frontend work</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-docs</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">Documentation</p></div>
-        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-security-review</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Security review</p></div>
-        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-diagnose-static</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Static diagnosis</p></div>
+        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-security-review</span><span class="tag tag-rw">Check / Fix</span></div><p class="lane-desc">Security review</p></div>
+        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-diagnose-static</span><span class="tag tag-ro">Run checks</span></div><p class="lane-desc">Static diagnosis</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-explore-narrow</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Bounded exploration</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-triage-static</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Issue triage</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-research-codebase</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Repository research (no web tools)</p></div>
@@ -288,8 +313,8 @@ How should Claude Code reach its models?
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-implement-fast</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">Low-latency implementation</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-implement-deep</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">Reasoning-capable implementation</p></div>
         <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-implement-cheap</span><span class="tag tag-rw">Writable</span></div><p class="lane-desc">Budget or free-tier implementation</p></div>
-        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review-alt</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Independent review model</p></div>
-        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review-deep</span><span class="tag tag-ro">Read-only</span></div><p class="lane-desc">Deep review: security, migration, concurrency, data-loss</p></div>
+        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review-alt</span><span class="tag tag-rw">Check / Fix</span></div><p class="lane-desc">Independent review model</p></div>
+        <div class="lane-card"><div class="lane-name-row"><span class="lane-name">fleet-review-deep</span><span class="tag tag-rw">Check / Fix</span></div><p class="lane-desc">Deep review: security, migration, concurrency, data-loss</p></div>
       </div>
     </div>
   </div>
@@ -405,20 +430,32 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.1.0</span>
-        <span class="release-date" data-latest-date>October 9, 2026</span>
+        <span class="release-version" data-latest-version>v2.2.0</span>
+        <span class="release-date" data-latest-date>October 11, 2026</span>
       </div>
-      <p>Claude Code mods: a status band when something needs action, with optional context forecasts and Jev compaction in a local plugin catalog.</p>
+      <p>Model-aware auto-compact, reviewers that verify and fix, guarded lanes, outage failover, and local project suggestions.</p>
       <ul class="release-list">
-        <li><code class="il">fleet-status</code> is installed and on by default. It shows restart notices, failed automatic updates, lanes without a model, and model changes waiting for review; <code class="il">/fleet-status</code> prints the full status.</li>
-        <li>The <code class="il">agentfleet</code> catalog includes two opt-in mods: Anthropic's <code class="il">token-weather</code> and tamaratran's <code class="il">fast-jev-compaction</code>. Jev compaction needs a paid TypeSafe API key and sends conversation text and tool inputs to TypeSafe.</li>
-        <li>Mods need Claude Code 2.1.287 or later and show in the terminal and Desktop's Code tab. <code class="il">fleet-status</code> reads only four AgentFleet files, never settings or tokens, and sends nothing anywhere.</li>
-        <li>Opt out with <code class="il">--no-mods</code> or <code class="il">AGENTFLEET_MODS=0</code>; <code class="il">--mods</code> opts back in. Updates refresh mod files without re-registering disabled or uninstalled plugins. <a href="/docs/#mods">Read the mods guide</a>.</li>
+        <li>Auto-compact defaults to 70% of the active model's context. Set 40–95% or <code class="il">off</code> with <code class="il">agentfleet config compact</code>; restart after a model switch to apply the new window.</li>
+        <li>Reviewers run checks in CHECK mode by default and edit only in explicit FIX MODE with listed files. <code class="il">agentfleet config reviewer-access full|run|read-only</code> controls their tools.</li>
+        <li>The included <code class="il">lane-guard</code> mod blocks covered destructive and publishing commands in fleet subagents, never the main conversation.</li>
+        <li>Gateway 5xx failures mark lanes failing for 15 minutes. Routing suggests an alternative; local lane reports track changed files and forbidden commands.</li>
+        <li><code class="il">/fleet-suggest</code> scans locally and installs only what you pick. Its 57-entry catalog covers official-marketplace plugins, optional mods, drafted hooks, project skills, and <code class="il">/init</code>. Usage learning is opt-in.</li>
+        <li><code class="il">fleet-status</code> 1.1.0 adds preference, outage, and suggestion lines and a <code class="il">/fleet-tasks</code> pane. Optional Jev compaction uses the normal trigger, an API key, and only the main conversation.</li>
+        <li>Project-local lane overrides, a usage report, plugin and MCP health checks, and hardened Windows shims. <a href="/docs/">Read the 2.2.0 guide</a>.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.1.0</span><span class="release-date">October 9, 2026</span><span class="version-summary">Claude Code mods: a status band when something needs action, with optional context forecasts and Jev compaction in a local plugin catalog.</span></summary>
+      <ul class="release-list">
+        <li><code class="il">fleet-status</code> is installed and on by default. It shows restart notices, failed automatic updates, lanes without a model, and model changes waiting for review; <code class="il">/fleet-status</code> prints the full status.</li>
+        <li>The <code class="il">agentfleet</code> catalog includes two opt-in mods: Anthropic's <code class="il">token-weather</code> and tamaratran's <code class="il">fast-jev-compaction</code>. Jev compaction needs a paid TypeSafe API key and sends conversation text and tool inputs to TypeSafe.</li>
+        <li>Mods need Claude Code 2.1.287 or later and show in the terminal and Desktop's Code tab. <code class="il">fleet-status</code> reads only four AgentFleet files, never settings or tokens, and sends nothing anywhere.</li>
+        <li>Opt out with <code class="il">--no-mods</code> or <code class="il">AGENTFLEET_MODS=0</code>; <code class="il">--mods</code> opts back in. Updates refresh mod files without re-registering disabled or uninstalled plugins. <a href="/docs/#mods">Read the mods guide</a>.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.0.6</span><span class="release-date">September 25, 2026</span><span class="version-summary">Windows fixes: the one-command install works on the PowerShell built into Windows, and updates repair hooks an older install left behind.</span></summary>
         <ul class="release-list">

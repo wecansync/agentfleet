@@ -2,9 +2,9 @@
 """Synchronize a verified model context budget without racing other writers.
 
 The provider cache is accepted only when its endpoint, account scope, schema,
-and freshness match the current gateway settings.  The resulting budget is a
-conservative 90 percent of the advertised context, capped at the installer
-budget; a provider suffix or display label never inflates capacity.  Fail-open
+and freshness match the current gateway settings. The resulting budget is the
+configured percentage of context; a provider suffix or display label never
+inflates capacity. Fail-open
 is intentional for hook use: malformed payloads, stale/offline discovery, lock
 contention, or malformed settings leave the existing file unchanged.
 """
@@ -28,7 +28,10 @@ from provider_catalog import (  # noqa: E402
     acquire_lock,
     available_rows,
     cache_rows,
+    compaction_window,
     load_policy,
+    load_preferences,
+    NATIVE_CONTEXT_BASIS,
     release_lock,
     strip_known_suffix,
 )
@@ -39,11 +42,6 @@ try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
-
-MIN_CONTEXT = 100_000
-MAX_CONTEXT = 800_000
-HEADROOM_NUMERATOR = 9
-HEADROOM_DENOMINATOR = 10
 
 
 def arg_path(argv: list[str], name: str, default: Path) -> Path:
@@ -56,36 +54,43 @@ def arg_path(argv: list[str], name: str, default: Path) -> Path:
     return default
 
 
-def safe_context(value: object) -> int | None:
-    if isinstance(value, bool):
+def gateway_model_context(model: str, catalog: dict) -> int | None:
+    clean = strip_known_suffix(model.strip())
+    model_info = catalog.get(model.strip())
+    if not isinstance(model_info, dict):
+        if clean in catalog:
+            model_info = catalog[clean]
+        elif f"{clean}[1m]" in catalog:
+            model_info = catalog[f"{clean}[1m]"]
+        else:
+            model_info = next((row for runtime_id, row in catalog.items()
+                               if strip_known_suffix(runtime_id) == clean), None)
+    if not isinstance(model_info, dict):
+        return None
+    raw = model_info.get("context_length")
+    if isinstance(raw, bool):
         return None
     try:
-        number = int(value)
+        context = int(raw)
     except (TypeError, ValueError):
         return None
-    if number < MIN_CONTEXT:
-        return None
-    return min(MAX_CONTEXT, max(MIN_CONTEXT, number * HEADROOM_NUMERATOR // HEADROOM_DENOMINATOR))
+    return context if context >= 100_000 else None
 
 
-def compact_control(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if MIN_CONTEXT <= number <= 1_000_000 else None
-
-
-def update_context(payload: object, home: Path, config_home: Path) -> dict | None:
+def update_context(
+    payload: object,
+    home: Path,
+    config_home: Path,
+    *,
+    already_locked: bool = False,
+    percent_override: object = None,
+) -> dict | None:
     if not isinstance(payload, dict):
         return None
     settings_path = home / ".claude" / "settings.json"
     cache_path = home / ".claude" / "cache" / "provider-models-cache.json"
     policy_path = config_home / "delegate-skills" / "provider-policy.json"
     try:
-        policy = load_policy(policy_path)
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError):
         return None
@@ -94,43 +99,39 @@ def update_context(payload: object, home: Path, config_home: Path) -> dict | Non
     model = payload.get("to_model") or payload.get("model") or settings.get("model")
     if not isinstance(model, str) or not model.strip():
         return None
-    event = payload.get("hook_event_name")
+    preferences = load_preferences(home)
+    percent = preferences["compactPercent"] if percent_override is None else percent_override
     env = settings.get("env")
-    if not isinstance(env, dict):
-        return None
+    env = env if isinstance(env, dict) else {}
     endpoint = env.get("ANTHROPIC_BASE_URL")
-    token = env.get("ANTHROPIC_AUTH_TOKEN")
-    if not isinstance(endpoint, str) or not isinstance(token, str) or not endpoint or not token:
-        return None
-    try:
-        cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        rows = cache_rows(cached, endpoint, token)
-    except (OSError, UnicodeError, ValueError):
-        return None
-    if rows is None:
-        return None
-    catalog = available_rows(rows, policy)
-    model_strip = model.strip()
-    clean = strip_known_suffix(model_strip)
-    model_info = catalog.get(model_strip)
-    if not isinstance(model_info, dict):
-        if clean in catalog:
-            model_info = catalog[clean]
-        elif f"{clean}[1m]" in catalog:
-            model_info = catalog[f"{clean}[1m]"]
-        else:
-            model_info = next((row for runtime_id, row in catalog.items() if strip_known_suffix(runtime_id) == clean), None)
-    if not isinstance(model_info, dict):
-        return None
-    budget = safe_context(model_info.get("context_length"))
+    native = not (isinstance(endpoint, str) and endpoint)
+    if native:
+        context = NATIVE_CONTEXT_BASIS
+    else:
+        token = env.get("ANTHROPIC_AUTH_TOKEN")
+        if not isinstance(token, str) or not token:
+            return None
+        try:
+            policy = load_policy(policy_path)
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            rows = cache_rows(cached, endpoint, token)
+        except (OSError, UnicodeError, ValueError):
+            return None
+        if rows is None:
+            return None
+        catalog = available_rows(rows, policy)
+        context = gateway_model_context(model, catalog)
+    budget = compaction_window(context, percent)
     if budget is None:
         return None
     value = str(budget)
-    compact_budget = budget
 
-    fd, lock_path = acquire_lock(home, timeout=0.75)
-    if fd is None:
-        return None
+    fd = None
+    lock_path = None
+    if not already_locked:
+        fd, lock_path = acquire_lock(home, timeout=0.75)
+        if fd is None:
+            return None
     temp = settings_path.with_name(settings_path.name + ".tmp." + str(os.getpid()) + "." + secrets.token_hex(6))
     try:
         try:
@@ -141,16 +142,19 @@ def update_context(payload: object, home: Path, config_home: Path) -> dict | Non
             return None
         latest_env = latest.get("env")
         if not isinstance(latest_env, dict):
-            return None
+            latest_env = {}
+            latest["env"] = latest_env
         changed = (
-            latest_env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != value
-            or latest.get("autoCompactWindow") != compact_budget
+            latest.get("autoCompactWindow") != budget
             or latest_env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != value
         )
+        if not native:
+            changed = changed or latest_env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != value
         if changed:
-            latest_env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = value
-            latest["autoCompactWindow"] = compact_budget
+            latest["autoCompactWindow"] = budget
             latest_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = value
+            if not native:
+                latest_env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = value
             data = (json.dumps(latest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
             fd_temp = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
@@ -172,16 +176,22 @@ def update_context(payload: object, home: Path, config_home: Path) -> dict | Non
             pass
         return None
     finally:
-        release_lock(fd, lock_path)
+        if fd is not None and lock_path is not None:
+            release_lock(fd, lock_path)
 
+    result = {"model": model.strip(), "percent": percent, "window": budget, "native": native, "changed": changed}
+    event = payload.get("hook_event_name")
     if event in {"PreModelSwitch", "PostModelSwitch"}:
-        return {
-            "systemMessage": (
-                f"Verified context and paired compaction budget for {model.strip()} set to {compact_budget} tokens in settings.json. "
-                "Restart Claude Code to apply these startup-only settings."
-            )
-        }
-    return None
+        result["systemMessage"] = (
+            f"Auto-compact for {model.strip()} set to {percent}% of its context ({budget} tokens). "
+            "Restart Claude Code to apply."
+        )
+    elif event == "SessionStart" and changed:
+        result["systemMessage"] = (
+            f"Auto-compact set to {percent}% of {model.strip()}'s context ({budget} tokens). "
+            "Restart Claude Code to apply."
+        )
+    return result
 
 
 def main() -> int:
@@ -191,9 +201,9 @@ def main() -> int:
         script_home = Path(__file__).resolve().parent.parent
         home = arg_path(argv, "--home", script_home)
         config_home = arg_path(argv, "--config-home", home / ".config")
-        output = update_context(payload, home, config_home)
-        if output:
-            print(json.dumps(output, ensure_ascii=False))
+        result = update_context(payload, home, config_home)
+        if result and result.get("systemMessage"):
+            print(json.dumps({"systemMessage": result["systemMessage"]}, ensure_ascii=False))
     except (OSError, UnicodeError, ValueError, TypeError):
         pass
     return 0
