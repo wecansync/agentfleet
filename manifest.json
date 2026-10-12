@@ -534,12 +534,12 @@
     },
     {
       "path": "tests/test_provider_repair.py",
-      "sha256": "93609d12e83b206ee7c4395b25535782f1026c47126fb1a1fe43eb0728d51a59",
+      "sha256": "df9118903fcdf052087de8a1fe26e18c9a20869130ff5dede048a20355b4acd5",
       "mode": "0o755"
     },
     {
       "path": "tests/test_setup_health.py",
-      "sha256": "a2e8fd2db962ddeb258e1eddd4a3ba989f4a83fba22b21ff4ee94d36724c1e6a",
+      "sha256": "c96fda862e1d75ee4d162361c4bf06c0754e1b73ae164e9efd0555db09141335",
       "mode": "0o644"
     },
     {
