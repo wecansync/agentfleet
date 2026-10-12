@@ -22,6 +22,20 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 PYTHON = sys.executable
+
+
+def windows_child_env(home: Path) -> dict[str, str]:
+    # Python's SSL setup and cmd.exe need these from the parent environment on Windows.
+    if os.name != "nt":
+        return {}
+    env = {name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ}
+    env["USERPROFILE"] = str(home)
+    return env
+
+
+def installed(home: Path, name: str) -> str:
+    # Windows runs the generated .cmd wrapper; the extensionless script has no PATHEXT.
+    return str(home / ".local" / "bin" / (name + ".cmd" if os.name == "nt" else name))
 GENERIC_POLICY = json.loads((ROOT / "config/provider-policy.json").read_text())
 # A provider-specific policy as an existing install carries it: named model
 # families, a namespace alias, and runtime aliases. Family-approval, alias, and
@@ -320,28 +334,28 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home ☃"
             config = root / "config space"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             # Family-approval flows need named families, which only a provider-
             # specific policy defines. It stands in for the policy an earlier
             # install wrote for the user's provider; updates must keep it.
             seed_policy(config)
-            doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
-            sync = subprocess.run([str(home / ".local/bin/claude-fleet-sync")], cwd=ROOT, env=env, text=True, capture_output=True)
+            sync = subprocess.run([installed(home, "claude-fleet-sync")], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(sync.returncode, 0, sync.stderr)
-            synced_doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            synced_doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(synced_doctor.returncode, 0, synced_doctor.stderr)
             settings = json.loads((home / ".claude/settings.json").read_text())
             self.assertEqual(settings["permissions"]["allow"], [])
             self.assertEqual(settings["enabledPlugins"], {})
             decisions = root / "decisions.json"
             decisions.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": ["claude", "codex"], "allowDiscovery": False}))
-            setup = subprocess.run([str(home / ".local/bin/claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
+            setup = subprocess.run([installed(home, "claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr)
             self.assertFalse("fake-token" in setup.stdout or "fake-token" in setup.stderr)
-            doctor_after_setup = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            doctor_after_setup = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor_after_setup.returncode, 0, doctor_after_setup.stderr)
             uninstall = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--uninstall", "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
@@ -359,7 +373,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             # Family-approval flows need named families, which only a provider-
@@ -370,7 +384,7 @@ class ProviderRepairTests(unittest.TestCase):
 
             decisions = root / "decisions-claude-only.json"
             decisions.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": ["claude"], "allowDiscovery": False}))
-            setup = subprocess.run([str(home / ".local/bin/claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
+            setup = subprocess.run([installed(home, "claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr)
 
             family_approved = self.catalog["family_approved"]
@@ -398,14 +412,14 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertIn("codex-luna", pending_after_update)
             codex_family = next(family for family in policy_after_update["families"] if family.get("name") == "codex")
             self.assertFalse(codex_family.get("approved"), "the per-family approved flag must also stay revoked on disk, not just the top-level list")
-            doctor_after_update = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            doctor_after_update = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor_after_update.returncode, 0, doctor_after_update.stderr)
 
             # An empty approval set (everything revoked) must also remain
             # empty, rather than falling back to "no explicit decisions yet".
             decisions_empty = root / "decisions-empty.json"
             decisions_empty.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": [], "allowDiscovery": False}))
-            setup_empty = subprocess.run([str(home / ".local/bin/claude-fleet-setup"), "--decisions", str(decisions_empty)], cwd=ROOT, env=env, text=True, capture_output=True)
+            setup_empty = subprocess.run([installed(home, "claude-fleet-setup"), "--decisions", str(decisions_empty)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(setup_empty.returncode, 0, setup_empty.stderr)
             update_empty = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(update_empty.returncode, 0, update_empty.stderr)
@@ -427,7 +441,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install_args = [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)]
             install = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
@@ -446,7 +460,7 @@ class ProviderRepairTests(unittest.TestCase):
             # resurrected approval rather than a merely absent one.
             decisions = root / "decisions-claude-only.json"
             decisions.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": ["claude"], "allowDiscovery": False}))
-            setup = subprocess.run([str(home / ".local/bin/claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
+            setup = subprocess.run([installed(home, "claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr)
             known_family_names = {family["name"] for family in json.loads(policy_path.read_text())["families"] if isinstance(family, dict) and isinstance(family.get("name"), str)}
             self.assertIn("codex", known_family_names, "fixture assumption: a revocable family other than claude must exist")
@@ -522,7 +536,7 @@ class ProviderRepairTests(unittest.TestCase):
                 home = root / "home"
                 config = root / "config"
                 endpoint = f"http://127.0.0.1:{server.server_address[1]}"
-                env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "FAKE_GATEWAY_TOKEN": "fake-token"}
+                env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "FAKE_GATEWAY_TOKEN": "fake-token", **windows_child_env(home)}
                 install_args = [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config), "--gateway-url", endpoint, "--allow-insecure-http", "--gateway-token-env", "FAKE_GATEWAY_TOKEN", "--enable-model-discovery"]
                 install = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(install.returncode, 0, install.stderr)
@@ -562,7 +576,7 @@ class ProviderRepairTests(unittest.TestCase):
                 manifest_before = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text())
                 repeat = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift"], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(repeat.returncode, 0, repeat.stderr)
-                doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+                doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(doctor.returncode, 0, doctor.stderr)
                 manifest_after = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text())
                 self.assertEqual(manifest_after["fleetSha256"], hashlib.sha256((config / "delegate-skills/config.json").read_bytes()).hexdigest())
@@ -595,7 +609,7 @@ class ProviderRepairTests(unittest.TestCase):
     def test_hooks_execute_malformed_input_and_redact_full_secret(self):
         with tempfile.TemporaryDirectory(prefix="fleet hooks ") as raw:
             home = Path(raw) / "home"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "CLAUDE_FLEET_HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "CLAUDE_FLEET_HOME": str(home), "PYTHONDONTWRITEBYTECODE": "1", **windows_child_env(home)}
             malformed_route = subprocess.run([PYTHON, str(ROOT / "scripts/route-to-fleet.py")], input="[]", text=True, env=env, capture_output=True)
             self.assertEqual(malformed_route.returncode, 0)
             malformed_status = subprocess.run([PYTHON, str(ROOT / "scripts/subagent-statusline.py")], input="[]", text=True, env=env, capture_output=True)
@@ -1024,7 +1038,7 @@ class ProviderRepairTests(unittest.TestCase):
             # not depend on it (see test_lock_path_is_home_scoped_not_tmpdir).
             child_tmp = root / "child-tmp"
             child_tmp.mkdir()
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "TMPDIR": str(child_tmp)}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "TMPDIR": str(child_tmp), **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             sync_bin = home / ".local/bin/claude-fleet-sync"
@@ -1127,7 +1141,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             sync_bin = home / ".local/bin/claude-fleet-sync"
@@ -1176,7 +1190,7 @@ class ProviderRepairTests(unittest.TestCase):
             recovered_missing_dir = run_sync()
             self.assertEqual(recovered_missing_dir.returncode, 0, recovered_missing_dir.stderr)
             self.assertFalse(marker.exists(), "a committed marker pointing at a missing directory must be dropped")
-            doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
             live_content = agent_file.read_text()
 
@@ -1326,7 +1340,7 @@ class ProviderRepairTests(unittest.TestCase):
             home = root / "home"
             config = root / "config"
             # No PYTHONDONTWRITEBYTECODE: this is the real-user environment.
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run(
                 [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)],
                 cwd=ROOT, env=env, text=True, capture_output=True,
@@ -1348,7 +1362,7 @@ class ProviderRepairTests(unittest.TestCase):
                 "the installed model-switch hook left a __pycache__ in the user's home",
             )
             setup = subprocess.run(
-                [str(home / ".local/bin/claude-fleet-setup"), "--show"],
+                [installed(home, "claude-fleet-setup"), "--show"],
                 cwd=ROOT, env=env, text=True, capture_output=True,
             )
             self.assertEqual(setup.returncode, 0, setup.stderr)
@@ -1362,7 +1376,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
 
@@ -1376,11 +1390,11 @@ class ProviderRepairTests(unittest.TestCase):
             new_fleet_hash = hashlib.sha256(fleet_path.read_bytes()).hexdigest()
 
             # Run installed claude-fleet-sync
-            sync = subprocess.run([str(home / ".local/bin/claude-fleet-sync")], cwd=ROOT, env=env, text=True, capture_output=True)
+            sync = subprocess.run([installed(home, "claude-fleet-sync")], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(sync.returncode, 0, sync.stderr)
 
             # Verify claude-agents-doctor --check passes
-            doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
+            doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
 
             # Verify manifest.managed has the updated sha256 for config:delegate-fleet.json
@@ -1796,7 +1810,7 @@ def export_legacy_bundle(target: Path) -> Path | None:
         return None
     archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", LEGACY_BUNDLE_REF], capture_output=True, check=True)
     target.mkdir(parents=True)
-    subprocess.run(["tar", "-x", "-C", str(target)], input=archive.stdout, check=True)
+    subprocess.run(["tar", "-x", "-f", "-", "-C", str(target)], input=archive.stdout, check=True)
     # git archive honours the umask; a release archive carries manifest modes.
     manifest = json.loads((target / "manifest.json").read_text())
     for item in manifest["files"]:
@@ -1810,8 +1824,9 @@ class AgentFleetTwoTests(unittest.TestCase):
     """Provider-agnostic lanes, upgrades from 1.0.0, and profile switching."""
 
     def env_for(self, home: Path, config: Path, **extra: str) -> dict:
-        return {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config),
-                "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "AGENTFLEET_NONINTERACTIVE": "1", **extra}
+        env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config),
+               "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "AGENTFLEET_NONINTERACTIVE": "1"}
+        return {**env, **windows_child_env(home), **extra}
 
     def reconcile(self):
         namespace = {}
@@ -1873,8 +1888,8 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config)
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            setup = [str(home / ".local/bin/claude-fleet-setup")]
-            doctor = [str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)]
+            setup = [installed(home, "claude-fleet-setup")]
+            doctor = [installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)]
             def run(*args, ok=True):
                 result = subprocess.run([*setup, *args], env=env, text=True, capture_output=True)
                 self.assertEqual(result.returncode == 0, ok, result.stderr + result.stdout)
@@ -1908,7 +1923,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config)
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            setup = subprocess.run([str(home / ".local/bin/claude-fleet-setup"), "--exclude", "opus"], env=env, text=True, capture_output=True)
+            setup = subprocess.run([installed(home, "claude-fleet-setup"), "--exclude", "opus"], env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr + setup.stdout)
             fleet = json.loads((home / ".claude/fleet.json").read_text())
             self.assertEqual(fleet["excludedModels"], ["opus"])
@@ -1981,8 +1996,8 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config, FAKE_GATEWAY_TOKEN="fake-token")
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "gateway", "--gateway-url", endpoint, "--allow-insecure-http", "--gateway-token-env", "FAKE_GATEWAY_TOKEN", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            agentfleet = str(home / ".local/bin/agentfleet")
-            doctor = [str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)]
+            agentfleet = installed(home, "agentfleet")
+            doctor = [installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)]
             gateway_lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
 
             saved = subprocess.run([agentfleet, "save", "work"], env=env, text=True, capture_output=True)
@@ -2070,7 +2085,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertFalse((agents / "fleet-implement-02-gemini-flash.md").exists())
             self.assertFalse((home / ".claude/sync-omniroute-models.mjs").exists(), "the renamed hook script is retired")
             self.assertIn("remove:", new.stdout)
-            settings_text = (home / ".claude/settings.json").read_text()
+            settings_text = (home / ".claude/settings.json").read_text(encoding="utf-8")
             self.assertIn("sync-provider-models.mjs", settings_text)
             self.assertNotIn("sync-omniroute-models.mjs", settings_text)
             lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
@@ -2087,9 +2102,9 @@ class AgentFleetTwoTests(unittest.TestCase):
             template = json.loads((ROOT / "config/settings.template.json").read_text())
             self.assertFalse({"effortLevel", "outputStyle", "tui", "agentPushNotifEnabled"} & set(template))
             self.assertNotIn("Co-Authored-By", (home / ".claude/CLAUDE.md").read_text())
-            doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
+            doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
-            sync = subprocess.run([str(home / ".local/bin/claude-fleet-sync"), "--check"], env=env, text=True, capture_output=True)
+            sync = subprocess.run([installed(home, "claude-fleet-sync"), "--check"], env=env, text=True, capture_output=True)
             self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
             uninstall = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--uninstall", "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
@@ -2108,7 +2123,7 @@ class AgentFleetTwoTests(unittest.TestCase):
         endpoint = self.serve(self.GATEWAY_ROWS)
         with tempfile.TemporaryDirectory(prefix="agentfleet wizard ") as raw:
             home, config = Path(raw) / "home", Path(raw) / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             pid, fd = pty.fork()
             if pid == 0:
                 os.execve(PYTHON, [PYTHON, str(ROOT / "bin/install.py"), "--allow-insecure-http", "--home", str(home), "--config-home", str(config)], env)
@@ -2277,12 +2292,16 @@ class AgentFleetTwoTests(unittest.TestCase):
             version = (ROOT / "VERSION").read_text().strip()
             (store / "releases").mkdir(parents=True)
             (store / "current").write_text(version + "\n")
-            (store / "releases" / version).symlink_to(ROOT, target_is_directory=True)
+            if os.name == "nt":
+                # Creating symlinks needs Developer Mode or elevation on Windows.
+                shutil.copytree(ROOT, store / "releases" / version, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+            else:
+                (store / "releases" / version).symlink_to(ROOT, target_is_directory=True)
             env = self.env_for(home, config, AGENTFLEET_HOME=str(store))
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             self.assertNotEqual((home / ".claude/settings.json").read_bytes(), original)
-            rollback = subprocess.run([str(home / ".local/bin/agentfleet"), "rollback"], env=env, text=True, capture_output=True)
+            rollback = subprocess.run([installed(home, "agentfleet"), "rollback"], env=env, text=True, capture_output=True)
             self.assertEqual(rollback.returncode, 0, rollback.stderr + rollback.stdout)
             self.assertEqual((home / ".claude/settings.json").read_bytes(), original)
             self.assertFalse(list((home / ".claude/agents").glob("fleet-*.md")) if (home / ".claude/agents").exists() else [])
@@ -2317,7 +2336,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             text = agent.read_text()
             self.assertNotIn("Bash", text)
             agent.write_text(re.sub(r"^tools: (.*)$", r"tools: \1, Bash", text, count=1, flags=re.M))
-            doctor = subprocess.run([str(home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
+            doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
             self.assertNotEqual(doctor.returncode, 0)
             self.assertIn("static lane has write or nested-agent tools", doctor.stdout + doctor.stderr)
 

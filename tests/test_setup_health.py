@@ -230,6 +230,7 @@ class SetupHealthTests(unittest.TestCase):
 import json
 import sys
 
+sys.stdout.reconfigure(encoding="utf-8")
 if len(sys.argv) >= 3 and sys.argv[1] == "plugin" and sys.argv[2] == "list":
     data = [
         {"id": "plugin-alpha", "enabled": True},
@@ -253,9 +254,12 @@ sys.exit(1)
 """
         fake_claude.write_text(script_content, encoding="utf-8")
         fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        if os.name == "nt":
+            # PATH lookup on Windows finds claude.CMD, not the extensionless script.
+            (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
 
         env = dict(os.environ)
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
         return str(fake_claude), env
 
     def test_health_parsing_with_fake_claude(self) -> None:
