@@ -11,7 +11,7 @@ hook, a privacy-safe status line, a global `CLAUDE.md`, the `/fleet-setup` and
 and `lane-guard` on by default. Everything lives under your home directory; no
 root or admin access is required.
 
-Version: **2.3.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.3.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
