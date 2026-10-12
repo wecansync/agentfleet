@@ -448,6 +448,16 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
       <details class="version-item">
+        <summary><span class="release-version">v2.2.0</span><span class="release-date">October 11, 2026</span><span class="version-summary">Model-aware auto-compact, reviewers that verify and fix, guarded lanes, outage failover, and local project suggestions.</span></summary>
+      <ul class="release-list">
+        <li>Reviewers run checks in CHECK mode by default and edit only in explicit FIX MODE with listed files. <code class="il">agentfleet config reviewer-access full|run|read-only</code> controls their tools.</li>
+        <li>The included <code class="il">lane-guard</code> mod blocks covered destructive and publishing commands in fleet subagents, never the main conversation.</li>
+        <li>Gateway 5xx failures mark lanes failing for 15 minutes. Routing suggests an alternative; local lane reports track changed files and forbidden commands.</li>
+        <li><code class="il">/fleet-suggest</code> scans locally and installs only what you pick, from a 57-entry catalog of plugins, mods, hooks, project skills, and <code class="il">/init</code>.</li>
+        <li>Project-local lane overrides, a usage report, plugin and MCP health checks, and hardened Windows shims.</li>
+        </ul>
+      </details>
+      <details class="version-item">
         <summary><span class="release-version">v2.1.0</span><span class="release-date">October 9, 2026</span><span class="version-summary">Claude Code mods: a status band when something needs action, with optional context forecasts and Jev compaction in a local plugin catalog.</span></summary>
       <ul class="release-list">
         <li><code class="il">fleet-status</code> is installed and on by default. It shows restart notices, failed automatic updates, lanes without a model, and model changes waiting for review; <code class="il">/fleet-status</code> prints the full status.</li>
