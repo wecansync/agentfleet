@@ -40,6 +40,9 @@ class ConfigureTests(unittest.TestCase):
         cli = bindir / "claude"
         cli.write_text("#!" + sys.executable + "\nimport json,os,sys\nfrom pathlib import Path\np=Path(os.environ['HOME'])/'plugins.json'\ns=json.loads(p.read_text()) if p.exists() else []\nwith open(Path(os.environ['HOME'])/'commands.log','a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\nif sys.argv[1:]==['plugin','list','--json']: print(json.dumps(s))\nelse:\n ident=sys.argv[-1]; action=sys.argv[-2]\n s=[v for v in s if v['id']!=ident]+[{'id':ident,'enabled':action!='disable'}]\n p.write_text(json.dumps(s))\n")
         cli.chmod(0o755)
+        if os.name == "nt":
+            # PATH lookup on Windows finds claude.CMD, not the extensionless script.
+            (bindir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
         self.env = {**os.environ, "HOME": str(self.home), "PATH": str(bindir) + os.pathsep + os.environ['PATH'], "FAKE_STATE": str(self.home / "plugins.json"), "FAKE_LOG": str(self.home / "commands.log")}
         self.env.pop("TYPESAFE_API_KEY", None)
         self.env_patch = patch.dict(os.environ, self.env, clear=True)
@@ -193,7 +196,8 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(path.read_text())
         self.assertEqual(list(data), ["format"] + KEYS)
-        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        if os.name == "posix":
+            self.assertEqual(path.stat().st_mode & 0o777, 0o644)
         self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS})
         self.assertEqual(self.cli("--preset", str(path)).returncode, 0)
 
@@ -205,7 +209,8 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         state_path = self.paths.store / "wizard.json"
         self.assertEqual(json.loads(state_path.read_text()), {"format": "agentfleet.wizard.v1", "asked": KEYS, "version": "2.3.0"})
-        self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.cli("--after-install").stdout, "")
         self.assertEqual(self.cli().returncode, 2)
 
@@ -226,7 +231,8 @@ class ConfigureTests(unittest.TestCase):
         settings = json.loads(self.paths.settings.read_text())
         self.assertEqual(settings['env']['TYPESAFE_API_KEY'], key)
         self.assertEqual(settings['env']['KEEP'], 'value')
-        self.assertEqual(self.paths.settings.stat().st_mode & 0o777, 0o600)
+        if os.name == "posix":
+            self.assertEqual(self.paths.settings.stat().st_mode & 0o777, 0o600)
         self.assertNotIn(key, output.getvalue())
         self.assertNotIn('TYPESAFE_API_KEY', os.environ)
         exported = self.home / 'export.json'
