@@ -499,7 +499,7 @@
     },
     {
       "path": "tests/test_install_220.py",
-      "sha256": "e7791d5a0068a0b38329e42513492303d6c16b5a3e6aa328dcd6a89d8d217ac2",
+      "sha256": "599bc455b0c9ff5f476d069b7327791c15ac680324688b330c6bba217a2ae152",
       "mode": "0o644"
     },
     {
@@ -519,7 +519,7 @@
     },
     {
       "path": "tests/test_mods.py",
-      "sha256": "91f1f778cd76b30ef369770839055248dfcbc15e46350303e79e457f3811fa83",
+      "sha256": "91f495349f937441a11c201bccfb078aafcac22acc582fb8764e9192c26621c3",
       "mode": "0o644"
     },
     {
@@ -529,7 +529,7 @@
     },
     {
       "path": "tests/test_profiles.py",
-      "sha256": "b1efa795e03befc77802a604c9147aec61044fe468047bbea4612b7a198021c5",
+      "sha256": "611fd68d9703849b7c6291ad04d11c85d946ced9262a224b1410e0a065d21735",
       "mode": "0o755"
     },
     {
