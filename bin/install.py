@@ -2465,8 +2465,16 @@ def cmd_dispatch(
     if config_root is not None:
         args += " --config-home " + quote(config_root)
     script_arg = quote(script)
+    def find(name: str) -> str:
+        # %~$PATH searches PATH only, never the working directory.
+        return f'set "AF_EXE="\r\nfor %%I in ({name}) do set "AF_EXE=%%~$PATH:I"\r\n'
+
     if runtime == "node":
-        body = f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{WHERE_EXE} node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\nnode {script_arg}{args} %*\r\nexit /b %errorlevel%\r\n"
+        body = (
+            f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{find('node.exe')}"
+            f"if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n"
+            f'(goto) 2>nul & "%AF_EXE%" {script_arg}{args} %*\r\n'
+        )
     else:
         # Try the interpreter this installer ran under first: on a machine
         # whose only Python is off PATH (e.g. uv-managed), bare "python" is
@@ -2475,21 +2483,21 @@ def cmd_dispatch(
         # the same way) work fine. "if not exist ... goto" is required
         # instead of a parenthesized "if errorlevel" block: %errorlevel%
         # expands at parse time, so it would read stale inside parentheses.
+        # "(goto) 2>nul" ends setlocal, so the fallbacks resolve absolute paths first.
         pinned = quote(sys.executable)
         body = (
             f"@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"
             f"{NO_CWD_SEARCH}"
             f"if not exist {pinned} goto no_pin\r\n"
-            f"{pinned} {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
+            f"(goto) 2>nul & {pinned} {script_arg}{args} %*\r\n"
             f":no_pin\r\n"
-            f"{WHERE_EXE} py >nul 2>nul\r\n"
-            f"if not errorlevel 1 goto run_py\r\n"
-            f"python {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
-            f":run_py\r\n"
-            f"py -3 {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
+            f"{find('py.exe')}"
+            f"if not defined AF_EXE goto no_py\r\n"
+            f'(goto) 2>nul & "%AF_EXE%" -3 {script_arg}{args} %*\r\n'
+            f":no_py\r\n"
+            f"{find('python.exe')}"
+            f"if not defined AF_EXE (echo Python was not found on PATH 1>&2 & exit /b 9009)\r\n"
+            f'(goto) 2>nul & "%AF_EXE%" {script_arg}{args} %*\r\n'
         )
     return body.encode("utf-8")
 
