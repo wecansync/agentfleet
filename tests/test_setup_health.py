@@ -14,7 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
-from provider_catalog import cache_payload, load_preferences, write_preferences  # noqa: E402
+from provider_catalog import cache_payload, generic_policy, load_preferences, write_preferences  # noqa: E402
 
 
 class SetupHealthTests(unittest.TestCase):
@@ -28,6 +28,10 @@ class SetupHealthTests(unittest.TestCase):
         self.plugins_dir = self.claude_dir / "plugins"
         self.plugins_dir.mkdir(parents=True)
 
+        policy_dir = self.home / ".config" / "delegate-skills"
+        policy_dir.mkdir(parents=True)
+        (policy_dir / "provider-policy.json").write_text(json.dumps(generic_policy()))
+
         self.endpoint = "https://omniroute.example.com"
         self.token = "test-token"
         self.models_list = [
@@ -40,12 +44,13 @@ class SetupHealthTests(unittest.TestCase):
 
         self.settings_data = {
             "model": "claude-opus-5[1m]",
-            "autoCompactWindow": 700000,
+            "autoCompactWindow": 1000000,
             "env": {
                 "ANTHROPIC_BASE_URL": self.endpoint,
                 "ANTHROPIC_AUTH_TOKEN": self.token,
-                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
-                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "700000",
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
             },
         }
         (self.claude_dir / "settings.json").write_text(json.dumps(self.settings_data, indent=2))
@@ -65,10 +70,10 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
         data = json.loads(proc.stdout)
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["context"], 1000000)
+        self.assertEqual(comp["window"], 1000000)
         self.assertEqual(comp["percent"], 70)
-        self.assertEqual(comp["expected"], 700000)
-        self.assertEqual(comp["current"], "700000")
+        self.assertEqual(comp["expected"], {"window": 1000000, "percent": 70})
+        self.assertEqual(comp["window"], 1000000)
         self.assertTrue(comp["optimal"])
 
         # Change preference to 55
@@ -77,22 +82,22 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
         data = json.loads(proc.stdout)
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["context"], 1000000)
-        self.assertEqual(comp["percent"], 55)
-        self.assertEqual(comp["expected"], 550000)
-        # Current is 700000, expected 550000 -> not optimal
+        self.assertEqual(comp["window"], 1000000)
+        self.assertEqual(comp["preference"], 55)
+        self.assertEqual(comp["expected"], {"window": 1000000, "percent": 55})
+        # Current is 1000000, expected 550000 -> not optimal
         self.assertFalse(comp["optimal"])
 
         # Check text summary output
         proc_text = self.run_fleet_setup("--audit", "--no-health")
         self.assertEqual(proc_text.returncode, 0)
-        self.assertIn("Compaction window: 700000 (expected 550000 = 55% of 1000000)", proc_text.stdout)
+        self.assertIn("Auto-compact: 55% of each model", proc_text.stdout)
 
     def test_compaction_audit_gateway_200k_at_70_and_55(self) -> None:
         # Switch model to 200k (claude-haiku)
         self.settings_data["model"] = "claude-haiku"
-        self.settings_data["autoCompactWindow"] = 140000
-        self.settings_data["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "140000"
+        self.settings_data["autoCompactWindow"] = 1000000
+        self.settings_data["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "1000000"
         (self.claude_dir / "settings.json").write_text(json.dumps(self.settings_data, indent=2))
 
         # At 70%: 200_000 * 70 // 100 = 140_000
@@ -101,9 +106,9 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
         data = json.loads(proc.stdout)
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["context"], 200000)
+        self.assertEqual(comp["window"], 1000000)
         self.assertEqual(comp["percent"], 70)
-        self.assertEqual(comp["expected"], 140000)
+        self.assertEqual(comp["expected"], {"window": 1000000, "percent": 70})
         self.assertTrue(comp["optimal"])
 
         # At 55%: 200_000 * 55 // 100 = 110_000
@@ -112,18 +117,19 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
         data = json.loads(proc.stdout)
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["context"], 200000)
-        self.assertEqual(comp["percent"], 55)
-        self.assertEqual(comp["expected"], 110000)
+        self.assertEqual(comp["window"], 1000000)
+        self.assertEqual(comp["preference"], 55)
+        self.assertEqual(comp["expected"], {"window": 1000000, "percent": 55})
         self.assertFalse(comp["optimal"])
 
     def test_compaction_audit_native_basis(self) -> None:
         # Native profile carries no ANTHROPIC_BASE_URL
         native_settings = {
             "model": "claude-sonnet-4",
-            "autoCompactWindow": 700000,
+            "autoCompactWindow": 1000000,
             "env": {
-                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
             },
         }
         (self.claude_dir / "settings.json").write_text(json.dumps(native_settings, indent=2))
@@ -134,9 +140,9 @@ class SetupHealthTests(unittest.TestCase):
         data = json.loads(proc.stdout)
         self.assertTrue(data["settings"]["native"])
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["context"], 1000000)
+        self.assertEqual(comp["window"], 1000000)
         self.assertEqual(comp["percent"], 70)
-        self.assertEqual(comp["expected"], 700000)
+        self.assertEqual(comp["expected"], {"window": 1000000, "percent": 70})
         self.assertTrue(comp["optimal"])
 
     def test_compaction_audit_off(self) -> None:
@@ -145,13 +151,13 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
         data = json.loads(proc.stdout)
         comp = data["settings"]["compaction"]
-        self.assertEqual(comp["percent"], "off")
+        self.assertEqual(comp["preference"], "off")
         self.assertIsNone(comp["expected"])
         self.assertTrue(comp["optimal"])
 
         proc_text = self.run_fleet_setup("--audit", "--no-health")
         self.assertEqual(proc_text.returncode, 0)
-        self.assertIn("Compaction window: 700000 (AgentFleet leaves it alone: compact off)", proc_text.stdout)
+        self.assertIn("Compaction window: 1000000 (AgentFleet leaves it alone: compact off)", proc_text.stdout)
 
     def test_fix_settings_writes_computed_window(self) -> None:
         # Setup settings with non-optimal window
@@ -163,12 +169,12 @@ class SetupHealthTests(unittest.TestCase):
 
         proc = self.run_fleet_setup("--fix-settings")
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
-        self.assertIn("235929 -> 700000", proc.stdout)
+        self.assertIn("235929 -> 1000000", proc.stdout)
 
         updated = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(updated["autoCompactWindow"], 700000)
-        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
-        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertEqual(updated["autoCompactWindow"], 1000000)
+        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
     def test_compaction_override_writes_pair_and_sets_percent_off(self) -> None:
         proc = self.run_fleet_setup("--compaction", "750000")
@@ -184,7 +190,7 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(prefs["compactPercent"], "off")
 
     def test_compact_percent_flag(self) -> None:
-        # Set to 60%; active model has 1M context -> expected 600000
+        # Set to 60%; active model has 1M context -> expected 1000000
         proc = self.run_fleet_setup("--compact-percent", "60")
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
 
@@ -192,9 +198,9 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(prefs["compactPercent"], 60)
 
         updated = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(updated["autoCompactWindow"], 600000)
-        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "600000")
-        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "600000")
+        self.assertEqual(updated["autoCompactWindow"], 1000000)
+        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
     def _setup_fake_claude_on_path(self) -> tuple[str, dict[str, str]]:
         bin_dir = self.home / "fake-bin"

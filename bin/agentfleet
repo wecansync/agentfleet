@@ -325,10 +325,11 @@ def native_profile(fleet: dict, paths: Paths, current_settings: dict | None = No
     }
     native_env = {"CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0"}
     percent = provider_catalog.load_preferences(paths.home)["compactPercent"]
-    window = provider_catalog.compaction_window(provider_catalog.NATIVE_CONTEXT_BASIS, percent)
-    if window is not None:
-        native_settings["autoCompactWindow"] = window
-        native_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(window)
+    compact = provider_catalog.compaction_settings(provider_catalog.NATIVE_CONTEXT_BASIS, percent)
+    if compact is not None:
+        native_settings["autoCompactWindow"] = compact["window"]
+        native_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact["window"])
+        native_env[provider_catalog.COMPACT_PERCENT_ENV] = str(compact["percent"])
     elif isinstance(current_settings, dict):
         current_env = current_settings.get("env") if isinstance(current_settings.get("env"), dict) else {}
         existing = current_settings.get("autoCompactWindow")
@@ -402,6 +403,11 @@ def apply_profile(paths: Paths, profile: dict, token: str | None) -> bool:
     # top-level one when a profile carries only one of them.
     if isinstance(settings.get("autoCompactWindow"), int):
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(settings["autoCompactWindow"])
+    compact = provider_catalog.compaction_settings(None, provider_catalog.load_preferences(paths.home)["compactPercent"])
+    if compact is not None:
+        settings["autoCompactWindow"] = compact["window"]
+        env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact["window"])
+        env[provider_catalog.COMPACT_PERCENT_ENV] = str(compact["percent"])
     # Profiles saved before 2.0.1 carry the pins 1.0.0 shipped; the update
     # dropped them from the fleet, so switching back must not restore them.
     shipped = reconcile_module(paths).is_shipped_1_0_preference if "agentfleetVersion" not in profile else None
@@ -861,7 +867,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
     preferences, explicit = _effective_preferences(paths)
     if setting is None:
         compact = preferences["compactPercent"]
-        compact_text = "off" if compact == "off" else f"{compact}%"
+        compact_text = "off" if compact == "off" else f"{compact}% of each model's context"
         reviewer = preferences["reviewerAccess"]
         learn = "on" if preferences["learn"] else "off"
         for key, display in (
@@ -871,15 +877,19 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         ):
             suffix = " (default)" if key not in explicit else ""
             print(display + suffix)
-        settings = read_json(paths.settings)
-        window = settings.get("autoCompactWindow")
-        if not isinstance(window, int) or isinstance(window, bool):
-            env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-            window = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        if isinstance(window, (int, str)) and str(window).isdigit():
-            print(f"auto-compact window: {window} tokens")
-        else:
-            print("auto-compact window: not set")
+        state = "unknown"
+        try:
+            result = provider_catalog.claude_cli(paths.home, "plugin", "list", "--json")
+            if result is not None and result.returncode == 0:
+                plugins = json.loads(result.stdout)
+                if isinstance(plugins, dict):
+                    plugins = plugins.get("plugins")
+                if isinstance(plugins, list):
+                    plugin = next((item for item in plugins if isinstance(item, dict) and item.get("id") == "fast-jev-compaction@agentfleet"), None)
+                    state = "not installed" if plugin is None else ("on" if plugin.get("enabled") is True else "off")
+        except (OSError, ValueError, TypeError):
+            pass
+        print(f"jev: {state}")
         return 0
 
     if value is None:
@@ -899,7 +909,16 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print(f"agentfleet: {exc}", file=sys.stderr)
             return 2
         if compact_value == "off":
-            print("AgentFleet will no longer change the auto-compact window.")
+            fd, lock = with_lock(paths)
+            try:
+                settings = read_json(paths.settings)
+                env = settings.get("env")
+                if isinstance(env, dict):
+                    env.pop(provider_catalog.COMPACT_PERCENT_ENV, None)
+                    atomic_write(paths.settings, json_bytes(settings), 0o600)
+            finally:
+                provider_catalog.release_lock(fd, lock)
+            print("AgentFleet no longer manages auto-compact; Claude Code's default applies. Restart Claude Code to apply.")
             return 0
         fd, lock = with_lock(paths)
         try:
@@ -915,11 +934,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         if result is None:
             print("Auto-compact preference saved; the active model's context is unavailable, so the window was not changed.")
             return 0
-        percent = result["percent"]
-        print(
-            f"Auto-compact: {percent}% of {result['model']}'s context ({result['window']} tokens). "
-            "Restart Claude Code to apply."
-        )
+        print(f"Auto-compact set to {compact_value}% of each model's context. Restart Claude Code once to apply; switching models keeps it.")
         return 0
 
     if setting == "reviewer-access":
@@ -1023,9 +1038,12 @@ def cmd_jev(paths: Paths, args: argparse.Namespace) -> int:
         state = "installed, enabled"
     else:
         state = "installed, disabled"
-    key_state = "set" if "TYPESAFE_API_KEY" in os.environ else "not set"
+    settings_env = read_json(paths.settings).get("env")
+    settings_key = settings_env.get("TYPESAFE_API_KEY") if isinstance(settings_env, dict) else None
+    # An empty value is no key: the mod treats it the same way.
+    key_state = "set" if os.environ.get("TYPESAFE_API_KEY") or settings_key else "not set"
     print(f"fast-jev-compaction: {state}")
-    print(f"TYPESAFE_API_KEY in this shell: {key_state}")
+    print(f"TypeSafe API key: {key_state}")
     return 0
 
 

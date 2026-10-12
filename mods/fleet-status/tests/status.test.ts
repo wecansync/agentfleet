@@ -1,7 +1,7 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { CoreEngineInterface, On, RenderPropsOf } from 'claude-code'
-import { claudeDirectory, snapshotFromSources, notices, summary, parseOutages, parseSuggestion } from '../hooks/status'
-import { readSnapshot } from '../hooks/register'
+import { claudeDirectory, snapshotFromSources, notices, summary, parseOutages, parseSuggestion, parseJev } from '../hooks/status'
+import { readSnapshot, readHidden } from '../hooks/register'
 
 // Test the installed layout rather than this repository's source layout.
 
@@ -43,9 +43,9 @@ function sources(on: On, files: Record<string, string>, root = '/test/claude/age
   const allowed = [
     '.claude-agents-config-manifest.json', 'agentfleet/active',
     'agentfleet/auto-update.json', 'fleet-model-proposal.json',
-    'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json',
+    'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json', 'agentfleet/jev-stats.json', 'agentfleet/suggestions-hidden.json',
   ]
-  on('fs.stat', (_$, e) => ({ value: { kind: 'file', size: 100, mtimeMs: 0, isLink: false, realPath: e.path } }))
+  on('fs.stat', (_$, e) => ({ value: { kind: e.path.endsWith('/agentfleet') ? 'directory' : 'file', size: 100, mtimeMs: 0, isLink: false, realPath: e.path } }))
   on('session.root', () => ({ value: '/test' }))
   on('fs.read', (_$, e) => {
     const normalized = e.path.replace(/\\/g, '/')
@@ -206,19 +206,19 @@ test('malformed versions and timestamps are absent and never request restart', a
 const now = Date.parse('2026-10-09T09:00:00Z')
 const outage = { model: 'claude-sonnet-4.6', status: 503, message: 'unavailable', at: '2026-10-09T08:58:32Z', until: '2026-10-09T09:13:32Z' }
 const outagesSource = (lanes: Record<string, unknown>) => JSON.stringify({ format: 'agentfleet.outages.v1', lanes })
-const suggestion = { name: 'project', catalog: '2.2.0', pending: 3, seen: null }
+const suggestion = { name: 'project', catalog: '2.2.0', pending: 3, seen: null, new: [{ id: 'typescript-lsp', title: 'TypeScript LSP', kind: 'plugin', why: 'TypeScript files detected' }] }
 const suggestionsSource = (item: unknown) => JSON.stringify({ format: 'agentfleet.suggestions.v1', projects: { '/test': item } })
 
 test('missing sources use AgentFleet defaults', () => {
   const result = summary(snapshotFromSources(null, []), null)
-  for (const line of ['Profile: not recorded', 'Auto-update: enabled (default)', "Auto-compact: 70% of the model's context", 'Reviewer access: full', 'Suggestions learning: off', 'Lane outages: none']) expect(result).toContain(line)
+  for (const line of ['Profile: not recorded', 'Auto-update: enabled (default)', "Auto-compact: 70% of each model's context", 'Reviewer access: full', 'Suggestions learning: on', 'Lane outages: none']) expect(result).toContain(line)
   expect(summary(snapshotFromSources(null, [null, null, '{"enabled":"yes"}']), null)).toContain('enabled (default)')
 })
-for (const percent of [40, 70, 95, 'off', 39, 96, 70.5, '70', null]) {
+for (const percent of [20, 40, 70, 95, 'off', 19, 96, 70.5, '70', null]) {
   test(`config compact window ${percent}`, () => {
     const config = JSON.stringify({ format: 'agentfleet.config.v1', compactPercent: percent, reviewerAccess: 'read-only', learn: true })
     const snapshot = snapshotFromSources(null, [null, null, null, null, config])
-    expect(snapshot.compactPercent).toBe(percent === 'off' || (typeof percent === 'number' && Number.isInteger(percent) && percent >= 40 && percent <= 95) ? percent : 70)
+    expect(snapshot.compactPercent).toBe(percent === 'off' || (typeof percent === 'number' && Number.isInteger(percent) && percent >= 20 && percent <= 95) ? percent : 70)
     expect(snapshot.reviewerAccess).toBe('read-only')
     expect(snapshot.learn).toBe(true)
     if (percent === 'off') expect(summary(snapshot, null)).toContain('off (AgentFleet leaves the window alone)')
@@ -228,7 +228,7 @@ test('invalid config values and format use defaults', () => {
   for (const config of [{ reviewerAccess: 'root', learn: 'true' }, { reviewerAccess: 'full‮', learn: 1 }, { format: 'bad', compactPercent: 'off' }]) {
     const snapshot = snapshotFromSources(null, [null, null, null, null, JSON.stringify({ format: 'agentfleet.config.v1', ...config })])
     expect(snapshot.reviewerAccess).toBe('full')
-    expect(snapshot.learn).toBe(false)
+    expect(snapshot.learn).toBe(true)
     expect(snapshot.compactPercent).toBe(70)
   }
   expect(snapshotFromSources(null, [null, null, null, null, '{"format":"agentfleet.config.v1","reviewerAccess":"run"}']).reviewerAccess).toBe('run')
@@ -256,7 +256,7 @@ test('suggestions match only the project and unseen catalog with pending work', 
   expect(parseSuggestion(source, '/test/nested')).toBeNull()
   for (const item of [suggestion, { ...suggestion, seen: '2.2.0' }, { ...suggestion, pending: 0 }]) {
     const snapshot = snapshotFromSources(null, [null, null, null, null, null, null, suggestionsSource(item)], '/test', now)
-    expect(notices(snapshot, null).length).toBe(item.pending > 0 && item.seen !== item.catalog ? 1 : 0)
+    expect(notices(snapshot, null).length).toBe(item.pending > 0 ? 1 : 0)
     expect(summary(snapshot, null)).toContain(`Suggestions for project: ${item.pending} (run /fleet-suggest)`)
   }
 })
@@ -297,16 +297,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await $.session.start(start)
     const ui = await $.ui.mount({ plugin: 'fleet-status', surface, component: 'AbovePrompt', props })
     expect((await ui.find({ text: 'fleet-docs is failing' }))?.text).toContain('Dispatch fleet-ui')
-    expect((await ui.find({ text: 'AgentFleet has 3 suggestions' }))?.text).toContain('/fleet-suggest')
+    expect((await ui.find({ text: 'AgentFleet suggests TypeScript LSP' }))?.text).toContain('/fleet-suggest')
     await ui.press({ key: 'hide' })
     await clock.advance(60_000)
     expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
-    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, pending: 4 })
+    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, pending: 4, new: [{ id: 'php-lsp', title: 'PHP LSP', kind: 'plugin', why: 'PHP files detected' }] })
     await clock.advance(60_000)
-    expect((await ui.find({ text: 'AgentFleet has 4 suggestions' }))?.text).toContain('/fleet-suggest')
-    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, seen: '2.2.0' })
+    expect((await ui.find({ text: 'AgentFleet suggests PHP LSP' }))?.text).toContain('/fleet-suggest')
+    files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, seen: '2.2.0', pending: 0, new: [] })
     await clock.advance(60_000)
-    expect(await ui.find({ text: 'AgentFleet has' })).toBeUndefined()
+    expect(await ui.find({ text: 'AgentFleet suggests' })).toBeUndefined()
   })
 }
 test('known source symlinks cannot cause reads of secrets or settings', async () => {
@@ -325,4 +325,82 @@ test('installation paths handle custom directories and both separators', () => {
   expect(claudeDirectory('/agentfleet/mods/fleet-status')).toBeNull()
   expect(claudeDirectory('C:\\agentfleet\\mods\\fleet-status')).toBeNull()
   expect(claudeDirectory('/custom/claude/mods/fleet-status')).toBeNull()
+})
+
+const jevSource = (changes: Record<string, unknown> = {}) => JSON.stringify({
+  format: 'agentfleet.jev-stats.v1', updated: '2026-10-09T09:00:00Z',
+  totals: { compactions: 3, jev: 2, fallbacks: 1, tokensSaved: 100 },
+  recent: [{ at: '2026-10-09T08:58:00Z', outcome: 'jev', trigger: 'auto', tokensBefore: 500, tokensAfter: 400,
+    messagesBefore: 10, messagesKept: 8, ms: 20, reason: null }], ...changes,
+})
+test('strict JEV summary includes timestamp and token savings', () => {
+  const snapshot = snapshotFromSources(null, [null, null, null, null, null, null, null, jevSource()])
+  expect(summary(snapshot, null)).toContain('JEV: 3 compactions (2 verbatim, 1 fallbacks), last at 08:58 UTC; 500 → 400 tokens')
+  for (const source of [null, '{}', jevSource({ updated: 'bad' }), jevSource({ totals: { compactions: -1 } }), jevSource({ recent: [{}] })]) {
+    expect(parseJev(source)).toBeNull()
+  }
+})
+test('all new suggestion fields reject hostile values and excessive lengths', () => {
+  for (const field of ['id', 'title', 'kind', 'why']) {
+    for (const value of ['bad\n', 'safe‮', 'a'.repeat(501), 1]) {
+      const item = { ...suggestion.new[0], [field]: value }
+      const snapshot = snapshotFromSources(null, [null, null, null, null, null, null, suggestionsSource({ ...suggestion, new: [item] })], '/test')
+      expect(notices(snapshot, null)).toEqual([])
+    }
+  }
+})
+test('Hide tracks ids rather than changed titles or pending counts', async ($, on) => {
+  const files: Record<string, string> = healthy()
+  files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
+  const clock = sources(on, files)
+  await $.session.start(start)
+  const ui = await $.ui.mount({ plugin: 'fleet-status', surface: 'terminal', component: 'AbovePrompt', props })
+  const drawn = await ui.drawn()
+  expect(JSON.stringify(drawn)).toContain('"type":"engine"')
+  expect((await ui.find({ text: 'AgentFleet suggests' }))?.text).toContain('(+2 more)')
+  await ui.press({ key: 'hide' })
+  files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, pending: 7, new: [{ ...suggestion.new[0], title: 'Changed title' }] })
+  await clock.advance(60_000)
+  expect(await ui.find({ text: 'AgentFleet suggests' })).toBeUndefined()
+})
+
+test('prompt submission and turn completion refresh without waiting for the timer', async ($, on) => {
+  const files: Record<string, string> = healthy()
+  files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
+  sources(on, files)
+  let prompts = 0, completions = 0
+  on('prompt.submit', (_$, e) => { prompts++; return { text: e.text } })
+  on('turn.complete', (_$, e) => { completions++; return { text: e.answer } })
+  await $.session.start(start)
+  const ui = await $.ui.mount({ plugin: 'fleet-status', surface: 'terminal', component: 'AbovePrompt', props })
+  expect(await ui.find({ text: 'AgentFleet suggests' })).toBeDefined()
+  files['agentfleet/suggestions.json'] = suggestionsSource({ ...suggestion, pending: 0, new: [] })
+  await $.prompt.submit({ text: 'Continue with the project' })
+  expect(prompts).toBe(1)
+  expect(await ui.find({ text: 'AgentFleet suggests' })).toBeUndefined()
+  files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
+  await $.turn.complete({ answer: 'Done' } as never)
+  expect(completions).toBe(1)
+  expect(await ui.find({ text: 'AgentFleet suggests' })).toBeDefined()
+})
+
+test('hidden ids persist only in the allowed guarded file', async ($, on) => {
+  const files: Record<string, string> = healthy()
+  files['agentfleet/suggestions.json'] = suggestionsSource(suggestion)
+  sources(on, files)
+  let written = ''
+  on('fs.exists', () => ({ value: false }))
+  on('fs.write', (_$, e) => {
+    expect(e.path.endsWith('/agentfleet/suggestions-hidden.json')).toBe(true)
+    written = e.text
+    return { value: undefined }
+  })
+  // Source-layout test identity cannot write; exercise the installed directory through state.
+  await $.session.start(start)
+  const ui = await $.ui.mount({ plugin: 'fleet-status', surface: 'terminal', component: 'AbovePrompt', props })
+  await ui.press({ key: 'hide' })
+  expect(JSON.parse(written).ids).toEqual(['typescript-lsp'])
+  expect(await readHidden({ plugin: { root: '/test/claude/agentfleet/mods/fleet-status' },
+    fs: { stat: async (path: string) => ({ kind: 'file', realPath: path, size: 100 }), read: async () => written },
+  } as unknown as CoreEngineInterface)).toEqual(['typescript-lsp'])
 })

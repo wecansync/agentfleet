@@ -193,7 +193,9 @@ def context_length(row: dict) -> int | None:
 
 
 PREFERENCES_FORMAT = "agentfleet.config.v1"
-COMPACT_PERCENT_MIN = 40
+COMPACT_PERCENT_MIN = 20
+COMPACT_PERCENT_ENV = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+COMPACT_FULL_WINDOW = 1_000_000
 COMPACT_PERCENT_MAX = 95
 COMPACT_WINDOW_MIN = 100_000
 COMPACT_WINDOW_MAX = 1_000_000
@@ -202,7 +204,7 @@ COMPACT_WINDOW_MAX = 1_000_000
 # model's own limit then wins, which never compacts earlier than asked.
 NATIVE_CONTEXT_BASIS = 1_000_000
 REVIEWER_ACCESS = ("full", "run", "read-only")
-PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": False}
+PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True}
 
 
 def preferences_path(home: Path) -> Path:
@@ -267,23 +269,20 @@ def write_preferences(home: Path, changes: dict) -> dict:
     return load_preferences(home)
 
 
-def compaction_window(context: object, percent: object) -> int | None:
-    """The auto-compact window for a model of ``context`` tokens at ``percent``.
-
-    None means leave the window alone: the percentage is "off", or the
-    context is unknown or too small to trust.
-    """
+def compaction_settings(context: object, percent: object) -> dict | None:
+    """Global percentage and full window, with a verified optional context cap."""
     if percent == "off" or not valid_compact_percent(percent):
         return None
-    if isinstance(context, bool):
-        return None
-    try:
-        number = int(context)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if number < COMPACT_WINDOW_MIN:
-        return None
-    return max(COMPACT_WINDOW_MIN, min(COMPACT_WINDOW_MAX, number * int(percent) // 100))
+    max_context = None
+    if not isinstance(context, bool):
+        try:
+            number = int(context)
+        except (TypeError, ValueError, OverflowError):
+            pass
+        else:
+            if number >= COMPACT_WINDOW_MIN:
+                max_context = min(number, COMPACT_FULL_WINDOW)
+    return {"percent": int(percent), "window": COMPACT_FULL_WINDOW, "maxContext": max_context}
 
 
 def _catalog_page(payload: object) -> tuple[list[dict], bool, str | None]:

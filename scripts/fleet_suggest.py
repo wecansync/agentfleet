@@ -9,6 +9,7 @@ capabilities. Never accesses the network, never spawns subprocesses, never reads
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from collections import deque
 from datetime import datetime, timezone
 import fnmatch
@@ -20,6 +21,7 @@ import re
 import secrets
 import shutil
 import sys
+import time
 import unicodedata
 
 _ANSI_ESCAPE_RE = re.compile(
@@ -885,89 +887,125 @@ def suggest(home: Path, project: Path) -> list[dict]:
     return [sanitize_value(r) for r in results]
 
 
+STALE_LOCK_SECONDS = 30
+
+
+@contextmanager
+def _suggestions_lock(home: Path):
+    """Serialize read/modify/write across prompt hooks and the suggestion CLI."""
+    directory = home / ".claude" / "agentfleet"
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock = directory / ".suggestions.lock"
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            # A holder killed mid-update leaves the file behind; a refresh
+            # takes well under a second, so an old lock is stale.
+            try:
+                if time.time() - lock.stat().st_mtime > STALE_LOCK_SECONDS:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                pass
+            if time.monotonic() >= deadline:
+                raise TimeoutError("suggestions store is busy")
+            time.sleep(0.01)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        lock.unlink(missing_ok=True)
+
+
+def _refresh_store(cwd: str, home: Path, **options) -> tuple[dict, list[dict]]:
+    with _suggestions_lock(home):
+        return _refresh_store_locked(cwd, home, **options)
+
+
+def _refresh_store_locked(cwd: str, home: Path, *, shown: bool = False,
+                   dismiss: list[str] | None = None, notified: bool = False) -> tuple[dict, list[dict]]:
+    """Refresh the band independently of notification delivery or catalog versions.
+
+    Keep canonical and lexical absolute aliases in sync, including previously
+    encountered aliases, so a session rooted at a symlink sees the same history.
+    """
+    absolute = Path(os.path.abspath(os.path.expanduser(cwd)))
+    project = absolute.resolve()
+    catalog_ver = load_catalog().get("version", "unknown")
+    store = load_suggestions_store(home)
+    projects = store.setdefault("projects", {})
+    entry = projects.get(str(project), projects.get(str(absolute), {}))
+    entry.setdefault("seen", None)
+    entry.setdefault("notified", None)
+    entry.setdefault("shown", [])
+    entry.setdefault("dismissed", [])
+    if dismiss:
+        entry["dismissed"] = sorted(set(entry["dismissed"]) | set(dismiss))
+        # The scanner itself filters dismissed ids from the persisted store.
+        projects[str(project)] = entry
+        save_suggestions_store(home, store)
+    suggestions = suggest(home, project)
+    if shown:
+        entry["shown"] = sorted(set(entry["shown"]) | {s["id"] for s in suggestions})
+        entry["seen"] = catalog_ver
+    excluded = set(entry["shown"]) | set(entry["dismissed"])
+    new = [s for s in suggestions if s["id"] not in excluded]
+    ids = sorted(s["id"] for s in new)
+    entry.update(name=sanitize_text(project.name), catalog=catalog_ver,
+                 pending=len(new), new=[{k: s[k] for k in ("id", "title", "kind", "why")} for s in new[:3]],
+                 updated=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    if notified:
+        entry["notified"] = catalog_ver  # legacy field
+        entry["notifiedIds"] = ids
+    aliases = {str(project), str(absolute)}
+    for key in projects:
+        if Path(key).resolve() == project:
+            aliases.add(key)
+    for key in aliases:
+        projects[key] = entry
+    save_suggestions_store(home, store)
+    return entry, suggestions
+
+
 def _pending_notice(cwd: str, home: Path) -> tuple[str | None, int]:
     try:
-        project = Path(cwd).expanduser().resolve()
-        home = Path(home).expanduser().resolve()
-        catalog = load_catalog()
-        catalog_ver = catalog.get("version", "unknown")
-
-        suggestions_list = suggest(home, project)
-        pending_count = len(suggestions_list)
-        if pending_count == 0:
-            return None, 0
-
-        store = load_suggestions_store(home)
-        proj_key = str(project)
-        proj_entry = store.get("projects", {}).get(proj_key, {})
-
-        if proj_entry.get("notified") == catalog_ver:
-            return None, pending_count
-
+        entry, suggestions = _refresh_store(cwd, home)
+        excluded = set(entry["shown"]) | set(entry["dismissed"])
+        ids = sorted(s["id"] for s in suggestions if s["id"] not in excluded)
+        count = entry["pending"]
+        if not count or entry.get("notifiedIds") == ids:
+            return None, count
         line = (
-            f"AgentFleet: {pending_count} suggestion{'' if pending_count == 1 else 's'} (skills, plugins, MCP servers, mods, hooks) "
-            f"{'matches' if pending_count == 1 else 'match'} this project. Mention once, briefly, at the end of your reply that "
+            f"AgentFleet: {count} suggestion{'' if count == 1 else 's'} (skills, plugins, MCP servers, mods, hooks) "
+            f"{'matches' if count == 1 else 'match'} this project. Mention once, briefly, at the end of your reply that "
             f"/fleet-suggest lists them; do not install anything."
         )
-        return sanitize_text(line), pending_count
+        return sanitize_text(line), count
     except Exception:
         return None, 0
 
 
 def pending_notice(cwd: str, home: Path) -> str | None:
-    """Check suggestions and return notice line without recording notified state."""
-    line, _ = _pending_notice(cwd, home)
-    return line
+    """Refresh the snapshot without recording notification delivery."""
+    return _pending_notice(cwd, home)[0]
 
 
 def mark_notified(cwd: str, home: Path, pending_count: int | None = None) -> None:
-    """Record that the notice line for current catalog version was shown."""
+    """Record delivery once per current set of unseen suggestion ids."""
     try:
-        project = Path(cwd).expanduser().resolve()
-        home = Path(home).expanduser().resolve()
-        catalog = load_catalog()
-        catalog_ver = catalog.get("version", "unknown")
-
-        if pending_count is None:
-            pending_count = len(suggest(home, project))
-
-        store = load_suggestions_store(home)
-        proj_key = str(project)
-        projects = store.setdefault("projects", {})
-        proj_entry = projects.setdefault(proj_key, {
-            "name": project.name,
-            "catalog": catalog_ver,
-            "pending": 0,
-            "seen": None,
-            "notified": None,
-            "dismissed": [],
-            "updated": "",
-        })
-
-        proj_entry["name"] = project.name
-        proj_entry["catalog"] = catalog_ver
-        proj_entry["pending"] = pending_count
-        proj_entry["notified"] = catalog_ver
-        proj_entry["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        save_suggestions_store(home, store)
+        _refresh_store(cwd, home, notified=True)
     except Exception:
         pass
 
 
 def notice(cwd: str, home: Path) -> str | None:
-    """Prompt hook entry point: check suggestions and return notice line if needed.
-
-    Cheap (no subprocess; <300 ms), never raises, updates suggestions.json,
-    and returns notice text only when pending > 0 and notified != catalog version.
-    """
-    try:
-        line, count = _pending_notice(cwd, home)
-        if line is not None:
-            mark_notified(cwd, home, count)
-        return line
-    except Exception:
-        return None
+    line = pending_notice(cwd, home)
+    if line is not None:
+        mark_notified(cwd, home)
+    return line
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -985,7 +1023,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     home = resolve_home(args.home)
-    project = Path(args.project or os.getcwd()).expanduser().resolve()
+    project_arg = args.project or os.getcwd()
+    project = Path(project_arg).expanduser().resolve()
 
     catalog = load_catalog()
     catalog_ver = catalog.get("version", "unknown")
@@ -998,48 +1037,12 @@ def main(argv: list[str] | None = None) -> int:
             print("Nothing to remove.")
         return 0
 
-    store = load_suggestions_store(home)
-    proj_key = str(project)
-    projects = store.setdefault("projects", {})
-    proj_entry = projects.setdefault(proj_key, {
-        "name": project.name,
-        "catalog": catalog_ver,
-        "pending": 0,
-        "seen": None,
-        "notified": None,
-        "dismissed": [],
-        "updated": "",
-    })
-
+    entry, suggestions = _refresh_store(project_arg, home, shown=not bool(args.dismiss), dismiss=args.dismiss)
     if args.dismiss:
-        dismissed_set = set(proj_entry.get("dismissed", []))
-        for did in args.dismiss:
-            dismissed_set.add(did)
-        proj_entry["dismissed"] = sorted(dismissed_set)
-        proj_entry["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        save_suggestions_store(home, store)
-        # Update suggestions and pending count
-        current_suggs = suggest(home, project)
-        proj_entry["pending"] = len(current_suggs)
-        save_suggestions_store(home, store)
         print(f"Dismissed suggestions: {', '.join(args.dismiss)}")
         return 0
-
     if args.seen:
-        proj_entry["seen"] = catalog_ver
-        proj_entry["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        save_suggestions_store(home, store)
-        print(f"Marked suggestions as seen for catalog {catalog_ver}.")
         return 0
-
-    suggestions = suggest(home, project)
-
-    # Update store with current scan
-    proj_entry["name"] = project.name
-    proj_entry["catalog"] = catalog_ver
-    proj_entry["pending"] = len(suggestions)
-    proj_entry["updated"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    save_suggestions_store(home, store)
 
     if args.json:
         payload = {

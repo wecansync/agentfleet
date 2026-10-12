@@ -1,8 +1,9 @@
 {
   "env": {
     "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0",
-    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
-    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "700000"
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "1000000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"
   },
   "permissions": {
     "allow": [],
@@ -158,7 +159,7 @@
   },
   "enabledPlugins": {},
   "extraKnownMarketplaces": {},
-  "autoCompactWindow": 700000,
+  "autoCompactWindow": 1000000,
   "advisorModel": "opus",
   "autoCompactEnabled": true
 }

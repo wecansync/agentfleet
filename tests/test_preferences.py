@@ -94,30 +94,30 @@ class PreferencesTests(unittest.TestCase):
         result = self.run_sync_hook("model-1m[1m]")
         self.assertEqual(result.returncode, 0, result.stderr)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 700_000)
-        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
-        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
-        self.assertIn("70% of its context (700000 tokens)", result.stdout)
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
+        self.assertIn("Auto-compact set to 70% of each model's context. Restart Claude Code to apply.", result.stdout)
 
         self.set_percent(55)
         result = self.run_sync_hook("model-1m[1m]")
         self.assertEqual(result.returncode, 0, result.stderr)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 550_000)
-        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "550000")
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
         result = self.run_sync_hook("model-200k")
         self.assertEqual(result.returncode, 0, result.stderr)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 110_000)
-        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "110000")
-        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "110000")
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "200000")
 
         self.set_percent(70)
         result = self.run_sync_hook("model-200k")
         self.assertEqual(result.returncode, 0, result.stderr)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 140_000)
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
 
         self.set_percent("off")
         previous = self.settings_path.read_bytes()
@@ -136,10 +136,12 @@ class PreferencesTests(unittest.TestCase):
         result = self.run_sync_hook("sonnet", event="PreModelSwitch")
         self.assertEqual(result.returncode, 0, result.stderr)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 550_000)
-        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "550000")
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", current["env"])
-        self.assertIn("Auto-compact for sonnet set to 55% of its context (550000 tokens)", result.stdout)
+        self.assertIn("Auto-compact set to 55% of each model's context.", result.stdout)
+        # A second switch on the same settings changes nothing and says nothing.
+        self.assertEqual(self.run_sync_hook("haiku", event="PostModelSwitch").stdout, "")
 
     def test_reconcile_context_uses_gateway_and_native_percentage_and_off(self):
         reconcile = import_script("preferences_fleet_reconcile", SCRIPTS / "fleet-reconcile.py")
@@ -153,21 +155,21 @@ class PreferencesTests(unittest.TestCase):
             {"model-1m[1m]": {"context_length": 1_000_000}},
             self.home,
         )
-        self.assertEqual(window, 700_000)
-        self.assertIn("70% of model-1m[1m]'s context (700000 tokens)", notice)
-        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertEqual(window, 1_000_000)
+        self.assertIn("70% of each model's context", notice)
+        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
         self.set_percent(55)
         smaller, _, window = reconcile.reconcile_context(
             {"model": "model-200k", "env": {"ANTHROPIC_BASE_URL": self.endpoint}},
             {"model-200k": {"context_length": 200_000}}, self.home,
         )
-        self.assertEqual(window, 110_000)
-        self.assertEqual(smaller["autoCompactWindow"], 110_000)
+        self.assertEqual(window, 1_000_000)
+        self.assertEqual(smaller["autoCompactWindow"], 1_000_000)
 
         native, _, window = reconcile.reconcile_context({"model": "sonnet", "env": {}}, {}, self.home)
-        self.assertEqual(window, 550_000)
-        self.assertEqual(native["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "550000")
+        self.assertEqual(window, 1_000_000)
+        self.assertEqual(native["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", native["env"])
 
         self.set_percent("off")
@@ -183,34 +185,37 @@ class PreferencesTests(unittest.TestCase):
         self.gateway()
         shown = self.run_agentfleet("config")
         self.assertEqual(shown.returncode, 0, shown.stderr)
-        self.assertIn("compact: 70% (default)", shown.stdout)
+        self.assertIn("compact: 70% of each model's context (default)", shown.stdout)
         self.assertIn("reviewer-access: full (default)", shown.stdout)
-        self.assertIn("learn: off (default)", shown.stdout)
-        self.assertIn("auto-compact window: 700000 tokens", shown.stdout)
+        self.assertIn("learn: on (default)", shown.stdout)
+        self.assertIn("jev: ", shown.stdout)
+        self.assertNotIn("auto-compact window", shown.stdout)
 
         changed = self.run_agentfleet("config", "compact", "55")
         self.assertEqual(changed.returncode, 0, changed.stderr)
-        self.assertIn("Auto-compact: 55% of model-1m[1m]'s context (550000 tokens)", changed.stdout)
+        self.assertIn("55%", changed.stdout)
         current = json.loads(self.settings_path.read_text(encoding="utf-8"))
-        self.assertEqual(current["autoCompactWindow"], 550_000)
-        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "550000")
+        self.assertEqual(current["autoCompactWindow"], 1_000_000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
+        self.assertEqual(current["env"][provider_catalog.COMPACT_PERCENT_ENV], "55")
 
         learned = self.run_agentfleet("config", "learn", "on")
         self.assertEqual(learned.returncode, 0, learned.stderr)
         self.assertIn("never prompt text", learned.stdout)
         self.assertIn("agentfleet suggest --forget", learned.stdout)
 
-        invalid = self.run_agentfleet("config", "compact", "39")
+        invalid = self.run_agentfleet("config", "compact", "19")
         self.assertEqual(invalid.returncode, 2)
-        self.assertIn("40-95", invalid.stderr)
+        self.assertIn("20-95", invalid.stderr)
         invalid_reviewer = self.run_agentfleet("config", "reviewer-access", "unsafe")
         self.assertEqual(invalid_reviewer.returncode, 2)
         self.assertIn("reviewerAccess", invalid_reviewer.stderr)
 
         off = self.run_agentfleet("config", "compact", "off")
         self.assertEqual(off.returncode, 0, off.stderr)
-        self.assertIn("will no longer change", off.stdout)
-        self.assertEqual(json.loads(self.settings_path.read_text(encoding="utf-8"))["autoCompactWindow"], 550_000)
+        self.assertIn("no longer manages auto-compact", off.stdout)
+        self.assertNotIn(provider_catalog.COMPACT_PERCENT_ENV, json.loads(self.settings_path.read_text(encoding="utf-8"))["env"])
+        self.assertEqual(json.loads(self.settings_path.read_text(encoding="utf-8"))["autoCompactWindow"], 1_000_000)
 
     def test_agentfleet_jev_uses_safe_cli_without_token_environment(self):
         fake_bin = self.root / "fake-bin"
@@ -251,12 +256,12 @@ class PreferencesTests(unittest.TestCase):
         status = self.run_agentfleet("jev", "status", env=env)
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("fast-jev-compaction: installed, enabled", status.stdout)
-        self.assertIn("TYPESAFE_API_KEY in this shell: set", status.stdout)
+        self.assertIn("TypeSafe API key: set", status.stdout)
         self.assertNotIn("typesafe-key-not-forwarded", status.stdout + status.stderr)
         env["TYPESAFE_API_KEY"] = ""
         missing_value = self.run_agentfleet("jev", "status", env=env)
         self.assertEqual(missing_value.returncode, 0, missing_value.stderr)
-        self.assertIn("TYPESAFE_API_KEY in this shell: set", missing_value.stdout)
+        self.assertIn("TypeSafe API key: not set", missing_value.stdout)
 
     def test_auto_update_hook_self_heals_active_and_enabled_before_reporting(self):
         self.settings_path.write_text(json.dumps({"model": "default", "env": {}}), encoding="utf-8")

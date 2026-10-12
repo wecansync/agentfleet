@@ -4,8 +4,12 @@ An AgentFleet band above the prompt shows actions worth taking: restart after an
 update, inspect a failed update, review missing models and pending model changes
 with `/fleet-setup`, dispatch a fallback for a failing lane, or review unseen
 project suggestions with `/fleet-suggest`. Healthy sessions show no band. **Hide**
-dismisses the current notice set for this session; changed notices show again.
-Surveys take precedence. The band refreshes every 60 seconds. Fallback dispatches
+persists the currently displayed suggestion ids in `agentfleet/suggestions-hidden.json`
+(the only file this mod writes), with session-only fallback if writing is unavailable.
+Other notices are hidden for the session; changed notices show again. Listing suggestions
+marks their ids seen and clears the band automatically. Surveys take precedence.
+The band refreshes every 60 seconds, on prompt submission, and on turn completion.
+It composes its band alongside `await next(e)` in a layout-only Box, preserving other mods' bands. Fallback dispatches
 use the watcher's validated `alternative` lane in `outages.json`; missing, null or
 invalid alternatives (including older files without this field) recommend retrying
 after the outage expires.
@@ -13,7 +17,9 @@ after the outage expires.
 `/fleet-status` prints a fresh version, profile, auto-update, model-proposal,
 auto-compaction, reviewer-access, suggestions-learning and outage summary. Missing
 profile markers show **not recorded**; auto-update defaults to **enabled**.
-Configuration defaults are 70% compaction, full reviewer access, and learning off.
+Configuration defaults are 70% compaction, full reviewer access, and learning on.
+Compaction accepts 20–95% of each model's context, or `off`. The summary includes
+strictly validated JEV compaction totals, last time, and before/after tokens when known.
 Suggestions are matched to the session project root, not another project or a
 nested working directory.
 
@@ -34,6 +40,8 @@ The mod derives the Claude directory only from its known installed location
 - `agentfleet/config.json`
 - `agentfleet/outages.json`
 - `agentfleet/suggestions.json`
+- `agentfleet/suggestions-hidden.json`
+- `agentfleet/jev-stats.json`
 - `agentfleet/lane-reports.jsonl`
 
 It uses filesystem stat to check size and resolved paths before reading; links

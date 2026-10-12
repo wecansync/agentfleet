@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -294,6 +295,18 @@ services:
         msg2 = fleet_suggest.notice(str(proj), self.home)
         self.assertIsNone(msg2)
 
+    def test_stale_store_lock_is_recovered(self):
+        proj = self.root / "stale_lock_proj"
+        proj.mkdir()
+        lock = self.home / ".claude" / "agentfleet" / ".suggestions.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("", encoding="utf-8")
+        old = time.time() - fleet_suggest.STALE_LOCK_SECONDS - 5
+        os.utime(lock, (old, old))
+        # A lock left by a killed process must not block every later prompt.
+        self.assertIsNotNone(fleet_suggest.notice(str(proj), self.home))
+        self.assertFalse(lock.exists())
+
     def test_cli_seen_dismiss_forget(self):
         proj = self.root / "cli_proj"
         proj.mkdir()
@@ -305,7 +318,10 @@ services:
         store_file = self.home / ".claude" / "agentfleet" / "suggestions.json"
         store = json.loads(store_file.read_text(encoding="utf-8"))
         p_rec = store["projects"][str(proj.resolve())]
-        self.assertIsNone(p_rec["seen"])
+        self.assertEqual(p_rec["seen"], "2026.10.1")
+        self.assertEqual(p_rec["pending"], 0)
+        self.assertEqual(p_rec["new"], [])
+        self.assertTrue(p_rec["shown"])
 
         # Run --seen
         with io.StringIO() as buf, contextlib.redirect_stdout(buf):
@@ -481,7 +497,7 @@ services:
         store_file = self.home / ".claude" / "agentfleet" / "suggestions.json"
         store = json.loads(store_file.read_text(encoding="utf-8"))
         self.assertIn(real_resolved, store["projects"])
-        self.assertNotIn(str(symlink_proj), store["projects"])
+        self.assertEqual(store["projects"][str(symlink_proj)], store["projects"][real_resolved])
 
     def test_pending_notice_and_mark_notified(self):
         proj = self.root / "pending_proj"
@@ -516,6 +532,61 @@ services:
         # 4. subsequent pending_notice and notice both return None
         self.assertIsNone(fleet_suggest.pending_notice(str(proj), self.home))
         self.assertIsNone(fleet_suggest.notice(str(proj), self.home))
+
+    def test_listing_json_marks_shown_and_clears_band(self):
+        proj = self.root / "listed"
+        proj.mkdir()
+        self.assertIsNotNone(fleet_suggest.notice(str(proj), self.home))
+        with io.StringIO() as buf, contextlib.redirect_stdout(buf):
+            fleet_suggest.main(["--home", str(self.home), "--project", str(proj), "--json"])
+            ids = {s["id"] for s in json.loads(buf.getvalue())["suggestions"]}
+        entry = fleet_suggest.load_suggestions_store(self.home)["projects"][str(proj)]
+        self.assertEqual(set(entry["shown"]), ids)
+        self.assertEqual(entry["pending"], 0)
+        self.assertEqual(entry["new"], [])
+        self.assertEqual(entry["seen"], fleet_suggest.load_catalog()["version"])
+        self.assertIsNone(fleet_suggest.notice(str(proj), self.home))
+
+    def test_notice_recomputes_new_pending_and_installed_items(self):
+        proj = self.root / "rescanned"
+        proj.mkdir()
+        fleet_suggest.notice(str(proj), self.home)
+        (proj / "tsconfig.json").write_text("{}")
+        self.assertIsNotNone(fleet_suggest.notice(str(proj), self.home))
+        entry = fleet_suggest.load_suggestions_store(self.home)["projects"][str(proj)]
+        self.assertEqual(entry["pending"], len(fleet_suggest.suggest(self.home, proj)))
+        self.assertLessEqual(len(entry["new"]), 3)
+        self.assertIn("typescript-lsp", {s["id"] for s in entry["new"]})
+        before = entry["pending"]
+        self.installed_plugins_file.write_text(json.dumps({"version": 2, "plugins": {
+            "typescript-lsp@claude-plugins-official": [{"scope": "user"}]}}))
+        fleet_suggest.notice(str(proj), self.home)
+        entry = fleet_suggest.load_suggestions_store(self.home)["projects"][str(proj)]
+        self.assertEqual(entry["pending"], before - 1)
+        self.assertNotIn("typescript-lsp", {s["id"] for s in entry["new"]})
+
+    def test_route_suppression_and_once_per_id_set(self):
+        proj = self.root / "routed"
+        proj.mkdir()
+        (self.claude_dir / "fleet.json").write_text(json.dumps({"lanes": {"implement": {"model": "haiku"}}}))
+        settings = self.claude_dir / "settings.json"
+        settings.write_text(json.dumps({"enabledPlugins": {"fleet-status@agentfleet": True}}))
+        def route():
+            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "route-to-fleet.py")],
+                                    input=json.dumps({"cwd": str(proj), "prompt": "implement a new API endpoint for users"}),
+                                    text=True, capture_output=True,
+                                    env={**os.environ, "CLAUDE_FLEET_HOME": str(self.home)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+        self.assertNotIn("AgentFleet:", route())
+        entry = fleet_suggest.load_suggestions_store(self.home)["projects"][str(proj)]
+        self.assertGreater(entry["pending"], 0)
+        settings.write_text(json.dumps({"enabledPlugins": {"fleet-status@agentfleet": False}}))
+        self.assertIn("AgentFleet:", route())
+        self.assertNotIn("AgentFleet:", route())
+        (proj / "tsconfig.json").write_text("{}")
+        self.assertIn("AgentFleet:", route())
+        self.assertNotIn("AgentFleet:", route())
 
     def test_sanitization_escapes_and_verbs(self):
         proj = self.root / "escape_proj"

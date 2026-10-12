@@ -532,16 +532,16 @@ class ProviderRepairTests(unittest.TestCase):
                 sync = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift"], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(sync.returncode, 0, sync.stderr)
                 settings_after_start = json.loads((home / ".claude/settings.json").read_text())
-                self.assertEqual(settings_after_start["autoCompactWindow"], 190400)
-                self.assertEqual(settings_after_start["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "190400")
+                self.assertEqual(settings_after_start["autoCompactWindow"], 1000000)
+                self.assertEqual(settings_after_start["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
                 self.assertGreaterEqual(FakeProvider.requests, 1)
                 self.assertNotIn("fake-token", sync.stdout + sync.stderr)
                 post_switch = subprocess.run([PYTHON, str(home / ".claude/sync-model-context.py"), "--home", str(home), "--config-home", str(config)], input=json.dumps({"hook_event_name": "PostModelSwitch", "to_model": "codex-5.5"}), cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(post_switch.returncode, 0, post_switch.stderr)
                 switched = json.loads((home / ".claude/settings.json").read_text())
-                self.assertEqual(switched["autoCompactWindow"], 190400)
-                self.assertEqual(switched["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "190400")
-                self.assertIn("Restart Claude Code", post_switch.stdout)
+                self.assertEqual(switched["autoCompactWindow"], 1000000)
+                self.assertEqual(switched["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+                self.assertEqual(post_switch.stdout, "")
                 cache = json.loads((home / ".claude/cache/provider-models-cache.json").read_text())
                 self.assertEqual(cache["endpoint"], endpoint)
                 self.assertEqual(cache["account"], hashlib.sha256(b"fake-token").hexdigest()[:24])
@@ -617,22 +617,22 @@ class ProviderRepairTests(unittest.TestCase):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
         exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
-        settings = {"model": "codex-5.5", "autoCompactWindow": 800000, "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "800000"}}
+        settings = {"model": "codex-5.5", "autoCompactWindow": 800000, "env": {"ANTHROPIC_BASE_URL": "https://gateway.test", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "800000"}}
         updated, notice, budget = namespace["reconcile_context"](settings, {"codex-5.5": {"context_length": 272000}})
-        # 70% (the default) of 272000.
-        self.assertEqual(budget, 190400)
-        self.assertEqual(updated["autoCompactWindow"], 190400)
-        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "190400")
+        # The percentage stays global; only the verified context cap scales.
+        self.assertEqual(budget, 1000000)
+        self.assertEqual(updated["autoCompactWindow"], 1000000)
+        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertIn("Restart Claude Code", notice)
         context_script = (ROOT / "scripts/sync-model-context.py").read_text()
         self.assertIn('latest["autoCompactWindow"] = budget', context_script)
         # Test bidirectional scaling: expanding back up to 1M model from reduced state
-        lower = {"model": "agy-gemini-flash[1m]", "autoCompactWindow": 190400, "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "190400", "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "190400"}}
+        lower = {"model": "agy-gemini-flash[1m]", "autoCompactWindow": 190400, "env": {"ANTHROPIC_BASE_URL": "https://gateway.test", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "190400", "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "190400"}}
         expanded, _, high_budget = namespace["reconcile_context"](lower, {"agy-gemini-flash[1m]": {"context_length": 1000000}})
-        self.assertEqual(high_budget, 700000)
-        self.assertEqual(expanded["autoCompactWindow"], 700000)
-        self.assertEqual(expanded["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
-        self.assertEqual(expanded["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertEqual(high_budget, 1000000)
+        self.assertEqual(expanded["autoCompactWindow"], 1000000)
+        self.assertEqual(expanded["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(expanded["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
     def test_proposal_path_follows_resolved_home_not_policy_directory(self):
         with tempfile.TemporaryDirectory(prefix="fleet proposal ") as raw:
@@ -811,7 +811,7 @@ class ProviderRepairTests(unittest.TestCase):
             (config / "delegate-skills" / "provider-policy.json").write_text((ROOT / "config/provider-policy.json").read_text())
             settings = {
                 "model": "codex-5.5",
-                # CLAUDE_CODE_MAX_CONTEXT_TOKENS is already correct (190400), but
+                # CLAUDE_CODE_MAX_CONTEXT_TOKENS is already correct (272000), but
                 # the paired compaction controls were never repaired and remain
                 # at the old 800000 ceiling; a defect that short-circuits on the
                 # context value alone must not skip fixing this pair.
@@ -819,7 +819,7 @@ class ProviderRepairTests(unittest.TestCase):
                 "env": {
                     "ANTHROPIC_BASE_URL": "https://gateway.test/api",
                     "ANTHROPIC_AUTH_TOKEN": "fake-token",
-                    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "190400",
+                    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "272000",
                     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "800000",
                 },
             }
@@ -833,10 +833,10 @@ class ProviderRepairTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             updated = json.loads((home / ".claude" / "settings.json").read_text())
-            self.assertEqual(updated["autoCompactWindow"], 190400)
-            self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "190400")
-            self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "190400")
-            self.assertIn("Restart Claude Code", result.stdout)
+            self.assertEqual(updated["autoCompactWindow"], 1000000)
+            self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+            self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+            self.assertIn("70% of each model", result.stdout)
 
     def test_reconcile_removed_primary_with_external_config_home_leaves_no_poisoned_marker(self):
         namespace = {}
@@ -1645,7 +1645,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         self.assertEqual(stale["env.ANTHROPIC_DEFAULT_OPUS_MODEL"]["current"], "dead-opus-model")
 
         self.assertFalse(data["settings"]["compaction"]["optimal"])
-        self.assertEqual(data["settings"]["compaction"]["current"], "235929")
+        self.assertEqual(data["settings"]["compaction"]["window"], 235929)
 
         self.assertTrue(data["hooks"]["all_valid"])
 
@@ -1672,12 +1672,12 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         self.assertIn("advisorModel: replaced stale 'codex-sol-max[1m]' with live 'claude-opus-5[1m]'", proc.stdout)
         self.assertIn("env.ANTHROPIC_DEFAULT_OPUS_MODEL: replaced stale 'dead-opus-model' with live 'claude-opus-5[1m]'", proc.stdout)
         # 70% (the default) of the active 1M-context model.
-        self.assertIn("235929 -> 700000", proc.stdout)
+        self.assertIn("235929 -> 1000000", proc.stdout)
 
         updated = json.loads((self.claude_dir / "settings.json").read_text())
         self.assertEqual(updated["advisorModel"], "claude-opus-5[1m]")
-        self.assertEqual(updated["autoCompactWindow"], 700000)
-        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
+        self.assertEqual(updated["autoCompactWindow"], 1000000)
+        self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(updated["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-5[1m]")
 
     def test_fix_settings_advisor_override(self) -> None:
@@ -1750,12 +1750,12 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
             capture_output=True, text=True, env=env, check=False
         )
         self.assertEqual(proc_256k.returncode, 0)
-        # 70% (the default) of each model's context: 262144 -> 183500, 1M -> 700000.
-        self.assertIn("183500", proc_256k.stdout)
+        # Window and percentage are static; verified context caps follow the model.
+        self.assertIn("70% of each model", proc_256k.stdout)
         settings_256k = json.loads((self.claude_dir / "settings.json").read_text())
-        self.assertEqual(settings_256k["autoCompactWindow"], 183500)
-        self.assertEqual(settings_256k["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "183500")
-        self.assertEqual(settings_256k["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "183500")
+        self.assertEqual(settings_256k["autoCompactWindow"], 1000000)
+        self.assertEqual(settings_256k["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(settings_256k["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "262144")
 
         proc_1m = subprocess.run(
             [sys.executable, str(sync_script), "--home", str(self.home), "--config-home", str(self.home / ".config")],
@@ -1763,11 +1763,11 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
             capture_output=True, text=True, env=env, check=False
         )
         self.assertEqual(proc_1m.returncode, 0)
-        self.assertIn("700000", proc_1m.stdout)
+        self.assertIn("1000000", proc_1m.stdout)
         settings_1m = json.loads((self.claude_dir / "settings.json").read_text())
-        self.assertEqual(settings_1m["autoCompactWindow"], 700000)
-        self.assertEqual(settings_1m["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
-        self.assertEqual(settings_1m["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertEqual(settings_1m["autoCompactWindow"], 1000000)
+        self.assertEqual(settings_1m["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(settings_1m["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
         proc_claude = subprocess.run(
             [sys.executable, str(sync_script), "--home", str(self.home), "--config-home", str(self.home / ".config")],
@@ -1775,11 +1775,11 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
             capture_output=True, text=True, env=env, check=False
         )
         self.assertEqual(proc_claude.returncode, 0)
-        self.assertIn("700000", proc_claude.stdout)
+        self.assertEqual(proc_claude.stdout, "")
         settings_claude = json.loads((self.claude_dir / "settings.json").read_text())
-        self.assertEqual(settings_claude["autoCompactWindow"], 700000)
-        self.assertEqual(settings_claude["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "700000")
-        self.assertEqual(settings_claude["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertEqual(settings_claude["autoCompactWindow"], 1000000)
+        self.assertEqual(settings_claude["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(settings_claude["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
 
 # The last 1.0.0 release, which shipped 30 model-named lanes. Upgrade tests
@@ -2113,7 +2113,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             if pid == 0:
                 os.execve(PYTHON, [PYTHON, str(ROOT / "bin/install.py"), "--allow-insecure-http", "--home", str(home), "--config-home", str(config)], env)
             answers = [(b"Choose 1-3", b"3\n"), (b"Gateway URL", endpoint.encode() + b"\n"), (b"holds the gateway token", b"\n"),
-                       (b"input hidden", b"wizard-token\n"), (b"percent of the model's context", b"\n"), (b"Adjust model tiers", b"y\n"), (b"[deep]", b"\n"),
+                       (b"input hidden", b"wizard-token\n"), (b"percent of each model's context", b"\n"), (b"Adjust model tiers", b"y\n"), (b"[deep]", b"\n"),
                        (b"claude-sonnet-5[1m] [balanced]", b"\n"), (b"claude-haiku [fast]", b"\n"), (b"codex-5.5 [balanced]", b"cheap\n"),
                        (b"Adjust model tiers", b"n\n")]
             output, step, position, deadline = b"", 0, 0, time.time() + 90

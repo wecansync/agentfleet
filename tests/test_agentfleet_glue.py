@@ -50,6 +50,34 @@ class TestAgentfleetGlue(unittest.TestCase):
     # 1. report command tests
     # -------------------------------------------------------------------------
 
+    def test_jev_key_detected_from_settings_without_printing_it(self) -> None:
+        import argparse
+        import runpy
+        from unittest.mock import patch
+        module = runpy.run_path(str(AGENTFLEET), run_name="agentfleet_test")
+        key = "sk-" + "1234567890" * 2
+        (self.home_claude / "settings.json").write_text(json.dumps({"env": {"TYPESAFE_API_KEY": key}}))
+        paths = module["Paths"](argparse.Namespace(home=str(self.home), config_home=str(self.config_home), prefix=None))
+        import io
+        output = io.StringIO()
+        result = subprocess.CompletedProcess([], 0, '[{"id":"fast-jev-compaction@agentfleet","enabled":true}]')
+        with patch.object(module["provider_catalog"], "claude_cli", return_value=result), patch.dict(os.environ, {}, clear=True), patch("sys.stdout", output):
+            self.assertEqual(module["cmd_jev"](paths, argparse.Namespace(action="status")), 0)
+        self.assertIn("TypeSafe API key: set", output.getvalue())
+        self.assertNotIn(key, output.getvalue())
+
+    def test_compact_off_removes_global_percent(self) -> None:
+        settings_file = self.home_claude / "settings.json"
+        settings_file.write_text(json.dumps({"model": "default", "autoCompactWindow": 1000000,
+                                           "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1000000",
+                                                   "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70"}}))
+        result = self.run_agentfleet("config", "compact", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Claude Code's default applies", result.stdout)
+        settings = json.loads(settings_file.read_text())
+        self.assertNotIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", settings["env"])
+        self.assertEqual(settings["autoCompactWindow"], 1000000)
+
     def test_report_empty_case(self) -> None:
         # Text output when no reports exist
         proc = self.run_agentfleet("report")

@@ -43,7 +43,8 @@ from provider_catalog import (
     strip_known_suffix,
     supports_reasoning,
     TIER_RANK,
-    compaction_window,
+    compaction_settings,
+    COMPACT_PERCENT_ENV,
     load_preferences,
     NATIVE_CONTEXT_BASIS,
     model_tier,
@@ -780,38 +781,45 @@ def reconcile_context(
     active = result.get("model")
     if not isinstance(active, str) or not active.strip():
         return result, None, None
+    percent = load_preferences(home or Path.home())["compactPercent"]
+    if compaction_settings(None, percent) is None:
+        return result, None, None
     env = result.get("env")
     if not isinstance(env, dict):
         env = {}
         result["env"] = env
-    percent = load_preferences(home or Path.home())["compactPercent"]
     model_info = _model_info(active, catalog)
-    has_gateway = bool(env.get("ANTHROPIC_BASE_URL")) or isinstance(model_info, dict)
+    has_gateway = bool(env.get("ANTHROPIC_BASE_URL"))
     native = not has_gateway
     if native:
         context = NATIVE_CONTEXT_BASIS
     else:
-        if not isinstance(model_info, dict):
-            return result, None, None
-        context = context_length(model_info)
-    target = compaction_window(context, percent)
-    if target is None:
+        context = context_length(model_info) if isinstance(model_info, dict) else None
+    compact = compaction_settings(context, percent)
+    if compact is None:
         return result, None, None
+    target = compact["window"]
     value = str(target)
-    changed = (
+    max_context = compact["maxContext"]
+    compact_changed = (
         result.get("autoCompactWindow") != target
         or env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != value
+        or env.get(COMPACT_PERCENT_ENV) != str(percent)
     )
-    if not native:
-        changed = changed or env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != value
-    if changed:
+    context_changed = (not native and max_context is not None
+                       and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_context))
+    if compact_changed or context_changed:
         result["autoCompactWindow"] = target
         env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = value
-        if not native:
-            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = value
-    if not changed:
-        return result, None, target
-    return result, f"Auto-compact set to {percent}% of {active.strip()}'s context ({target} tokens). Restart Claude Code to apply.", target
+        env[COMPACT_PERCENT_ENV] = str(percent)
+        if not native and max_context is not None:
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_context)
+    if compact_changed:
+        return result, f"Auto-compact set to {percent}% of each model's context. Restart Claude Code to apply.", target
+    if context_changed:
+        return result, (f"Context limit for {active.strip()} set to {max_context} tokens; restart Claude Code to apply it. "
+                        f"Auto-compact stays at {percent}% of each model's context."), target
+    return result, None, target
 
 
 def reconcile_home(home: Path, config_home: Path, policy_path: Path, rows: list[dict], *, catalog_valid: bool = True, already_locked: bool = False) -> dict:

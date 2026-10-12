@@ -98,7 +98,7 @@ def is_first_party(model: object) -> bool:
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 # Default compaction window basis (70% of 1M context basis). The effective
 # default window for an install is derived from preferences.
-AUTO_COMPACT_WINDOW = 700_000
+AUTO_COMPACT_WINDOW = 1_000_000
 AUTO_COMPACT_ENV = str(AUTO_COMPACT_WINDOW)
 LEGACY_AUTO_COMPACT_WINDOW = 872_000
 LEGACY_AUTO_COMPACT_ENV = "950000"
@@ -1001,9 +1001,17 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
             compact_percent = provider_catalog.load_preferences(home).get("compactPercent", 70)
         except Exception:
             pass
-    target_window = provider_catalog.compaction_window(provider_catalog.NATIVE_CONTEXT_BASIS, compact_percent)
-    fallback_window = 700_000
-    effective_window = target_window if target_window is not None else fallback_window
+    compact = provider_catalog.compaction_settings(None, compact_percent)
+    if compact is None:
+        return
+    effective_window = compact["window"]
+    pct_path = ["env", provider_catalog.COMPACT_PERCENT_ENV]
+    pct_identity = "value:env:" + provider_catalog.COMPACT_PERCENT_ENV
+    pct_current = get_nested(existing, pct_path)
+    pct_value = str(compact_percent)
+    if pct_current != pct_value:
+        record_value_journal(journal, pct_identity, pct_path, pct_current, pct_value, prior)
+    desired.setdefault("env", {})[provider_catalog.COMPACT_PERCENT_ENV] = pct_value
 
     top_identity = "value:autoCompactWindow"
     env_identity = "value:env:CLAUDE_CODE_AUTO_COMPACT_WINDOW"
@@ -1050,6 +1058,17 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
         fail("compaction controls contain an invalid token count; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to matching integers from 100000 to 1000000 before updating")
 
     pair_owned = prior_installed_matches(prior, top_identity, top_current) and prior_installed_matches(prior, env_identity, env_current)
+    legacy_context = provider_catalog.NATIVE_CONTEXT_BASIS
+    if home is not None and existing_env.get("ANTHROPIC_BASE_URL"):
+        try:
+            cached = json.loads((home / ".claude" / "cache" / "provider-models-cache.json").read_text(encoding="utf-8"))
+            rows = provider_catalog.cache_rows(cached, existing_env["ANTHROPIC_BASE_URL"], existing_env.get("ANTHROPIC_AUTH_TOKEN", ""))
+            active = provider_catalog.strip_known_suffix(existing.get("model", ""))
+            row = next((row for row in (rows or []) if provider_catalog.strip_known_suffix(row.get("id", "")) == active), {})
+            legacy_context = provider_catalog.context_length(row)
+        except (OSError, ValueError, TypeError):
+            legacy_context = None
+    hook_owned = legacy_context is not None and top_number == max(100_000, min(1_000_000, legacy_context * int(compact_percent) // 100))
     if top_number != env_number:
         legacy_owned = (
             top_number == LEGACY_AUTO_COMPACT_WINDOW
@@ -1061,7 +1080,9 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
         if compact_percent != "off":
             set_top(effective_window)
             set_env(effective_window)
-    elif pair_owned and top_number != effective_window:
+    elif (pair_owned or top_number in {700_000, 800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV)}
+          or hook_owned
+          ) and top_number != effective_window:
         # Refresh an unchanged bundle-owned pair atomically unless compactPercent is 'off'.
         # If either side was edited, pair_owned is false and both user values are preserved.
         if compact_percent != "off":
@@ -1088,7 +1109,7 @@ def user_owned_compaction_window(existing: dict, previous: dict, home: Path) -> 
              and prior_installed_matches(prior, "value:env:CLAUDE_CODE_AUTO_COMPACT_WINDOW", env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")))
     # Earlier bundle defaults are never a user's own choice, even when the
     # journal of an old install did not record them.
-    if owned or top in {800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV), AUTO_COMPACT_WINDOW}:
+    if owned or top in {700_000, 800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV), AUTO_COMPACT_WINDOW}:
         return None
     return top
 
@@ -1863,7 +1884,7 @@ def merge_settings(
         # Gateway credentials, discovery, and the compaction env control are
         # handled below with profile- or pairing-specific ownership rules; a
         # plain template refresh here could desync the compaction pair.
-        if key in {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"}:
+        if key in {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"}:
             continue
         identity = f"value:env:{key}"
         if key not in env:
@@ -3224,7 +3245,7 @@ def ask_compact_percent(home: Path) -> None:
     default = provider_catalog.PREFERENCE_DEFAULTS["compactPercent"]
     print("\nClaude Code compacts the conversation when it fills part of the model's context.")
     while True:
-        answer = prompt(f"Auto-compact at what percent of the model's context? ({provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX} or off)", str(default)).strip().lower()
+        answer = prompt(f"Auto-compact at what percent of each model's context? ({provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX} or off)", str(default)).strip().lower()
         value: object = answer if answer == "off" else (int(answer) if answer.isdigit() else None)
         if provider_catalog.valid_compact_percent(value):
             break
@@ -3405,6 +3426,18 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         return 1
     if dry:
         return 0
+
+    preference_changes = {}
+    preference_file = provider_catalog.preferences_path(home)
+    preference_data = load_json(preference_file, "preferences") if preference_file.is_file() else {}
+    if previous and "learn" not in preference_data:
+        preference_changes["learn"] = False
+    if kept_window is not None and not gateway_mode:
+        preference_changes["compactPercent"] = "off"
+    if preference_changes:
+        preference_data.update(preference_changes)
+        preference_data["format"] = provider_catalog.PREFERENCES_FORMAT
+        specs[preference_file] = (json_bytes(preference_data), 0o600, "home:.claude/agentfleet/config.json")
 
     # Retired files join the same snapshot as every write, so a failed doctor
     # check restores them along with everything else.
