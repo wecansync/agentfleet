@@ -24,9 +24,44 @@ export async function readSnapshot($: CoreEngineInterface): Promise<Snapshot> {
     readSource('agentfleet/config.json'),
     readSource('agentfleet/outages.json'),
     readSource('agentfleet/suggestions.json'),
+    readSource('agentfleet/jev-stats.json'),
+    readSource('agentfleet/wizard.json'),
   ])
   const project = await $.session.root().catch(() => null)
   return snapshotFromSources(claudeDir, sources, project, await $.clock.now())
+}
+
+export async function readHidden($: CoreEngineInterface): Promise<string[]> {
+  const dir = claudeDirectory($.plugin.root)
+  if (!dir) return []
+  const path = `${dir}/agentfleet/suggestions-hidden.json`
+  try {
+    const stat = await $.fs.stat(path, { resolve: true })
+    if (stat.kind !== 'file' || stat.realPath !== path || stat.size > REPORT_LIMIT_BYTES) return []
+    const data = JSON.parse(await $.fs.read(path))
+    return data?.format === 'agentfleet.suggestions-hidden.v1' && Array.isArray(data.ids) &&
+      data.ids.every((id: unknown) => typeof id === 'string' && /^[a-z0-9][a-z0-9-]{0,127}$/.test(id)) ? data.ids : []
+  } catch { return [] }
+}
+
+export async function hideSuggestions($: CoreEngineInterface, key: string): Promise<void> {
+  const state = await read($, status)
+  const first = state.snapshot?.suggestion?.new.find(item => !state.hiddenSuggestionIds.includes(item.id))
+  const ids = [...new Set([...state.hiddenSuggestionIds, ...(first ? [first.id] : [])])]
+  await update($, status, current => ({ ...current, hiddenNoticeKey: key, hiddenSuggestionIds: ids }))
+  const dir = state.snapshot?.claudeDir
+  if (!dir) return
+  const path = `${dir}/agentfleet/suggestions-hidden.json`
+  try {
+    // Refuse linked parents or existing linked targets before the sole allowed write.
+    const parent = await $.fs.stat(`${dir}/agentfleet`, { resolve: true })
+    if (parent.kind !== 'directory' || parent.realPath !== `${dir}/agentfleet`) return
+    if (await $.fs.exists(path)) {
+      const stat = await $.fs.stat(path, { resolve: true })
+      if (stat.kind !== 'file' || stat.realPath !== path) return
+    }
+    await $.fs.write(path, JSON.stringify({ format: 'agentfleet.suggestions-hidden.v1', ids }) + '\n')
+  } catch { /* Hide remains effective for this session if persistence is unavailable. */ }
 }
 
 function refreshed(current: FleetState, snapshot: Snapshot): FleetState {
@@ -36,7 +71,7 @@ function refreshed(current: FleetState, snapshot: Snapshot): FleetState {
 }
 
 const status = atom({ plugin: 'fleet-status', key: 'status' } as const, {
-  snapshot: null, versionAtStart: null, hiddenNoticeKey: null,
+  snapshot: null, versionAtStart: null, hiddenNoticeKey: null, hiddenSuggestionIds: [],
 } as FleetState)
 
 const PANE = 'fleet-tasks'
@@ -63,7 +98,8 @@ export const register: Register = on => {
   let paneTimer: Timer | null = null
   on('session.start', async ($, e, next) => {
     const snapshot = await readSnapshot($)
-    await update($, status, () => ({ snapshot, versionAtStart: snapshot.version, hiddenNoticeKey: null }))
+    const hiddenSuggestionIds = await readHidden($)
+    await update($, status, () => ({ snapshot, versionAtStart: snapshot.version, hiddenNoticeKey: null, hiddenSuggestionIds }))
     await $.command.register({
       name: 'fleet-status',
       description: 'Show AgentFleet status: version, profile, updates, and model proposals',
@@ -73,6 +109,17 @@ export const register: Register = on => {
       const snapshot = await readSnapshot($)
       await update($, status, current => refreshed(current, snapshot))
     })
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    const snapshot = await readSnapshot($)
+    await update($, status, current => refreshed(current, snapshot))
+    return next(e)
+  })
+  on('turn.complete', async ($, e, next) => {
+    const snapshot = await readSnapshot($)
+    await update($, status, current => refreshed(current, snapshot))
     return next(e)
   })
 
@@ -136,15 +183,18 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const current = await read($, status)
-    const lines = current.snapshot ? notices(current.snapshot, current.versionAtStart) : []
-    const key = JSON.stringify(lines)
-    if (!lines.length || current.hiddenNoticeKey === key) return next(e)
+    const key = JSON.stringify(current.snapshot ? notices(current.snapshot, current.versionAtStart) : [])
+    const lines = current.snapshot ? notices(current.snapshot, current.versionAtStart, current.hiddenSuggestionIds)
+      .filter(line => current.hiddenNoticeKey !== key || line.startsWith('AgentFleet suggests ')) : []
+    if (!lines.length) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
+    const downstream = await next(e)
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
+      <Box flexDirection="column">
+        {downstream}
         <Box>
           <Text dimColor>AgentFleet </Text>
-          <Button key="hide" label="Hide" onPress={() => update($, status, state => ({ ...state, hiddenNoticeKey: key }))} />
+          <Button key="hide" label="Hide" onPress={() => hideSuggestions($, key)} />
         </Box>
         {lines.map((line, index) => <Text key={`notice-${index}`} wrap="wrap">{line}</Text>)}
       </Box>

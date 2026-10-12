@@ -2,9 +2,10 @@
 """Synchronize a verified model context budget without racing other writers.
 
 The provider cache is accepted only when its endpoint, account scope, schema,
-and freshness match the current gateway settings. The resulting budget is the
-configured percentage of context; a provider suffix or display label never
-inflates capacity. Fail-open
+and freshness match the current gateway settings. A static full window and
+Claude Code's percentage override apply the same percentage to every model
+without recalculation on switches. Only a verified gateway context sets the
+model context cap; a suffix or display label never inflates capacity. Fail-open
 is intentional for hook use: malformed payloads, stale/offline discovery, lock
 contention, or malformed settings leave the existing file unchanged.
 """
@@ -28,7 +29,8 @@ from provider_catalog import (  # noqa: E402
     acquire_lock,
     available_rows,
     cache_rows,
-    compaction_window,
+    compaction_settings,
+    COMPACT_PERCENT_ENV,
     load_policy,
     load_preferences,
     NATIVE_CONTEXT_BASIS,
@@ -133,15 +135,16 @@ def _update_context_locked(payload: dict, home: Path, config_home: Path, percent
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             rows = cache_rows(cached, endpoint, token)
         except (OSError, UnicodeError, ValueError):
-            return None
-        if rows is None:
-            return None
-        catalog = available_rows(rows, policy)
+            rows = None
+        catalog = available_rows(rows, policy) if rows is not None else {}
         context = gateway_model_context(model, catalog)
-    budget = compaction_window(context, percent)
-    if budget is None:
+    compact = compaction_settings(context, percent)
+    if compact is None:
         return None
+    budget = compact["window"]
     value = str(budget)
+    percent_value = str(compact["percent"])
+    max_context = compact["maxContext"]
 
     temp = settings_path.with_name(settings_path.name + ".tmp." + str(os.getpid()) + "." + secrets.token_hex(6))
     try:
@@ -155,17 +158,20 @@ def _update_context_locked(payload: dict, home: Path, config_home: Path, percent
         if not isinstance(latest_env, dict):
             latest_env = {}
             latest["env"] = latest_env
-        changed = (
+        compact_changed = (
             latest.get("autoCompactWindow") != budget
             or latest_env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != value
+            or latest_env.get(COMPACT_PERCENT_ENV) != percent_value
         )
-        if not native:
-            changed = changed or latest_env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != value
+        context_changed = (not native and max_context is not None
+                           and latest_env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_context))
+        changed = compact_changed or context_changed
         if changed:
             latest["autoCompactWindow"] = budget
             latest_env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = value
-            if not native:
-                latest_env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = value
+            latest_env[COMPACT_PERCENT_ENV] = percent_value
+            if not native and max_context is not None:
+                latest_env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_context)
             data = (json.dumps(latest, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
             fd_temp = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
@@ -189,15 +195,17 @@ def _update_context_locked(payload: dict, home: Path, config_home: Path, percent
 
     result = {"model": model.strip(), "percent": percent, "window": budget, "native": native, "changed": changed}
     event = payload.get("hook_event_name")
-    if event in {"PreModelSwitch", "PostModelSwitch"}:
+    # A new percent or window is read at startup, so say so on any event;
+    # a model switch alone only ever changes the context cap.
+    if event in {"PreModelSwitch", "PostModelSwitch", "SessionStart"} and compact_changed:
         result["systemMessage"] = (
-            f"Auto-compact for {model.strip()} set to {percent}% of its context ({budget} tokens). "
-            "Restart Claude Code to apply."
+            f"Auto-compact set to {percent}% of each model's context. Restart Claude Code to apply."
+            + ("" if native or max_context is not None else " The model's context is unknown, so its limit is unchanged.")
         )
-    elif event == "SessionStart" and changed:
+    elif event in {"PreModelSwitch", "PostModelSwitch", "SessionStart"} and context_changed:
         result["systemMessage"] = (
-            f"Auto-compact set to {percent}% of {model.strip()}'s context ({budget} tokens). "
-            "Restart Claude Code to apply."
+            f"Context limit for {model.strip()} set to {max_context} tokens; restart Claude Code to apply it. "
+            f"Auto-compact stays at {percent}% of each model's context."
         )
     return result
 

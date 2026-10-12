@@ -239,7 +239,7 @@ class FleetWatchTests(unittest.TestCase):
         self.write_records(self.transcript, main)
         self.assertEqual(fleet_watch.on_prompt(self.payload(), self.home), [])
         usage_dir = self.home / ".claude" / "agentfleet" / "usage"
-        self.assertFalse(usage_dir.exists())
+        self.assertTrue(usage_dir.exists())  # learning is enabled when config is absent
         config = self.home / ".claude" / "agentfleet" / "config.json"
         config.parent.mkdir(parents=True, exist_ok=True)
         config.write_text('{"format":"agentfleet.config.v1","learn":true}', encoding="utf-8")

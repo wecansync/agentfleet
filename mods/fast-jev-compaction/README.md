@@ -18,6 +18,27 @@ The repository is both an npm package (`src/`) and a Claude Code plugin
 (`hooks/`, `.claude-plugin/`) that uses the package to replace Claude Code's
 built-in compaction summary with the original messages.
 
+## Compaction status
+
+After a main-conversation compaction, an AbovePrompt band shows JEV's reduction,
+kept-message count and duration, or a short reason for falling back to Claude's
+summary. Unknown measurements are omitted; after-token counts and tokens saved
+are estimates. The band stays until the next prompt or Hide, and includes the
+next UI handler's output so other bands can coexist. A missing-key notice is
+shown only once per session; every attempt still counts in statistics.
+
+`/jev` shows whether a key is configured (never its value), AgentFleet's global
+compact percentage (default 70; `off` means Claude Code default), session totals
+and the five most recent attempts. There is no separate compaction timer.
+
+Metadata-only lifetime totals and the newest 20 attempts are written via
+`$.fs.write` to `<claudeDir>/agentfleet/jev-stats.json` in the
+`agentfleet.jev-stats.v1` format. No conversation content or credentials are
+stored. The current engine exposes a direct file write, not atomic replacement
+or rename; writes are serialized within the session but are not atomic.
+Missing/unavailable storage leaves session statistics working. Reads
+reject oversized files and resolved paths outside the installed layout.
+
 ## How it works
 
 1. Every `tool_use` is paired with its `tool_result` by `tool_use_id`. Calls in

@@ -1,6 +1,7 @@
 {
   "name": "fast-jev-compaction",
-  "version": "0.3.0-agentfleet.2",
+  "version": "0.3.0-agentfleet.3",
+  "types": "./types/index.d.ts",
   "description": "Verbatim Jev-guided compaction for Claude Code sessions.",
   "license": "MIT",
   "userConfig": {

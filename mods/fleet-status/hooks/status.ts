@@ -1,4 +1,4 @@
-import type { Outage, Snapshot, Suggestion } from '../types'
+import type { JevStats, Outage, Snapshot, Suggestion } from '../types'
 
 // Only the installer's known layout may select a Claude directory.
 export function claudeDirectory(root: string): string | null {
@@ -60,7 +60,60 @@ export function parseSuggestion(source: string | null | undefined, project: stri
   const seen = item?.seen === null ? null : text(item?.seen, versionPattern)
   const pending = item?.pending
   return name && catalog && (item?.seen === null || seen !== null) && typeof pending === 'number' && Number.isSafeInteger(pending) && pending >= 0
-    ? { name, catalog, seen, pending } : null
+    ? { name, catalog, seen, pending, new: parseNew(item?.new) } : null
+}
+
+export function parseNew(value: unknown): Suggestion['new'] {
+  if (!Array.isArray(value) || value.length > 3) return []
+  const result: Suggestion['new'] = []
+  for (const raw of value) {
+    const item = record(raw)
+    const id = text(item?.id, /^[a-z0-9][a-z0-9-]{0,127}$/)
+    const title = text(item?.title, /^.{1,160}$/u)
+    const kind = text(item?.kind, /^(plugin|mod|hook|create-skill|claude-md)$/)
+    const why = text(item?.why, /^.{1,500}$/u)
+    if (id && title && kind && why && !result.some(item => item.id === id)) result.push({ id, title, kind, why })
+  }
+  return result
+}
+
+export function parseJev(source: string | null | undefined): JevStats | null {
+  const data = jsonRecord(source)
+  const totals = record(data?.totals)
+  const count = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+  if (data?.format !== 'agentfleet.jev-stats.v1' || !timestamp(data.updated) || !totals ||
+      !['compactions', 'jev', 'fallbacks', 'tokensSaved'].every(k => count(totals[k])) || !Array.isArray(data.recent)) return null
+  let latest: Record<string, unknown> | null = null
+  for (const raw of data.recent) {
+    const item = record(raw)
+    if (!item || !timestamp(item.at) || (typeof item.outcome !== 'string' || !['jev', 'fallback', 'no-key'].includes(item.outcome)) ||
+        (typeof item.trigger !== 'string' || !['auto', 'manual', 'plugin'].includes(item.trigger)) ||
+        !['tokensBefore', 'tokensAfter', 'messagesBefore', 'messagesKept'].every(k => item[k] === null || count(item[k])) ||
+        !count(item.ms) ||
+        !(item.reason === null || text(item.reason, /^.{0,1000}$/u) !== null)) return null
+    if (!latest || String(item.at) > String(latest.at)) latest = item
+  }
+  return { compactions: totals.compactions as number, jev: totals.jev as number, fallbacks: totals.fallbacks as number,
+    at: latest ? latest.at as string : null, before: latest ? latest.tokensBefore as number | null : null,
+    after: latest ? latest.tokensAfter as number | null : null }
+}
+
+const optionKeys = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+
+export function parseNewOptions(source: string | null | undefined): number {
+  const data = jsonRecord(source)
+  if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
+      !data.asked.every(key => typeof key === 'string')) return optionKeys.length
+  // Unknown string keys belong to newer bundles and do not count as reviewed options here.
+  const asked = data.asked
+  return optionKeys.filter(key => !asked.includes(key)).length
+}
+
+export function hasWizardOptions(version: string | null): boolean {
+  if (!version || !versionPattern.test(version)) return false
+  const [major, minor, patch] = version.split(/[.+-]/).slice(0, 3).map(Number)
+  return major > 2 || (major === 2 && (minor > 3 || (minor === 3 &&
+    (patch > 0 || (patch === 0 && !version.split('+')[0].includes('-'))))))
 }
 
 export function snapshotFromSources(claudeDir: string | null, sources: (string | null)[], project: string | null = null, now = Date.now()): Snapshot {
@@ -76,11 +129,13 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
   const config = configSource?.format === 'agentfleet.config.v1' ? configSource : null
   const percent = config?.compactPercent
   return {
-    compactPercent: percent === 'off' ? 'off' : typeof percent === 'number' && Number.isInteger(percent) && percent >= 40 && percent <= 95 ? percent : 70,
+    compactPercent: percent === 'off' ? 'off' : typeof percent === 'number' && Number.isInteger(percent) && percent >= 20 && percent <= 95 ? percent : 70,
     reviewerAccess: config?.reviewerAccess === 'run' || config?.reviewerAccess === 'read-only' ? config.reviewerAccess : 'full',
-    learn: typeof config?.learn === 'boolean' ? config.learn : false,
+    learn: typeof config?.learn === 'boolean' ? config.learn : true,
     outages: parseOutages(sources[5], now),
     suggestion: parseSuggestion(sources[6], project),
+    jev: parseJev(sources[7]),
+    newOptions: parseNewOptions(sources[8]),
     claudeDir,
     version: text(manifest?.version, versionPattern),
     profile: text(profile, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
@@ -95,7 +150,7 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
   }
 }
 
-export function notices(snapshot: Snapshot, versionAtStart: string | null): string[] {
+export function notices(snapshot: Snapshot, versionAtStart: string | null, hiddenIds: string[] = []): string[] {
   const lines: string[] = []
   const result = snapshot.lastResult
   if (snapshot.version !== null && versionAtStart !== null && snapshot.version !== versionAtStart) {
@@ -115,8 +170,12 @@ export function notices(snapshot: Snapshot, versionAtStart: string | null): stri
     lines.push(`fleet-${outage.lane} is failing (${outage.status} at ${utcTime(outage.at)}; ${outage.model}). ${alt ? `Dispatch fleet-${alt} until ${utcTime(outage.until)}.` : `Retry it after ${utcTime(outage.until)}.`}`)
   }
   const suggestion = snapshot.suggestion
-  if (suggestion && suggestion.pending > 0 && suggestion.seen !== suggestion.catalog) {
-    lines.push(`AgentFleet has ${suggestion.pending} suggestions for ${suggestion.name}: run /fleet-suggest`)
+  const first = suggestion?.new.find(item => !hiddenIds.includes(item.id))
+  if (suggestion && suggestion.pending > 0 && first) {
+    lines.push(`AgentFleet suggests ${first.title} (${first.kind}): ${first.why}. Run /fleet-suggest to install or dismiss it.${suggestion.pending > 1 ? ` (+${suggestion.pending - 1} more)` : ''}`)
+  }
+  if (hasWizardOptions(snapshot.version) && snapshot.newOptions > 0) {
+    lines.push('New AgentFleet options are available: run agentfleet configure in a terminal.')
   }
   return lines
 }
@@ -127,9 +186,11 @@ export function summary(snapshot: Snapshot, versionAtStart: string | null): stri
   return [
     `AgentFleet version: ${snapshot.version ?? 'unknown'}`,
     `Profile: ${snapshot.profile ?? 'not recorded'}`,
+    ...(hasWizardOptions(snapshot.version) ? [snapshot.newOptions === 0 ? 'Options: all reviewed' : `Options: ${snapshot.newOptions} new (run agentfleet configure)`] : []),
     `Auto-update: ${snapshot.enabled === null ? 'enabled (default)' : snapshot.enabled ? 'enabled' : 'disabled'}`,
-    `Auto-compact: ${snapshot.compactPercent === 'off' ? 'off (AgentFleet leaves the window alone)' : `${snapshot.compactPercent}% of the model's context`}`,
+    `Auto-compact: ${snapshot.compactPercent === 'off' ? 'off (AgentFleet leaves the window alone)' : `${snapshot.compactPercent}% of each model's context`}`,
     `Reviewer access: ${snapshot.reviewerAccess}`,
+    snapshot.jev ? `JEV: ${snapshot.jev.compactions} compactions (${snapshot.jev.jev} verbatim, ${snapshot.jev.fallbacks} fallbacks)${snapshot.jev.at ? `, last at ${utcTime(snapshot.jev.at)}` : ''}${snapshot.jev.before !== null && snapshot.jev.after !== null ? `; ${snapshot.jev.before} → ${snapshot.jev.after} tokens` : ''}` : 'JEV: no compactions recorded',
     `Suggestions learning: ${snapshot.learn ? 'on' : 'off'}`,
     `Lane outages: ${snapshot.outages.length ? snapshot.outages.map(item => `fleet-${item.lane} ${item.status} until ${utcTime(item.until)}`).join('; ') : 'none'}`,
     ...(snapshot.suggestion ? [`Suggestions for ${snapshot.suggestion.name}: ${snapshot.suggestion.pending} (run /fleet-suggest)`] : []),

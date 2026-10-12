@@ -56,10 +56,7 @@ For every item the user selects:
    ```bash
    python3 ~/.claude/fleet_suggest.py --project "$PWD" --dismiss <id1> <id2> ...
    ```
-2. Mark the suggestions as seen so status reminders are silenced:
-   ```bash
-   python3 ~/.claude/fleet_suggest.py --project "$PWD" --seen
-   ```
+2. The band clears automatically when Phase 1 lists suggestions; no final `--seen` step is needed.
 3. Briefly mention:
-   - `agentfleet config learn on|off`: opt-in usage learning (counts command names, tools, doc sites, slash commands per project; never prompt text; off by default).
+   - `agentfleet config learn on|off`: opt-in usage learning (counts command names, tools, doc sites, slash commands per project; never prompt text; on by default).
    - `agentfleet suggest --forget`: purges all stored usage counters and suggestion history.

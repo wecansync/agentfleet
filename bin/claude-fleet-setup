@@ -28,12 +28,14 @@ _HERE = Path(__file__).resolve().parent
 SCRIPTS = _HERE if (_HERE / "provider_catalog.py").is_file() else _HERE.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from provider_catalog import (  # noqa: E402
+    COMPACT_PERCENT_MAX,
+    COMPACT_PERCENT_MIN,
     CatalogError,
     NATIVE_CONTEXT_BASIS,
     acquire_lock,
     claude_cli,
     claude_cli_executable,
-    compaction_window,
+    compaction_settings,
     generic_policy,
     load_policy,
     load_preferences,
@@ -706,12 +708,15 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path, check_health: 
     is_native = not bool(env.get("ANTHROPIC_BASE_URL"))
     active_model = settings.get("model")
     model_context = resolve_model_context(home, active_model, is_native, policy_file)
-    if compact_percent == "off":
-        expected_window = None
-        compaction_optimal = True
-    else:
-        expected_window = compaction_window(model_context, compact_percent)
-        compaction_optimal = bool(expected_window is not None and compact_int == expected_window)
+    compact = compaction_settings(model_context, compact_percent)
+    expected_window = {"window": compact["window"], "percent": compact["percent"]} if compact else None
+    percent_env = env.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
+    try:
+        percent_int = int(percent_env) if percent_env is not None else None
+    except (ValueError, TypeError):
+        percent_int = None
+    compaction_optimal = compact is None or (compact_int == compact["window"] and percent_int == compact["percent"]
+                                            and settings.get("autoCompactWindow") == compact_int)
 
     hook_validations = []
     hooks_dict = settings.get("hooks", {})
@@ -882,9 +887,9 @@ def audit_fleet(home: Path, config_home: Path, policy_file: Path, check_health: 
             "native": not bool(env.get("ANTHROPIC_BASE_URL")),
             "stale_models": stale_models,
             "compaction": {
-                "current": compact_window,
-                "percent": compact_percent,
-                "context": model_context,
+                "window": compact_int,
+                "percent": percent_int,
+                "preference": compact_percent,
                 "expected": expected_window,
                 "optimal": compaction_optimal
             }
@@ -952,10 +957,10 @@ def print_audit_summary(audit: dict) -> None:
         print(f"[Settings] All configured models are valid live models (active model: {st.get('model')}, advisor: {st.get('advisor_model')}).")
 
     comp = st.get("compaction", {})
-    if comp.get("percent") == "off":
-        print(f"  - Compaction window: {comp.get('current')} (AgentFleet leaves it alone: compact off).")
+    if comp.get("preference") == "off":
+        print(f"  - Compaction window: {comp.get('window')} (AgentFleet leaves it alone: compact off).")
     else:
-        print(f"  - Compaction window: {comp.get('current')} (expected {comp.get('expected')} = {comp.get('percent')}% of {comp.get('context')}).")
+        print(f"  - Auto-compact: {comp.get('preference')}% of each model's context (window: {comp.get('window')}, settings percent: {comp.get('percent')}).")
 
     if hk.get("all_valid"):
         print(f"[Hooks] {hk.get('total')}/{hk.get('total')} hook commands verified (executables & script targets present on disk).")
@@ -1153,6 +1158,8 @@ def fix_settings(
 
         if target_compaction is not None:
             write_preferences(home, {"compactPercent": "off"})
+            if isinstance(env, dict) and env.pop("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", None) is not None:
+                changes.append("Auto-compact percentage override removed")
             target_window = target_compaction
             if isinstance(env, dict):
                 if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(target_window):
@@ -1169,17 +1176,22 @@ def fix_settings(
             if percent != "off":
                 active_model = settings.get("model")
                 ctx = resolve_model_context(home, active_model, is_native, policy_file)
-                target_window = compaction_window(ctx, percent)
+                compact = compaction_settings(ctx, percent)
+                target_window = compact["window"] if compact else None
                 if target_window is not None:
                     if isinstance(env, dict):
+                        if env.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") != str(percent):
+                            env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(percent)
+                            changes.append("Auto-compact percentage updated")
                         if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(target_window):
                             old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
                             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target_window)
                             changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {target_window}")
-                        if not is_native and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(target_window):
+                        max_context = compact["maxContext"]
+                        if not is_native and max_context is not None and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_context):
                             old_val = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
-                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(target_window)
-                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {target_window}")
+                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_context)
+                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {max_context}")
                     if settings.get("autoCompactWindow") != target_window:
                         old_val = settings.get("autoCompactWindow")
                         settings["autoCompactWindow"] = target_window
@@ -1190,6 +1202,15 @@ def fix_settings(
         return {"changed": bool(changes), "changes": changes}
     finally:
         release_lock(fd, lock)
+
+
+def context_sync(home: Path, config_home: Path, model: object, percent: object):
+    import importlib.util
+    script = SCRIPTS / "sync-model-context.py"
+    spec = importlib.util.spec_from_file_location("setup_context_sync", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.update_context({"model": model}, home, config_home, already_locked=True, percent_override=percent)
 
 
 def archive_agents(home: Path, targets: list[str]) -> dict:
@@ -1333,7 +1354,7 @@ def main() -> int:
     parser.add_argument("--fix-settings", action="store_true", help="replace stale models in settings.json and optimize compaction")
     parser.add_argument("--advisor", help="override advisorModel when fixing settings")
     parser.add_argument("--compaction", type=int, default=None, help="target compaction window override (sets compactPercent to 'off')")
-    parser.add_argument("--compact-percent", help="target compaction percentage (40-95 or 'off')")
+    parser.add_argument("--compact-percent", help="target compaction percentage (20-95 or 'off')")
     parser.add_argument("--archive-agents", help="comma-separated agent filenames or categories (engineering, game_dev, niche_ops, other, all) to archive")
     parser.add_argument("--restore-agents", help="comma-separated agent filenames or categories to restore from archive")
     parser.add_argument("--archive-skills", help="comma-separated skill names or categories (core, delegates, engineering, other, all) to archive")
@@ -1356,10 +1377,10 @@ def main() -> int:
         if args.compact_percent != "off":
             try:
                 cp = int(args.compact_percent)
-                if not (40 <= cp <= 95):
+                if not (COMPACT_PERCENT_MIN <= cp <= COMPACT_PERCENT_MAX):
                     raise ValueError
             except ValueError:
-                raise SystemExit("--compact-percent must be between 40 and 95 or 'off'")
+                raise SystemExit("--compact-percent must be between 20 and 95 or 'off'")
 
     if args.audit:
         res = audit_fleet(home, config_home, path, check_health=not args.no_health)
@@ -1384,34 +1405,8 @@ def main() -> int:
                 settings = read_json(settings_file, {})
                 if not isinstance(settings, dict):
                     raise SystemExit(f"settings file not found or invalid: {settings_file}")
-                env = settings.setdefault("env", {})
-                is_native = not bool(env.get("ANTHROPIC_BASE_URL")) if isinstance(env, dict) else True
-                ctx = resolve_model_context(home, settings.get("model"), is_native, path)
-                expected = compaction_window(ctx, pct)
-                if expected is not None:
-                    changes = []
-                    if settings.get("autoCompactWindow") != expected:
-                        old_val = settings.get("autoCompactWindow")
-                        settings["autoCompactWindow"] = expected
-                        changes.append(f"autoCompactWindow: {old_val} -> {expected}")
-                    if isinstance(env, dict):
-                        if env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(expected):
-                            old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-                            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(expected)
-                            changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {expected}")
-                        if not is_native and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(expected):
-                            old_val = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
-                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(expected)
-                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {expected}")
-                    if changes:
-                        atomic_json(settings_file, settings, 0o600)
-                        print("Settings updated:")
-                        for c in changes:
-                            print(f"  - {c}")
-                    else:
-                        print("Settings already optimal; no changes required.")
-                else:
-                    print(f"Compaction preference set to {pct}%.")
+                result = context_sync(home, config_home, settings.get("model"), pct)
+                print(f"Auto-compact set to {pct}% of each model's context. Restart Claude Code to apply.")
             finally:
                 release_lock(fd, lock)
         did_action = True
@@ -1428,6 +1423,8 @@ def main() -> int:
                 raise SystemExit(f"settings file not found or invalid: {settings_file}")
             env = settings.setdefault("env", {})
             changes = []
+            if isinstance(env, dict) and env.pop("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", None) is not None:
+                changes.append("Auto-compact percentage override removed")
             if settings.get("autoCompactWindow") != args.compaction:
                 old_val = settings.get("autoCompactWindow")
                 settings["autoCompactWindow"] = args.compaction

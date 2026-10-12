@@ -53,7 +53,7 @@ STATIC_ROLES = {
 BUILTIN_REVIEW_LANES = {
     "review", "review-alt", "review-deep", "security-review",
 }
-AUTO_COMPACT_WINDOW = 700000
+AUTO_COMPACT_WINDOW = 1000000
 AUTO_COMPACT_MIN = 100000
 AUTO_COMPACT_MAX = 1000000
 
@@ -257,8 +257,10 @@ def source_bundle(bundle: Path, errors: list[str]) -> dict | None:
     fleet = read_json(bundle / "config/delegate-fleet.json", errors, "fleet configuration")
     if template is not None:
         template_env = template.get("env") if isinstance(template.get("env"), dict) else {}
-        if template.get("autoCompactWindow") != AUTO_COMPACT_WINDOW or template_env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(AUTO_COMPACT_WINDOW):
-            fail(errors, f"settings template must compact at {AUTO_COMPACT_WINDOW} tokens")
+        if (template.get("autoCompactWindow") != AUTO_COMPACT_WINDOW
+                or template_env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW") != str(AUTO_COMPACT_WINDOW)
+                or template_env.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE") != "70"):
+            fail(errors, "settings template must compact at 1000000 tokens with CLAUDE_AUTOCOMPACT_PCT_OVERRIDE 70")
     if template is not None and fleet is not None:
         validate_fleet_and_picker(fleet, template, errors, "bundle")
     return manifest
@@ -523,6 +525,19 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
             fail(errors, f"installed CLAUDE_CODE_AUTO_COMPACT_WINDOW must be a plain token count from {AUTO_COMPACT_MIN} to {AUTO_COMPACT_MAX}")
         if isinstance(compact_window, int) and compact_env_number is not None and compact_window != compact_env_number:
             fail(errors, "installed autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW must match")
+        preference_file = home / ".claude" / "agentfleet" / "config.json"
+        try:
+            preferences = json.loads(preference_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            preferences = {}
+        preference = preferences.get("compactPercent", 70) if isinstance(preferences, dict) else 70
+        # With compaction "off" AgentFleet leaves the percentage to the user.
+        if isinstance(env, dict) and "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" in env and preference != "off":
+            percent = env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
+            if not isinstance(percent, str) or not re.fullmatch(r"[0-9]+", percent) or not 20 <= int(percent) <= 95:
+                fail(errors, "installed CLAUDE_AUTOCOMPACT_PCT_OVERRIDE must be an integer string from 20 to 95")
+            elif isinstance(preference, int) and not isinstance(preference, bool) and int(percent) != preference:
+                fail(errors, f"auto-compact percent in settings ({percent}) differs from AgentFleet's preference ({preference}); run agentfleet config compact {preference}")
         if isinstance(env, dict) and env.get("ANTHROPIC_BASE_URL"):
             try:
                 parsed = urllib.parse.urlparse(str(env["ANTHROPIC_BASE_URL"]))
@@ -557,6 +572,7 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
         home / ".claude" / "agentfleet.py",
         home / ".claude" / "fleet_watch.py",
         home / ".claude" / "fleet_suggest.py",
+        home / ".claude" / "fleet_configure.py",
         home / ".claude" / "fleet-suggestions.json",
         config_root / "delegate-skills" / "provider-policy.json",
         config_root / "delegate-skills" / "generate-claude-agents.mjs",

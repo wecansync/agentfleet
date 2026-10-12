@@ -266,6 +266,21 @@ def leave(reason, prompt, lane=None):
     sys.exit(0)
 
 
+suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+if fleet_suggest is not None and hasattr(fleet_suggest, "pending_notice"):
+    try:
+        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
+        # Recorded as shown by emit_context only once it is printed.
+        candidate = fleet_suggest.pending_notice(cwd, suggestion_home)
+        try:
+            settings = json.loads((suggestion_home / ".claude" / "settings.json").read_text(encoding="utf-8"))
+            band_enabled = settings.get("enabledPlugins", {}).get("fleet-status@agentfleet") is True
+        except (OSError, ValueError, AttributeError):
+            band_enabled = False
+        pending_suggestion = None if band_enabled else candidate
+    except Exception:
+        pending_suggestion = None
+
 if not prompt:
     emit_context(watcher_lines)
     sys.exit(0)
@@ -280,15 +295,6 @@ if ALREADY_ROUTED.search(prompt):
     leave("already-named", prompt)
 if INLINE.search(prompt):
     leave("inline-requested", prompt)
-
-suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
-if fleet_suggest is not None and hasattr(fleet_suggest, "pending_notice"):
-    try:
-        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
-        # Recorded as shown by emit_context only once it is printed.
-        pending_suggestion = fleet_suggest.pending_notice(cwd, suggestion_home)
-    except Exception:
-        pending_suggestion = None
 
 # A leading "add/write tests" is test work; otherwise the earliest signal in the
 # prompt wins, so "add X and add tests" routes to implement, not tests.

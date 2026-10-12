@@ -1,3 +1,8 @@
+import { atom, read, update } from 'claude-code';
+import type { CoreEngineInterface } from 'claude-code';
+import { addEntry, bandText, claudeDirectory, commandText, compactPercent, emptyStats, parseStats } from '../src/stats.js';
+import type { Entry, SessionEntry, Stats } from '../src/stats.js';
+import { estimateTokens } from '../src/state.js';
 import type {
   On,
   PluginOptions,
@@ -243,7 +248,6 @@ function notify(
   $: {
     ui: {
       log: (text: string) => void;
-      toast: (text: string, options?: { timeoutMs?: number }) => void;
     };
   },
   text: string,
@@ -251,21 +255,100 @@ function notify(
 ): void {
   const safe = safeLog(text, apiKey);
   $.ui.log(safe);
-  $.ui.toast(safe, { timeoutMs: 15_000 });
+  // The persistent AbovePrompt band replaces the short-lived toast.
+}
+
+const band = atom({ plugin: 'fast-jev-compaction', key: 'band' } as const, { text: null as string | null });
+
+async function readSource($: CoreEngineInterface, path: string): Promise<string | null> {
+  try {
+    const stat = await $.fs.stat(path, { resolve: true });
+    if (stat.kind !== 'file' || stat.realPath !== path || stat.size > 512 * 1024) return null;
+    return await $.fs.read(path);
+  } catch { return null; }
+}
+
+async function persist($: CoreEngineInterface, stats: Stats): Promise<void> {
+  const dir = claudeDirectory($.plugin.root);
+  if (!dir) return;
+  const path = `${dir}/agentfleet/jev-stats.json`;
+  try {
+    const parent = await $.fs.stat(`${dir}/agentfleet`, { resolve: true });
+    if (parent.kind !== 'directory' || parent.realPath !== `${dir}/agentfleet`) return;
+    if (await $.fs.exists(path)) {
+      const stat = await $.fs.stat(path, { resolve: true });
+      if (stat.kind !== 'file' || stat.realPath !== path || stat.size > 512 * 1024) return;
+    }
+    await $.fs.write(path, JSON.stringify(stats));
+  } catch { /* Optional persistence must not affect compaction. */ }
+}
+
+async function contextTokens($: CoreEngineInterface): Promise<number | null> {
+  try { const n = (await $.session.usage()).context?.tokens;
+    return typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null;
+  } catch { return null; }
+}
+
+async function showBand($: CoreEngineInterface, text: string | null): Promise<void> {
+  await update($, band, () => ({ text }));
 }
 
 export const register: Register = (on: On, options: PluginOptions) => {
   const configured = resolveHookConfig(options);
   let noKeyWarned = false;
+  let session = emptyStats();
+  let lifetime = emptyStats();
+  let loaded = false;
+  let writes = Promise.resolve();
+
+  on('session.start', async ($, e, next) => {
+    noKeyWarned = false;
+    session = emptyStats();
+    loaded = false;
+    await showBand($, null);
+    await $.command.register({ name: 'jev', description: 'Show JEV compaction status and session statistics' });
+    return next(e);
+  });
+  on('prompt.submit', async ($, e, next) => {
+    await showBand($, null);
+    return next(e);
+  });
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const other = await next(e);
+    const current = await read($, band);
+    if (!current.text || e.props.hasSurvey) return other;
+    const { Box, Text, Button } = $.ui.resolve(e);
+    // No width on the wrapper: the engine rejects another mod's node under a
+    // Box with width, so only our own row is sized.
+    return <Box flexDirection="column">
+      {other}
+      <Box width={e.props.bodyColumns}><Text wrap="wrap">{current.text}</Text><Button key="jev-hide" label="Hide" onPress={() => showBand($, null)} /></Box>
+    </Box>;
+  });
+  on('command.run', { command: 'jev' }, async $ => {
+    const apiKey = await getApiKey($, configured);
+    const dir = claudeDirectory($.plugin.root);
+    const source = dir ? await readSource($, `${dir}/agentfleet/config.json`) : null;
+    return { text: commandText(Boolean(apiKey), compactPercent(source), session).split('\n').map(line => safeLog(line, apiKey)).join('\n') };
+  });
 
   on('session.compact', async ($, event, next) => {
     if (event.agentId) return next(event);
     if (event.trigger === 'precompute') return next(event);
 
+    const started = await $.clock.now();
+    const tokensBefore = await contextTokens($);
+    let outcome: Entry['outcome'] = 'fallback';
+    let reason: string | null = null;
+    let kept: SessionMessage[] | null = null;
+    let ratio: number | null = null;
+    let tokensAfter: number | null = null;
+    let notice = true;
     let apiKey = configured.apiKey;
     try {
       apiKey = await getApiKey($, configured);
       if (!apiKey) {
+        notice = !noKeyWarned;
         if (!noKeyWarned) {
           notify(
             $,
@@ -273,8 +356,10 @@ export const register: Register = (on: On, options: PluginOptions) => {
           );
           noKeyWarned = true;
         }
-        return next(event);
-      }
+        outcome = 'no-key';
+        reason = 'no TypeSafe API key configured';
+        // The first notice was logged above; only its band is shown once.
+      } else {
       const config = { ...configured, apiKey };
       const { result, messages } = await compactSession(event.messages, config, async (url, init) => {
         const response = await $.http.fetch(url, init);
@@ -287,22 +372,51 @@ export const register: Register = (on: On, options: PluginOptions) => {
           `fallback to built-in summary (below ${percent(config.minReductionRatio)} minimum: ${summarize(result)})`,
           apiKey,
         );
-        return next(event);
+        reason = `below ${percent(config.minReductionRatio)} minimum reduction`;
+      } else {
+        outcome = 'jev';
+        kept = messages;
+        ratio = reductionRatio(result);
+        tokensAfter = estimateTokens(JSON.stringify(result.messages.map(message => ({
+          role: message.role, text: message.text,
+          toolUses: message.toolUses.map(tool => ({ tool: tool.tool, input: tool.input, text: tool.text })),
+          toolResults: message.toolResults?.map(result => ({ text: result.text })),
+        }))));
+        notify($, `kept ${messages.length}/${event.messages.length} messages, no summary (${summarize(result)})`, apiKey);
       }
-      notify(
-        $,
-        `kept ${messages.length}/${event.messages.length} messages, no summary (${summarize(result)})`,
-        apiKey,
-      );
-      return { messages };
+      }
     } catch (error) {
       notify(
         $,
         `fallback to built-in summary (${error instanceof Error ? error.message : String(error)})`,
         apiKey,
       );
-      return next(event);
+      // Do not retain service error text: it can contain echoed conversation content.
+      reason = 'JEV request or compaction failed';
     }
+    const finished = await $.clock.now();
+    const ms = Math.max(0, finished - started);
+    const entry: Entry = {
+      at: new Date(finished).toISOString(), outcome,
+      trigger: safeLog(event.trigger, apiKey), tokensBefore, tokensAfter,
+      messagesBefore: outcome === 'jev' ? event.messages.length : null,
+      messagesKept: kept?.length ?? null, ms, reason,
+    };
+    const sessionEntry: SessionEntry = { ...entry, reductionRatio: ratio, durationMs: ms };
+    session = addEntry(session, sessionEntry);
+    const queue = writes.then(async () => {
+      if (!loaded) {
+        const dir = claudeDirectory($.plugin.root);
+        lifetime = parseStats(dir ? await readSource($, `${dir}/agentfleet/jev-stats.json`) : null);
+        loaded = true;
+      }
+      lifetime = addEntry(lifetime, entry);
+      await persist($, lifetime);
+    });
+    writes = queue.catch(() => {});
+    await writes;
+    if (notice) await showBand($, safeLog(bandText({ ...entry, reductionRatio: ratio, durationMs: ms }), apiKey));
+    return kept ? { messages: kept } : next(event);
   });
 };
 

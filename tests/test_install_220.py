@@ -134,6 +134,7 @@ class Install220Tests(unittest.TestCase):
             "XDG_CONFIG_HOME": str(home / ".config"),
             "PYTHONDONTWRITEBYTECODE": "1",
             "AGENTFLEET_NONINTERACTIVE": "1",
+            "AGENTFLEET_NO_CONFIGURE": "1",
             "FAKE_CLAUDE_STATE": str(self.state_path),
             "FAKE_CLAUDE_LOG": str(self.log_path),
         }
@@ -293,15 +294,38 @@ class Install220Tests(unittest.TestCase):
         meta = self.metadata(home)
         self.assertEqual(meta.get("modsState"), "declined")
 
-    def test_fresh_install_compaction_window_default_is_700000(self):
+    def test_fresh_install_compaction_window_default_is_1000000(self):
         home = self.home_for()
         res = self.install(home)
         self.assertEqual(res.returncode, 0, res.stderr + res.stdout)
         settings = json.loads((home / ".claude" / "settings.json").read_text())
-        self.assertEqual(settings.get("autoCompactWindow"), 700000)
-        self.assertEqual(settings.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "700000")
+        self.assertEqual(settings.get("autoCompactWindow"), 1000000)
+        self.assertEqual(settings.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "1000000")
+        self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "70")
+        self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", settings["env"])
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import provider_catalog
+        self.assertIs(provider_catalog.load_preferences(home)["learn"], True)
 
-    def test_update_refreshes_bundle_owned_800000_pair_to_700000(self):
+    def test_hook_written_220_pair_upgrades_and_learning_stays_off(self):
+        home = self.home_for()
+        self.assertEqual(self.install(home).returncode, 0)
+        conf = home / ".claude" / "agentfleet" / "config.json"
+        conf.write_text(json.dumps({"compactPercent": 40}))
+        settings_file = home / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+        settings["autoCompactWindow"] = 400000
+        settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "400000"
+        settings["env"].pop("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", None)
+        settings_file.write_text(json.dumps(settings))
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        settings = json.loads(settings_file.read_text())
+        self.assertEqual(settings["autoCompactWindow"], 1000000)
+        self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "40")
+        self.assertIs(json.loads(conf.read_text())["learn"], False)
+
+    def test_update_refreshes_bundle_owned_800000_pair_to_1000000(self):
         home = self.home_for()
         res = self.install(home)
         self.assertEqual(res.returncode, 0)
@@ -324,10 +348,10 @@ class Install220Tests(unittest.TestCase):
         up = self.install(home)
         self.assertEqual(up.returncode, 0, up.stderr + up.stdout)
         settings_after = json.loads(settings_path.read_text())
-        self.assertEqual(settings_after.get("autoCompactWindow"), 700000)
-        self.assertEqual(settings_after.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "700000")
+        self.assertEqual(settings_after.get("autoCompactWindow"), 1000000)
+        self.assertEqual(settings_after.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "1000000")
 
-    def test_compact_percent_55_sets_window_to_550000(self):
+    def test_compact_percent_55_sets_window_to_1000000(self):
         home = self.home_for()
         conf_dir = home / ".claude" / "agentfleet"
         conf_dir.mkdir(parents=True, exist_ok=True)
@@ -341,8 +365,8 @@ class Install220Tests(unittest.TestCase):
         res = self.install(home)
         self.assertEqual(res.returncode, 0, res.stderr + res.stdout)
         settings = json.loads((home / ".claude" / "settings.json").read_text())
-        self.assertEqual(settings.get("autoCompactWindow"), 550000)
-        self.assertEqual(settings.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "550000")
+        self.assertEqual(settings.get("autoCompactWindow"), 1000000)
+        self.assertEqual(settings.get("env", {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"), "1000000")
 
     def test_user_edited_compaction_pair_is_preserved(self):
         home = self.home_for()

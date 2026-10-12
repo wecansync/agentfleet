@@ -363,11 +363,6 @@ run_bundle_installer() {
         return $?
     fi
 
-    if [ -n "${AGENTFLEET_NONINTERACTIVE:-}" ]; then
-        python3 "$_rbi_installer" "$@"
-        return $?
-    fi
-
     if have_usable_tty; then
         python3 "$_rbi_installer" "$@" </dev/tty
         return $?

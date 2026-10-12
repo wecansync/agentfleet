@@ -167,6 +167,22 @@ class ProfileTests(unittest.TestCase):
                 return parts[1] if parts[0] == "*" else parts[0]
         self.fail(f"no profile for gateway a in:\n{listing}")
 
+    def test_global_compact_percent_survives_switches(self):
+        self.ok(self.add("b", "b"))
+        self.ok(self.af("config", "compact", "40"))
+        for name in ("native", "b", "native"):
+            self.ok(self.af("use", name))
+            self.assertEqual(self.settings_env()["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "40")
+            self.assertEqual(self.read(self.home / ".claude/settings.json")["autoCompactWindow"], 1000000)
+
+    def test_doctor_reports_percent_preference_mismatch(self):
+        settings_file = self.home / ".claude/settings.json"
+        settings = self.read(settings_file)
+        settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = "40"
+        settings_file.write_text(json.dumps(settings))
+        result = self.run_cmd([str(self.home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(self.home), "--config-home", str(self.config)])
+        self.fails(result, "auto-compact percent in settings (40) differs from AgentFleet's preference (70); run agentfleet config compact 70")
+
     # -- add ----------------------------------------------------------------------
     def test_add_saves_a_profile_without_touching_the_live_setup(self):
         before = self.live_files()
