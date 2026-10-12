@@ -61,7 +61,7 @@ c9148563e1e6a2d09f5249cd239cdf7cf065d6eaa70507300156db65fa30f2ba  mods/fleet-sta
 c549f7a102b02f7be7f5ec3542c96f0bd02a855036a4083c46f1a78482fb7c4a  mods/fleet-status/hooks/register.tsx
 95121dca3582f4b192f8d24503722bb4851bb2e3bfa8b4b3d5732c71e029caed  mods/fleet-status/hooks/status.ts
 abf55b80a4c28bb187aaa787f6d0ac2908ffc654fb9c2b5c3e7d6f4254937d32  mods/fleet-status/hooks/tasks.ts
-d4103d2d6052e8ba61d052f33a778eda00ff7bbcec9e3f64aec4bb854220a60a  mods/fleet-status/tests/status.test.ts
+6b2961cb2c1c0f6eee37ff95e44ecf2eafd5a36d62c27c299a834f1d5967a96a  mods/fleet-status/tests/status.test.ts
 ca175dbb0aa215d4fa9e7af8986a500cfb032d355a70ec0ae86d2aa91f1f14c3  mods/fleet-status/tests/tasks.test.ts
 9ad7612147a951cead795693583d3ccf30b0c5d6f12d39f93eec4458a24b9b75  mods/fleet-status/types/index.d.ts
 05642a2e197b3bdb67b89ee0c90f7b55c67ac340337a83c88db2d131abb3b243  mods/lane-guard/.claude-plugin/plugin.json
