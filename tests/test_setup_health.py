@@ -202,6 +202,25 @@ class SetupHealthTests(unittest.TestCase):
         self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
 
+    def test_compact_percent_flag_accepts_range_floor(self) -> None:
+        proc = self.run_fleet_setup("--compact-percent", "20")
+        self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
+        self.assertEqual(load_preferences(self.home)["compactPercent"], 20)
+
+    def test_fix_settings_unknown_context_skips_max_context(self) -> None:
+        self.settings_data["model"] = "opus"
+        self.settings_data["env"].pop("ANTHROPIC_DEFAULT_OPUS_MODEL", None)
+        self.settings_data["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = "700000"
+        (self.claude_dir / "settings.json").write_text(json.dumps(self.settings_data, indent=2))
+        write_preferences(self.home, {"compactPercent": 70})
+
+        proc = self.run_fleet_setup("--fix-settings")
+        self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
+        updated = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertNotIn("None", json.dumps(updated))
+        self.assertEqual(updated["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "70")
+
     def _setup_fake_claude_on_path(self) -> tuple[str, dict[str, str]]:
         bin_dir = self.home / "fake-bin"
         bin_dir.mkdir(parents=True, exist_ok=True)

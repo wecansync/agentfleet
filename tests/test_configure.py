@@ -75,6 +75,76 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(json.loads(run.call_args.kwargs['env']['AGENTFLEET_CONFIGURE_ARGS']), ['--yes'])
         self.assertNotIn('--yes', run.call_args.args[0])
 
+    def test_background_installer_ignores_leftover_environment_configuration(self):
+        class Download:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def read(self):
+                return b'exit 0\n'
+        leftover = {"AGENTFLEET_PRESET": "team.json", "AGENTFLEET_CONFIGURE_ARGS": '["--yes"]'}
+        with patch.dict(os.environ, leftover), patch.object(api.urllib.request, 'urlopen', return_value=Download()), patch.object(api.subprocess, 'run', return_value=argparse.Namespace(returncode=0)) as run:
+            self.assertEqual(api._run_installer(self.paths, []), 0)
+        self.assertNotIn('AGENTFLEET_PRESET', run.call_args.kwargs['env'])
+        self.assertNotIn('AGENTFLEET_CONFIGURE_ARGS', run.call_args.kwargs['env'])
+
+    def test_update_converts_environment_preset_to_absolute_path(self):
+        args = argparse.Namespace(installer_args=[], yes=False, preset=None)
+        with patch.dict(os.environ, {"AGENTFLEET_PRESET": "team.json"}), patch.object(api, '_run_installer', return_value=0) as installer:
+            self.assertEqual(api.cmd_update(self.paths, args), 0)
+        self.assertEqual(installer.call_args.kwargs['configure_args'], ['--preset', str(Path('team.json').resolve())])
+
+    def test_update_explicit_preset_overrides_environment_preset(self):
+        args = argparse.Namespace(installer_args=[], yes=False, preset=str(self.home / 'team.json'))
+        with patch.dict(os.environ, {"AGENTFLEET_PRESET": "other.json"}), patch.object(api, '_run_installer', return_value=0) as installer:
+            self.assertEqual(api.cmd_update(self.paths, args), 0)
+        self.assertEqual(installer.call_args.kwargs['configure_args'], ['--preset', str(self.home / 'team.json')])
+
+    def test_update_forwards_no_configure(self):
+        args = argparse.Namespace(installer_args=['--no-configure'], yes=False, preset=None)
+        with patch.object(api, '_run_installer', return_value=0) as installer:
+            self.assertEqual(api.cmd_update(self.paths, args), 0)
+        self.assertIn('--no-configure', installer.call_args.args[1])
+
+    def test_unknown_preset_field_is_escaped(self):
+        data = {"format": "agentfleet.preset.v1", "bad\x1b[31mfield": True}
+        with self.assertRaises(ValueError) as raised:
+            wizard.validate_preset(data)
+        self.assertNotIn("\x1b", str(raised.exception))
+        self.assertIn("\\x1b", str(raised.exception))
+
+    def test_key_prompt_discloses_storage(self):
+        output = io.StringIO()
+        with patch.object(wizard.getpass, 'getpass', return_value='') as ask, contextlib.redirect_stdout(output):
+            wizard.ask_key(api, self.paths)
+        ask.assert_called_once()
+        self.assertIn('~/.claude/settings.json', output.getvalue())
+        self.assertIn('TYPESAFE_API_KEY', output.getvalue())
+        self.assertIn('/plugin', output.getvalue())
+
+    def test_learning_question_names_documentation_sites(self):
+        learn = next(f for f in wizard.FEATURES if f.key == 'learn')
+        self.assertIn('documentation sites', learn.question)
+        self.assertIn('never prompt text', learn.question)
+
+    def test_plugin_features_stay_unasked_without_mods(self):
+        (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
+        result = self.cli('--after-install')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "New AgentFleet options are available: run agentfleet configure")
+        self.assertEqual(self.cli('--yes').returncode, 0)
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertEqual(asked, ['compact', 'reviewerAccess', 'learn', 'autoUpdate'])
+        (self.paths.claude / ".claude-agents-config-install.json").write_text(json.dumps({"version": "2.3.0", "modsMarketplace": True}))
+        self.assertIn("New AgentFleet options are available", self.cli('--after-install').stdout)
+
+    def test_no_hint_without_mods_when_only_plugin_features_remain(self):
+        (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
+        self.paths.store.mkdir(parents=True, exist_ok=True)
+        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate'], "version": "2.3.0"}))
+        self.assertEqual(self.cli('--after-install').stdout, "")
+
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
         self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES))
@@ -169,7 +239,7 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count(wizard.MODS_MESSAGE), 1)
         self.assertFalse((self.home / 'commands.log').exists())
-        self.assertEqual(json.loads((self.paths.store / 'wizard.json').read_text())['asked'], KEYS)
+        self.assertEqual(json.loads((self.paths.store / 'wizard.json').read_text())['asked'], ['compact', 'reviewerAccess', 'learn', 'autoUpdate'])
 
     def test_apply_failure(self):
         args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(self.preset({'learn': False})))

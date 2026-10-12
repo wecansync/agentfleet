@@ -135,10 +135,8 @@ def _update_context_locked(payload: dict, home: Path, config_home: Path, percent
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             rows = cache_rows(cached, endpoint, token)
         except (OSError, UnicodeError, ValueError):
-            return None
-        if rows is None:
-            return None
-        catalog = available_rows(rows, policy)
+            rows = None
+        catalog = available_rows(rows, policy) if rows is not None else {}
         context = gateway_model_context(model, catalog)
     compact = compaction_settings(context, percent)
     if compact is None:
@@ -202,6 +200,7 @@ def _update_context_locked(payload: dict, home: Path, config_home: Path, percent
     if event in {"PreModelSwitch", "PostModelSwitch", "SessionStart"} and compact_changed:
         result["systemMessage"] = (
             f"Auto-compact set to {percent}% of each model's context. Restart Claude Code to apply."
+            + ("" if native or max_context is not None else " The model's context is unknown, so its limit is unchanged.")
         )
     elif event in {"PreModelSwitch", "PostModelSwitch", "SessionStart"} and context_changed:
         result["systemMessage"] = (

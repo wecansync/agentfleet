@@ -307,6 +307,45 @@ services:
         self.assertIsNotNone(fleet_suggest.notice(str(proj), self.home))
         self.assertFalse(lock.exists())
 
+    def _old_lock(self, content: str) -> Path:
+        lock = self.home / ".claude" / "agentfleet" / ".suggestions.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text(content, encoding="utf-8")
+        old = time.time() - fleet_suggest.STALE_LOCK_SECONDS - 5
+        os.utime(lock, (old, old))
+        return lock
+
+    def test_old_lock_with_live_owner_is_not_stolen(self):
+        lock = self._old_lock(json.dumps({"pid": os.getpid(), "token": "held"}))
+        with self.assertRaises(TimeoutError):
+            with fleet_suggest._suggestions_lock(self.home):
+                self.fail("lock was taken from a live owner")
+        self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["token"], "held")
+
+    def test_old_lock_with_dead_owner_is_recovered(self):
+        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead.wait()
+        lock = self._old_lock(json.dumps({"pid": dead.pid, "token": "gone"}))
+        with fleet_suggest._suggestions_lock(self.home):
+            self.assertNotEqual(json.loads(lock.read_text(encoding="utf-8"))["token"], "gone")
+        self.assertFalse(lock.exists())
+
+    def test_very_old_lock_with_reused_live_pid_is_recovered(self):
+        lock = self.home / ".claude" / "agentfleet" / ".suggestions.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text(json.dumps({"pid": os.getpid(), "token": "reused"}), encoding="utf-8")
+        old = time.time() - fleet_suggest.LOCK_MAX_SECONDS - 5
+        os.utime(lock, (old, old))
+        with fleet_suggest._suggestions_lock(self.home):
+            self.assertNotEqual(json.loads(lock.read_text(encoding="utf-8"))["token"], "reused")
+        self.assertFalse(lock.exists())
+
+    def test_release_keeps_lock_owned_by_another_holder(self):
+        lock = self.home / ".claude" / "agentfleet" / ".suggestions.lock"
+        with fleet_suggest._suggestions_lock(self.home):
+            lock.write_text(json.dumps({"pid": os.getpid(), "token": "other"}), encoding="utf-8")
+        self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["token"], "other")
+
     def test_cli_seen_dismiss_forget(self):
         proj = self.root / "cli_proj"
         proj.mkdir()

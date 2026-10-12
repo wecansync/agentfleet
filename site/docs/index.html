@@ -124,7 +124,7 @@
       <section id="install">
         <h2 class="anchor-heading">Install<a class="anchor-link" href="#install" aria-label="Link to this section">#</a></h2>
         <p><strong>One command installs and updates.</strong> Run the same command again on an existing install, or use <code class="il">agentfleet update</code>; both keep your provider profile. After a successful terminal install or update, the configuration wizard asks only questions you haven't answered before. Enter keeps the current value. Skip it with <code class="il">AGENTFLEET_NO_CONFIGURE=1</code> or <code class="il">--no-configure</code>.</p>
-        <p>Apply a team preset with <code class="il">AGENTFLEET_PRESET=team.json</code> or <code class="il">agentfleet update --preset team.json</code>. See <a href="#teams">For teams</a>.</p>
+        <p>Apply a team preset on update with <code class="il">AGENTFLEET_PRESET=team.json agentfleet update</code>, and skip the configuration wizard with <code class="il">AGENTFLEET_NO_CONFIGURE=1 agentfleet update</code>. Both variables work with the 2.2.0 CLI and 2.3.0. From 2.3.0, <code class="il">agentfleet update --preset FILE</code>, <code class="il">--yes</code>, and <code class="il">--no-configure</code> are also available. See <a href="#teams">For teams</a>.</p>
         <p>The download script fetches <code class="il">releases/latest.json</code>, downloads the pinned release archive, verifies its SHA-256, extracts it to <code class="il">~/.local/share/agentfleet/releases/&lt;version&gt;</code> (Windows: <code class="il">%LOCALAPPDATA%\AgentFleet\releases\&lt;version&gt;</code>), then runs <code class="il">bin/install.py</code>.</p>
 
         <div class="tabs" id="install-quick-tabs">
@@ -170,7 +170,7 @@
         </ol>
 
         <h3 id="install-noninteractive" class="anchor-heading">Non-interactive install<a class="anchor-link" href="#install-noninteractive" aria-label="Link to this section">#</a></h3>
-        <p>Set <code class="il">AGENTFLEET_NONINTERACTIVE=1</code> to disable all prompts, or pass explicit flags:</p>
+        <p>Set <code class="il">AGENTFLEET_NONINTERACTIVE=1</code> to skip the provider questions, or pass explicit flags. In a terminal, the configuration wizard still asks about new options, so add <code class="il">AGENTFLEET_NO_CONFIGURE=1</code> to skip it too. Without a terminal, nothing is asked.</p>
 
         <div class="tabs" id="install-gateway-tabs">
           <div role="tablist" aria-label="Operating system">
@@ -259,11 +259,12 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <h3 class="panel-label">Windows (PowerShell)</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy team install command for Windows">Copy</button></div>
-              <pre><code>$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex</code></pre>
+              <pre><code>$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET</code></pre>
             </div>
           </div>
         </div>
-        <p>Already installed? Use <code class="il">agentfleet update --preset team.json</code> or <code class="il">agentfleet configure --preset team.json</code>. Presets supply no credentials. Each person sets their own TypeSafe key with hidden input in <code class="il">agentfleet configure</code> or through <code class="il">/plugin</code> (fast-jev-compaction → Configure), never in chat.</p>
+        <p>A preset path is relative to the current directory.</p>
+        <p>Already installed? On macOS/Linux, run <code class="il">AGENTFLEET_PRESET=team.json agentfleet update</code>. On Windows PowerShell, run <code class="il">$env:AGENTFLEET_PRESET="team.json"; agentfleet update; Remove-Item Env:AGENTFLEET_PRESET</code>. From 2.3.0, <code class="il">agentfleet configure --preset team.json</code> also applies a preset. Presets supply no credentials. The wizard can save your TypeSafe key with hidden input into <code class="il">~/.claude/settings.json</code> (env <code class="il">TYPESAFE_API_KEY</code>), where commands Claude runs can read it. For private storage, leave it empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure. Never paste keys in chat.</p>
         <p>Verify with <code class="il">agentfleet config</code>, <code class="il">/fleet-status</code>, and <code class="il">/jev</code> when JEV is enabled. Roll back an install or update with <code class="il">agentfleet rollback</code>.</p>
       </section>
 
@@ -282,7 +283,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <div class="cmd-ref-item"><code class="il">--wizard</code><p>Force the wizard even on an existing install.</p></div>
           <div class="cmd-ref-item"><code class="il">--no-wizard</code><p>Skip provider prompts and post-install configuration; keep or infer the provider.</p></div>
           <div class="cmd-ref-item"><code class="il">--no-configure</code><p>Skip post-install configuration only. <code class="il">AGENTFLEET_NO_CONFIGURE=1</code> also skips it.</p></div>
-          <div class="cmd-ref-item"><code class="il">AGENTFLEET_NONINTERACTIVE=1</code><p>Disable all prompts. Equivalent to <code class="il">--no-wizard</code> plus suppressing any other interactive input.</p></div>
+          <div class="cmd-ref-item"><code class="il">AGENTFLEET_NONINTERACTIVE=1</code><p>Skip the provider questions, like <code class="il">--no-wizard</code>. In a terminal, add <code class="il">AGENTFLEET_NO_CONFIGURE=1</code> to skip the new-options questions too. Without a terminal, nothing is asked.</p></div>
         </div>
         <aside class="callout tip"><span class="callout-label">Tip</span><p>Pass flags through the one-liner with <code class="il">sh -s -- --no-wizard</code> on macOS/Linux, or wrap the PowerShell script in a scriptblock and append flags directly. See <a href="#install-flags">Install flags</a> for the full flag list and examples.</p></aside>
       </section>
@@ -795,7 +796,7 @@ claude plugin install lane-guard@agentfleet</code></pre>
 
       <section id="preferences">
         <h2 class="anchor-heading">Preferences<a class="anchor-link" href="#preferences" aria-label="Link to this section">#</a></h2>
-        <p>Run <code class="il">agentfleet configure</code> in a terminal to ask every question: auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, and automatic updates. Enter keeps the current value. When enabling JEV without an available key, hidden input can save your TypeSafe key as <code class="il">TYPESAFE_API_KEY</code> in <code class="il">~/.claude/settings.json</code>'s <code class="il">env</code> (mode 0600).</p>
+        <p>Run <code class="il">agentfleet configure</code> in a terminal to ask every question: auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, and automatic updates. Enter keeps the current value. When enabling JEV without an available key, hidden input can save your TypeSafe key as <code class="il">TYPESAFE_API_KEY</code> in <code class="il">~/.claude/settings.json</code>'s <code class="il">env</code> (mode 0600), where commands Claude runs can read it. For private storage, leave the key empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure.</p>
         <div class="code-wrap">
           <pre><code>agentfleet configure --yes              # keep values; mark questions answered
 agentfleet configure --preset team.json # apply a preset without prompts

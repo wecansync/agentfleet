@@ -525,19 +525,19 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
             fail(errors, f"installed CLAUDE_CODE_AUTO_COMPACT_WINDOW must be a plain token count from {AUTO_COMPACT_MIN} to {AUTO_COMPACT_MAX}")
         if isinstance(compact_window, int) and compact_env_number is not None and compact_window != compact_env_number:
             fail(errors, "installed autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW must match")
-        if isinstance(env, dict) and "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" in env:
+        preference_file = home / ".claude" / "agentfleet" / "config.json"
+        try:
+            preferences = json.loads(preference_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            preferences = {}
+        preference = preferences.get("compactPercent", 70) if isinstance(preferences, dict) else 70
+        # With compaction "off" AgentFleet leaves the percentage to the user.
+        if isinstance(env, dict) and "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" in env and preference != "off":
             percent = env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
             if not isinstance(percent, str) or not re.fullmatch(r"[0-9]+", percent) or not 20 <= int(percent) <= 95:
                 fail(errors, "installed CLAUDE_AUTOCOMPACT_PCT_OVERRIDE must be an integer string from 20 to 95")
-            else:
-                preference_file = home / ".claude" / "agentfleet" / "config.json"
-                try:
-                    preferences = json.loads(preference_file.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    preferences = {}
-                preference = preferences.get("compactPercent", 70) if isinstance(preferences, dict) else 70
-                if isinstance(preference, int) and not isinstance(preference, bool) and int(percent) != preference:
-                    fail(errors, f"auto-compact percent in settings ({percent}) differs from AgentFleet's preference ({preference}); run agentfleet config compact {preference}")
+            elif isinstance(preference, int) and not isinstance(preference, bool) and int(percent) != preference:
+                fail(errors, f"auto-compact percent in settings ({percent}) differs from AgentFleet's preference ({preference}); run agentfleet config compact {preference}")
         if isinstance(env, dict) and env.get("ANTHROPIC_BASE_URL"):
             try:
                 parsed = urllib.parse.urlparse(str(env["ANTHROPIC_BASE_URL"]))

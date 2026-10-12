@@ -46,6 +46,20 @@ class CompactPercentTests(unittest.TestCase):
         self.assertEqual(json.loads(self.run_sync_hook("model-200k", "SessionStart").stdout)["systemMessage"],
                          "Auto-compact set to 20% of each model's context. Restart Claude Code to apply.")
 
+    def test_missing_cache_still_writes_percent_and_window(self):
+        self.gateway()
+        self.cache_path.unlink()
+        self.set_percent(50)
+        result = self.run_sync_hook("model-200k")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        current = json.loads(self.settings_path.read_text())
+        self.assertEqual(current["env"][provider_catalog.COMPACT_PERCENT_ENV], "50")
+        self.assertEqual(current["autoCompactWindow"], 1000000)
+        self.assertEqual(current["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(current["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "700000")
+        self.assertIn("Auto-compact set to 50% of each model's context. Restart Claude Code to apply.", result.stdout)
+        self.assertIn("model's context is unknown", result.stdout)
+
     def test_unknown_gateway_and_native_preserve_max(self):
         self.gateway()
         result = self.run_sync_hook("unlisted")
@@ -72,8 +86,10 @@ class CompactPercentTests(unittest.TestCase):
         self.assertEqual(notice, "Context limit for small set to 200000 tokens; restart Claude Code to apply it. Auto-compact stays at 70% of each model's context.")
         unknown, _, _ = reconcile.reconcile_context(repaired, {"small": {}}, self.home)
         self.assertEqual(unknown["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "200000")
-        missing, _, _ = reconcile.reconcile_context(original, {}, self.home)
+        missing, missing_notice, _ = reconcile.reconcile_context(original, {}, self.home)
         self.assertEqual(missing["autoCompactWindow"], 1000000)
+        self.assertEqual(missing["env"][provider_catalog.COMPACT_PERCENT_ENV], "70")
+        self.assertIn("The model's context is unknown, so its limit is unchanged.", missing_notice)
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", missing["env"])
         native = {"model": "small", "env": {"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "300000"}}
         native_updated, _, _ = reconcile.reconcile_context(native, catalog, self.home)

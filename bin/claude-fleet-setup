@@ -28,6 +28,8 @@ _HERE = Path(__file__).resolve().parent
 SCRIPTS = _HERE if (_HERE / "provider_catalog.py").is_file() else _HERE.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 from provider_catalog import (  # noqa: E402
+    COMPACT_PERCENT_MAX,
+    COMPACT_PERCENT_MIN,
     CatalogError,
     NATIVE_CONTEXT_BASIS,
     acquire_lock,
@@ -1185,10 +1187,11 @@ def fix_settings(
                             old_val = env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
                             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(target_window)
                             changes.append(f"env.CLAUDE_CODE_AUTO_COMPACT_WINDOW: {old_val} -> {target_window}")
-                        if not is_native and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(ctx):
+                        max_context = compact["maxContext"]
+                        if not is_native and max_context is not None and env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS") != str(max_context):
                             old_val = env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS")
-                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(ctx)
-                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {target_window}")
+                            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_context)
+                            changes.append(f"env.CLAUDE_CODE_MAX_CONTEXT_TOKENS: {old_val} -> {max_context}")
                     if settings.get("autoCompactWindow") != target_window:
                         old_val = settings.get("autoCompactWindow")
                         settings["autoCompactWindow"] = target_window
@@ -1374,7 +1377,7 @@ def main() -> int:
         if args.compact_percent != "off":
             try:
                 cp = int(args.compact_percent)
-                if not (40 <= cp <= 95):
+                if not (COMPACT_PERCENT_MIN <= cp <= COMPACT_PERCENT_MAX):
                     raise ValueError
             except ValueError:
                 raise SystemExit("--compact-percent must be between 20 and 95 or 'off'")

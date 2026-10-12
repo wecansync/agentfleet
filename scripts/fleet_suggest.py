@@ -888,6 +888,48 @@ def suggest(home: Path, project: Path) -> list[dict]:
 
 
 STALE_LOCK_SECONDS = 30
+LOCK_MAX_SECONDS = 600
+
+
+def _lock_owner(lock: Path) -> dict | None:
+    try:
+        owner = json.loads(lock.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return owner if isinstance(owner, dict) else None
+
+
+def _lock_is_stale(lock: Path) -> bool:
+    try:
+        age = time.time() - lock.stat().st_mtime
+    except OSError:
+        return False
+    if age > LOCK_MAX_SECONDS:
+        return True
+    if age <= STALE_LOCK_SECONDS:
+        return False
+    owner = _lock_owner(lock)
+    pid = owner.get("pid") if owner else None
+    if not isinstance(pid, int) or pid <= 0 or os.name == "nt":
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    except OSError:
+        return True
+    return False
+
+
+def _remove_stale_lock(lock: Path) -> None:
+    graveyard = lock.with_name(f"{lock.name}.{secrets.token_hex(8)}.stale")
+    try:
+        os.rename(lock, graveyard)
+    except FileNotFoundError:
+        return
+    graveyard.unlink(missing_ok=True)
 
 
 @contextmanager
@@ -896,28 +938,27 @@ def _suggestions_lock(home: Path):
     directory = home / ".claude" / "agentfleet"
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock = directory / ".suggestions.lock"
+    token = secrets.token_hex(16)
     deadline = time.monotonic() + 2
     while True:
         try:
             fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             break
         except FileExistsError:
-            # A holder killed mid-update leaves the file behind; a refresh
-            # takes well under a second, so an old lock is stale.
-            try:
-                if time.time() - lock.stat().st_mtime > STALE_LOCK_SECONDS:
-                    lock.unlink(missing_ok=True)
-                    continue
-            except OSError:
-                pass
+            if _lock_is_stale(lock):
+                _remove_stale_lock(lock)
+                continue
             if time.monotonic() >= deadline:
                 raise TimeoutError("suggestions store is busy")
             time.sleep(0.01)
     try:
+        os.write(fd, json.dumps({"pid": os.getpid(), "token": token}).encode("utf-8"))
         yield
     finally:
         os.close(fd)
-        lock.unlink(missing_ok=True)
+        owner = _lock_owner(lock)
+        if owner and owner.get("token") == token:
+            lock.unlink(missing_ok=True)
 
 
 def _refresh_store(cwd: str, home: Path, **options) -> tuple[dict, list[dict]]:

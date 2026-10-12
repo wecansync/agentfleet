@@ -391,6 +391,12 @@ test('strict JEV summary includes timestamp and token savings', () => {
     expect(parseJev(source)).toBeNull()
   }
 })
+test('JEV summary accepts null per-attempt counts from fallback and no-key entries', () => {
+  const fallback = { at: '2026-10-09T08:59:00Z', outcome: 'no-key', trigger: 'auto', tokensBefore: null, tokensAfter: null,
+    messagesBefore: null, messagesKept: null, ms: 0, reason: 'built-in summary' }
+  expect(parseJev(jevSource({ recent: [fallback] }))).not.toBeNull()
+  expect(parseJev(jevSource({ recent: [{ ...fallback, messagesBefore: 'x' }] }))).toBeNull()
+})
 test('all new suggestion fields reject hostile values and excessive lengths', () => {
   for (const field of ['id', 'title', 'kind', 'why']) {
     for (const value of ['bad\n', 'safe‮', 'a'.repeat(501), 1]) {

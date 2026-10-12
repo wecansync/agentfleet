@@ -245,7 +245,8 @@ class PreferencesTests(unittest.TestCase):
         })
         enabled = self.run_agentfleet("jev", "on", env=env)
         self.assertEqual(enabled.returncode, 0, enabled.stderr)
-        self.assertIn("never stores or asks", enabled.stdout)
+        self.assertIn("saved in ~/.claude/settings.json when you enter it in the configure wizard", enabled.stdout)
+        self.assertNotIn("typesafe-key-not-forwarded", enabled.stdout)
         logged = [json.loads(line) for line in fake_log.read_text(encoding="utf-8").splitlines()]
         # A listed plugin is enabled (install would not turn a disabled one back on); an unlisted one is installed.
         self.assertEqual(logged[0]["argv"], ["plugin", "list", "--json"])

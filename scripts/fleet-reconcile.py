@@ -815,7 +815,8 @@ def reconcile_context(
         if not native and max_context is not None:
             env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(max_context)
     if compact_changed:
-        return result, f"Auto-compact set to {percent}% of each model's context. Restart Claude Code to apply.", target
+        unknown = "" if native or max_context is not None else " The model's context is unknown, so its limit is unchanged."
+        return result, f"Auto-compact set to {percent}% of each model's context. Restart Claude Code to apply.{unknown}", target
     if context_changed:
         return result, (f"Context limit for {active.strip()} set to {max_context} tokens; restart Claude Code to apply it. "
                         f"Auto-compact stays at {percent}% of each model's context."), target

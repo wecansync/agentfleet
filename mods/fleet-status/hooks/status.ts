@@ -88,8 +88,8 @@ export function parseJev(source: string | null | undefined): JevStats | null {
     const item = record(raw)
     if (!item || !timestamp(item.at) || (typeof item.outcome !== 'string' || !['jev', 'fallback', 'no-key'].includes(item.outcome)) ||
         (typeof item.trigger !== 'string' || !['auto', 'manual', 'plugin'].includes(item.trigger)) ||
-        !['tokensBefore', 'tokensAfter', 'messagesKept'].every(k => item[k] === null || count(item[k])) ||
-        !count(item.messagesBefore) || !count(item.ms) ||
+        !['tokensBefore', 'tokensAfter', 'messagesBefore', 'messagesKept'].every(k => item[k] === null || count(item[k])) ||
+        !count(item.ms) ||
         !(item.reason === null || text(item.reason, /^.{0,1000}$/u) !== null)) return null
     if (!latest || String(item.at) > String(latest.at)) latest = item
   }

@@ -987,23 +987,99 @@ def prior_installed_matches(prior: dict[str, dict], identity: str, current: obje
     )
 
 
-def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, dict], journal: dict[str, dict], home: Path | None = None) -> None:
+MAX_CONTEXT_KEY = "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+
+
+def catalog_context(rows: list[dict] | None, model: object) -> int | None:
+    """The catalog context of ``model``, or None when the catalog does not size it."""
+    if not isinstance(model, str) or not model.strip() or not rows:
+        return None
+    active = provider_catalog.strip_known_suffix(model)
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("id"), str) and provider_catalog.strip_known_suffix(row["id"]) == active:
+            return provider_catalog.context_length(row)
+    return None
+
+
+def scaled_windows(context: int | None, percent: object) -> set[int]:
+    """The windows 2.2.0 wrote for ``context``: its percentage of the context,
+    clamped to Claude Code's range, at the preference and at the default."""
+    if context is None:
+        return set()
+    percents = {70} | ({percent} if isinstance(percent, int) and not isinstance(percent, bool) else set())
+    return {max(100_000, min(1_000_000, context * value // 100)) for value in percents}
+
+
+def merge_context_cap(desired: dict, existing: dict, prior: dict[str, dict], journal: dict[str, dict], cap: int | None, context: int | None, percent: object) -> None:
+    """Cap a gateway profile at its active model's real context.
+
+    The cap is AgentFleet's while it is missing, unchanged since an install
+    wrote it, the template default earlier releases shipped, or what 2.2.0
+    wrote: the scaled window, pinned together with both window controls. Any
+    other value is the user's and stays, and an unknown context changes nothing.
+    """
+    if cap is None:
+        return
+    path = ["env", MAX_CONTEXT_KEY]
+    identity = "value:env:" + MAX_CONTEXT_KEY
+    current = get_nested(existing, path)
+    env = existing.get("env") if isinstance(existing.get("env"), dict) else {}
+    number = compact_number(current) if current is not ABSENT else None
+    pinned_with_window = (
+        number is not None
+        and number == compact_number(existing.get("autoCompactWindow"))
+        and number == compact_number(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW"))
+    )
+    owned = (
+        current is ABSENT
+        or prior_installed_matches(prior, identity, current)
+        or current == AUTO_COMPACT_ENV
+        or pinned_with_window
+        or (number is not None and number in scaled_windows(context, percent))
+    )
+    if not owned:
+        return
+    value = str(cap)
+    if current != value:
+        record_value_journal(journal, identity, path, current, value, prior)
+    desired.setdefault("env", {})[MAX_CONTEXT_KEY] = value
+
+
+def merge_compaction_controls(
+    desired: dict,
+    existing: dict,
+    prior: dict[str, dict],
+    journal: dict[str, dict],
+    home: Path | None = None,
+    *,
+    compact_percent: object = None,
+    gateway_mode: bool = False,
+    gateway_context: int | None = None,
+) -> None:
     """Keep the two global compaction controls valid and ownership-aware.
 
     Claude Code accepts one global window, so an update must never refresh one
     control while preserving a later edit to the other.  A mismatched pair is
     refused unless it is the exact legacy pair recorded as bundle-installed;
     a one-sided value is mirrored so a deliberate user value remains intact.
+    A gateway profile also caps the active model at its catalog context.
     """
-    compact_percent = 70
-    if home is not None:
-        try:
-            compact_percent = provider_catalog.load_preferences(home).get("compactPercent", 70)
-        except Exception:
-            pass
-    compact = provider_catalog.compaction_settings(None, compact_percent)
+    if compact_percent is None:
+        compact_percent = 70
+        if home is not None:
+            try:
+                compact_percent = provider_catalog.load_preferences(home).get("compactPercent", 70)
+            except Exception:
+                pass
+    compact = provider_catalog.compaction_settings(gateway_context if gateway_mode else None, compact_percent)
     if compact is None:
         return
+    # The installer passes the merged settings as both arguments, so read the
+    # cap before it can change.
+    old_cap = compact_number(get_nested(existing, ["env", MAX_CONTEXT_KEY]))
+    if gateway_mode:
+        # Decided before the window pair changes: 2.2.0 pinned the cap to it.
+        merge_context_cap(desired, existing, prior, journal, compact["maxContext"], gateway_context, compact_percent)
     effective_window = compact["window"]
     pct_path = ["env", provider_catalog.COMPACT_PERCENT_ENV]
     pct_identity = "value:env:" + provider_catalog.COMPACT_PERCENT_ENV
@@ -1058,17 +1134,12 @@ def merge_compaction_controls(desired: dict, existing: dict, prior: dict[str, di
         fail("compaction controls contain an invalid token count; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to matching integers from 100000 to 1000000 before updating")
 
     pair_owned = prior_installed_matches(prior, top_identity, top_current) and prior_installed_matches(prior, env_identity, env_current)
-    legacy_context = provider_catalog.NATIVE_CONTEXT_BASIS
-    if home is not None and existing_env.get("ANTHROPIC_BASE_URL"):
-        try:
-            cached = json.loads((home / ".claude" / "cache" / "provider-models-cache.json").read_text(encoding="utf-8"))
-            rows = provider_catalog.cache_rows(cached, existing_env["ANTHROPIC_BASE_URL"], existing_env.get("ANTHROPIC_AUTH_TOKEN", ""))
-            active = provider_catalog.strip_known_suffix(existing.get("model", ""))
-            row = next((row for row in (rows or []) if provider_catalog.strip_known_suffix(row.get("id", "")) == active), {})
-            legacy_context = provider_catalog.context_length(row)
-        except (OSError, ValueError, TypeError):
-            legacy_context = None
-    hook_owned = legacy_context is not None and top_number == max(100_000, min(1_000_000, legacy_context * int(compact_percent) // 100))
+    # The installer's own catalog (live, or the cache it accepts offline)
+    # sizes the gateway model, so every ownership check agrees on the context.
+    gateway = gateway_mode or bool(existing_env.get("ANTHROPIC_BASE_URL"))
+    legacy_context = gateway_context if gateway else provider_catalog.NATIVE_CONTEXT_BASIS
+    # 2.2.0's hooks wrote the scaled window to both controls and the cap.
+    hook_owned = top_number in scaled_windows(legacy_context, compact_percent) or (gateway and top_number == old_cap)
     if top_number != env_number:
         legacy_owned = (
             top_number == LEGACY_AUTO_COMPACT_WINDOW
@@ -1112,6 +1183,37 @@ def user_owned_compaction_window(existing: dict, previous: dict, home: Path) -> 
     if owned or top in {700_000, 800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV), AUTO_COMPACT_WINDOW}:
         return None
     return top
+
+
+def initial_compact_percent(existing: dict, previous: dict, home: Path, kept_window: int | None, gateway_mode: bool) -> tuple[object, object, str | None]:
+    """Return (percent this install applies, preference to record or None, note).
+
+    The decision comes before the settings merge, so the merge never writes a
+    percentage the same install then turns off. A hand-set window without a
+    gateway turns AgentFleet's compaction off. Without a recorded preference,
+    a percentage the user put in settings.json is theirs: 20-95 becomes the
+    preference, and any other value turns AgentFleet's compaction off so the
+    value is left exactly as it is.
+    """
+    if kept_window is not None and not gateway_mode:
+        return "off", "off", None
+    raw = provider_catalog.load_json(provider_catalog.preferences_path(home))
+    if isinstance(raw, dict) and provider_catalog.valid_compact_percent(raw.get("compactPercent")):
+        return raw["compactPercent"], None, None
+    default = provider_catalog.PREFERENCE_DEFAULTS["compactPercent"]
+    env = existing.get("env") if isinstance(existing.get("env"), dict) else {}
+    current = env.get(provider_catalog.COMPACT_PERCENT_ENV, ABSENT)
+    identity = "value:env:" + provider_catalog.COMPACT_PERCENT_ENV
+    if current is ABSENT or prior_installed_matches(previous_journal_map(previous), identity, current):
+        return default, None, None
+    text = str(current).strip() if isinstance(current, (str, int)) and not isinstance(current, bool) else ""
+    if re.fullmatch(r"[0-9]+", text) and provider_catalog.valid_compact_percent(int(text)):
+        percent = int(text)
+        return percent, percent, f"Kept your auto-compact percentage ({percent}%) from settings.json. Change it with: agentfleet config compact N"
+    return "off", "off", (
+        f"Left your {provider_catalog.COMPACT_PERCENT_ENV} setting as it is; AgentFleet manages 20-95% only. "
+        f"To let AgentFleet manage it: agentfleet config compact {default}"
+    )
 
 
 def set_nested(value: dict, path: list[str], item: object) -> None:
@@ -1833,6 +1935,8 @@ def merge_settings(
     gateway_token: str | None,
     required_models: set[str],
     previous_managed: dict[str, dict] | None = None,
+    catalog_rows: list[dict] | None = None,
+    compact_percent: object = None,
 ) -> tuple[dict, list[dict], str | None, bool, list[str], list[str]]:
     desired = copy.deepcopy(existing)
     prior = previous_journal_map(previous)
@@ -1884,7 +1988,7 @@ def merge_settings(
         # Gateway credentials, discovery, and the compaction env control are
         # handled below with profile- or pairing-specific ownership rules; a
         # plain template refresh here could desync the compaction pair.
-        if key in {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"}:
+        if key in {"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", MAX_CONTEXT_KEY}:
             continue
         identity = f"value:env:{key}"
         if key not in env:
@@ -1894,13 +1998,6 @@ def merge_settings(
             # The same ownership rule applies to environment-backed settings.
             record_value_journal(journal, identity, ["env", key], env[key], value, prior)
             env[key] = copy.deepcopy(value)
-
-    # Resolve the paired compaction controls after defaults are merged. The
-    # pairing logic reads the merged state, not the pre-merge original, so any
-    # earlier merge step that touched a compaction value is still re-paired and
-    # no output can reach the write stage with a mismatched pair.
-    merge_compaction_controls(desired, desired, prior, journal, home=home)
-    env = desired.get("env") if isinstance(desired.get("env"), dict) else {}
 
     # Merge maps without clobbering user choices.
     for key in ("enabledPlugins", "extraKnownMarketplaces"):
@@ -2019,6 +2116,17 @@ def merge_settings(
         if current_advisor != preferred_advisor:
             record_value_journal(journal, "value:advisorModel", ["advisorModel"], current_advisor, preferred_advisor, prior)
             desired["advisorModel"] = preferred_advisor
+
+    # Resolve the paired compaction controls after defaults and the active
+    # model are merged. The pairing logic reads the merged state, not the
+    # pre-merge original, so any earlier merge step that touched a compaction
+    # value is still re-paired and no output can reach the write stage with a
+    # mismatched pair; the gateway cap sizes the model this install leaves active.
+    merge_compaction_controls(
+        desired, desired, prior, journal, home=home, compact_percent=compact_percent,
+        gateway_mode=gateway_mode, gateway_context=catalog_context(catalog_rows, desired.get("model")) if gateway_mode else None,
+    )
+    env = desired.get("env") if isinstance(desired.get("env"), dict) else {}
 
     # Platform-safe hook merge at inner-command granularity. Discovery is an
     # explicit opt-in, but a previously enabled value backed by gateway
@@ -3064,10 +3172,12 @@ def profile_data(
     tier_labels: dict[str, str] | None = None,
     drop_shipped_pins: bool = False,
     carry_from: dict | None = None,
+    catalog_out: dict | None = None,
 ) -> tuple[str, bytes, dict, dict, str]:
     """Return (profile, fleet bytes, fleet, settings template, catalog note).
 
-    Lane choices are carried from carry_from, else the installed fleet.
+    Lane choices are carried from carry_from, else the installed fleet. A
+    gateway profile stores the catalog rows it used in catalog_out["rows"].
     """
     template = load_json(bundle / "config/settings.template.json", "settings template")
     fleet_source = load_json(bundle / "config/delegate-fleet.json", "fleet configuration")
@@ -3083,6 +3193,8 @@ def profile_data(
         # The caller withholds a token that belongs to another endpoint.
         token = gateway_token if gateway_url else (existing.get("env") or {}).get("ANTHROPIC_AUTH_TOKEN")
         rows, source = discover_gateway_rows(home, url, token, existing)
+        if catalog_out is not None:
+            catalog_out["rows"] = rows
         if rows:
             fleet, template_profile = gateway_profile(carried, template, rows, policy)
             note = f"gateway models: {len(rows)} ({source})"
@@ -3330,6 +3442,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         switched_to_native = False
     gateway_mode, gateway_state = determine_gateway(args, previous, existing, not dry, switched_to_native)
     kept_window = None if dry else user_owned_compaction_window(existing, previous, home)
+    compact_percent, decided_percent, compact_note = initial_compact_percent(existing, previous, home, kept_window, gateway_mode)
     # Require full gateway credentials before constructing any output. Dry-run
     # never prompts, but it may validate/read an explicitly named token
     # environment variable so the preview can render the gateway profile.
@@ -3352,11 +3465,12 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     policy_data, carry_from = provider_policy(bundle, home, config_root, existing, gateway_url if args.gateway_url and requested else None)
     policy = install_policy(policy_data)
     labels: dict[str, str] = {}
+    catalog: dict = {}
     while True:
         profile, fleet_bytes, fleet, template, catalog_note = profile_data(
             bundle, gateway_mode, home=home, config_root=config_root, existing=existing,
             gateway_url=gateway_url, gateway_token=discovery_token, policy=policy, tier_labels=labels,
-            carry_from=carry_from,
+            carry_from=carry_from, catalog_out=catalog,
             # One-time migration of 1.0.0's shipped pins. A fresh install
             # also qualifies, harmlessly: it has no fleet to carry.
             drop_shipped_pins=version_key(previous.get("version")) < (2, 0, 1),
@@ -3378,7 +3492,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     }
     desired, journal, _, gateway_owned, permission_owned, hook_notices = merge_settings(
         existing, template, home, config_root, args, not dry, previous, gateway_mode, gateway_token, required_models,
-        previous_managed=previous_managed,
+        previous_managed=previous_managed, catalog_rows=catalog.get("rows"), compact_percent=compact_percent,
     )
     settings_bytes = json_bytes(desired)
     fleet_hash = bytes_sha256(fleet_bytes)[:16]
@@ -3440,16 +3554,20 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     preference_data = load_json(preference_file, "preferences") if preference_file.is_file() else {}
     if previous and "learn" not in preference_data:
         preference_changes["learn"] = False
-    if kept_window is not None and not gateway_mode:
-        preference_changes["compactPercent"] = "off"
+    if decided_percent is not None:
+        preference_changes["compactPercent"] = decided_percent
     if preference_changes:
         preference_data.update(preference_changes)
         preference_data["format"] = provider_catalog.PREFERENCES_FORMAT
         specs[preference_file] = (json_bytes(preference_data), 0o600, "home:.claude/agentfleet/config.json")
 
     # Retired files join the same snapshot as every write, so a failed doctor
-    # check restores them along with everything else.
-    backup = create_backup(list(specs) + retired, home, False, "apply")
+    # check restores them along with everything else. The configuration
+    # wizard's record of answered questions joins it too: `agentfleet
+    # configure` writes it after this install, and a rollback that restores
+    # the old preferences must ask those questions again.
+    wizard_state = home / ".claude" / "agentfleet" / "wizard.json"
+    backup = create_backup(list(specs) + retired + [wizard_state], home, False, "apply")
     assert backup is not None
     print(f"Created backup snapshot: {backup}")
     try:
@@ -3488,11 +3606,9 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         return 1
     print(f"Installed AgentFleet {version} ({profile}) under {home}")
     if kept_window is not None and not gateway_mode:
-        try:
-            provider_catalog.write_preferences(home, {"compactPercent": "off"})
-            print(f"Kept your auto-compact window ({kept_window} tokens). To size it from each model's context instead: agentfleet config compact 70")
-        except (OSError, ValueError) as exc:
-            print(f"Could not record your auto-compact window as your own ({exc}); keep it with: agentfleet config compact off")
+        print(f"Kept your auto-compact window ({kept_window} tokens). To compact at a percentage of each model's context instead: agentfleet config compact 70")
+    if compact_note:
+        print(compact_note)
     in_path = str(bin_dir) in os.environ.get("PATH", "").split(os.pathsep)
     if not in_path:
         print(f"Tip: add {bin_dir} to your PATH to run agentfleet, claude-fleet-setup, claude-fleet-sync, and claude-agents-doctor directly.")

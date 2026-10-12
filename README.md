@@ -46,8 +46,11 @@ profile. After a successful install or update in a terminal, the configuration
 wizard asks only questions you haven't answered before. Enter keeps the current
 value. Skip it with `AGENTFLEET_NO_CONFIGURE=1` or `--no-configure`.
 
-Apply a team preset with `AGENTFLEET_PRESET=team.json` (see [For teams](#for-teams))
-or `agentfleet update --preset team.json`.
+Apply a team preset on update with `AGENTFLEET_PRESET=team.json agentfleet update`
+(see [For teams](#for-teams)). Skip the configuration wizard with
+`AGENTFLEET_NO_CONFIGURE=1 agentfleet update`. Both variables work with the 2.2.0
+CLI and 2.3.0. From 2.3.0, `agentfleet update --preset FILE`, `--yes`, and
+`--no-configure` are also available.
 
 The download script fetches `releases/latest.json`, downloads the pinned
 release archive, verifies its SHA-256, extracts it to
@@ -129,7 +132,9 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
 | `--rollback --apply [--backup DIR]` | Restore the newest (or a named) backup. |
 | `--home`, `--config-home`, `--prefix` | Override path roots. |
 
-`AGENTFLEET_NONINTERACTIVE=1` disables all prompts.
+`AGENTFLEET_NONINTERACTIVE=1` skips the provider questions. In a terminal, the
+configuration wizard still asks about new options, so add
+`AGENTFLEET_NO_CONFIGURE=1` to skip it too. Without a terminal, nothing is asked.
 
 `AGENTFLEET_MODS=0` also opts out of mods; `agentfleet update` honors the
 variable. See [Mods](#mods) for requirements and optional plugins.
@@ -156,13 +161,22 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_PRESET=team.
 **Windows PowerShell:**
 
 ```powershell
-$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex
+$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET
 ```
 
-Already installed? Use `agentfleet update --preset team.json` or
-`agentfleet configure --preset team.json`. A preset does not supply credentials;
-each person sets their own TypeSafe key with hidden input in `agentfleet configure`
-or through `/plugin` (fast-jev-compaction → Configure), never in chat.
+A preset path is relative to the current directory.
+
+Already installed? Run `AGENTFLEET_PRESET=team.json agentfleet update` on macOS/Linux, or
+on Windows PowerShell:
+
+```powershell
+$env:AGENTFLEET_PRESET="team.json"; agentfleet update; Remove-Item Env:AGENTFLEET_PRESET
+```
+
+From 2.3.0, `agentfleet configure --preset team.json` also applies a preset. A preset does not supply credentials.
+The wizard can save your TypeSafe key with hidden input into `~/.claude/settings.json`
+(env `TYPESAFE_API_KEY`), where commands Claude runs can read it. For private storage,
+leave it empty and use `/plugin` → fast-jev-compaction → Configure. Never paste keys in chat.
 
 Verify with `agentfleet config`, `/fleet-status`, and `/jev` (when JEV is enabled).
 Roll back an install or update with `agentfleet rollback`.
@@ -294,8 +308,10 @@ differs from auto-ranking.
 Run `agentfleet configure` in a terminal to ask every question: auto-compact
 percentage, JEV, reviewer access, learning, fleet-status, lane-guard, and automatic
 updates. Enter keeps the current value. When enabling JEV without an available
-key, the wizard offers hidden TypeSafe API key input and stores it as
-`TYPESAFE_API_KEY` in `~/.claude/settings.json`'s `env` (mode 0600).
+key, the wizard offers hidden TypeSafe API key input and can store it as
+`TYPESAFE_API_KEY` in `~/.claude/settings.json`'s `env` (mode 0600), where
+commands Claude runs can read it. For private storage, leave the key empty and
+use `/plugin` → fast-jev-compaction → Configure.
 
 ```bash
 agentfleet configure --yes              # keep current values; mark questions answered
