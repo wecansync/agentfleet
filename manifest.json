@@ -144,7 +144,7 @@
     },
     {
       "path": "bin/claude-fleet-setup",
-      "sha256": "b6546ca1a8a34ae2d0d84ebe9d32bc98891151ebc2ebaca522f2da45d154315b",
+      "sha256": "499bd842188332de6d4adf1d601e27b429a87048868bd11667d1b634a3a80a8f",
       "mode": "0o755"
     },
     {
@@ -154,7 +154,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "805158daa605cf9e00f69c40e2e14173ea2fcf30c8e15c251239ca032091a439",
+      "sha256": "86391ccf588289aa80bf584678c19464dc4782e2b118fc4c3fb1e66f52634d9e",
       "mode": "0o755"
     },
     {
@@ -509,7 +509,7 @@
     },
     {
       "path": "tests/test_install_windows_repairs.py",
-      "sha256": "8c48ff0e73b1614cf7d9ccccdeb508322c56a0d48f39a41613643e63cc56a13a",
+      "sha256": "66a4276640902002d3584f2704cf221da90d9ea82153d553feab14c93caee037",
       "mode": "0o644"
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "tests/test_provider_repair.py",
-      "sha256": "35fd17dc0b246d18470d6fbf149f15452b02a47286d338426a64f98b0217dd22",
+      "sha256": "29617757de7060ccf63b2bfb91f31555c30cfb5592b6a45ceda736c6f69835e7",
       "mode": "0o755"
     },
     {

@@ -2441,6 +2441,11 @@ def posix_python_wrapper(script: Path, home: Path, prefix: Path, config_root: Pa
 # cmd.exe looks in the current directory before PATH, so a repo-local
 # where.bat, node.bat or python.bat would run instead of the real program.
 NO_CWD_SEARCH = 'set "NoDefaultCurrentDirectoryInExePath=1"\r\n'
+# cmd.exe decodes batch lines with the console code page, so the UTF-8 paths in
+# a shim are read as UTF-8 and the caller's code page is restored before the run.
+CHCP = '"%SystemRoot%\\System32\\chcp.com"'
+CODEPAGE_TO_UTF8 = f'set "AF_CP="\r\nfor /f "tokens=2 delims=:." %%C in (\'{CHCP}\') do set "AF_CP=%%C"\r\n{CHCP} 65001 >nul 2>nul\r\n'
+CODEPAGE_RESTORE = f"{CHCP} %AF_CP% >nul 2>nul & "
 WHERE_EXE = '"%SystemRoot%\\System32\\where.exe"'
 
 
@@ -2471,9 +2476,9 @@ def cmd_dispatch(
 
     if runtime == "node":
         body = (
-            f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{find('node.exe')}"
-            f"if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n"
-            f'(goto) 2>nul & "%AF_EXE%" {script_arg}{args} %*\r\n'
+            f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{CODEPAGE_TO_UTF8}{find('node.exe')}"
+            f"if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & {CODEPAGE_RESTORE}exit /b 1)\r\n"
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" {script_arg}{args} %*\r\n'
         )
     else:
         # Try the interpreter this installer ran under first: on a machine
@@ -2487,17 +2492,17 @@ def cmd_dispatch(
         pinned = quote(sys.executable)
         body = (
             f"@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"
-            f"{NO_CWD_SEARCH}"
+            f"{NO_CWD_SEARCH}{CODEPAGE_TO_UTF8}"
             f"if not exist {pinned} goto no_pin\r\n"
-            f"(goto) 2>nul & {pinned} {script_arg}{args} %*\r\n"
+            f"(goto) 2>nul & {CODEPAGE_RESTORE}{pinned} {script_arg}{args} %*\r\n"
             f":no_pin\r\n"
             f"{find('py.exe')}"
             f"if not defined AF_EXE goto no_py\r\n"
-            f'(goto) 2>nul & "%AF_EXE%" -3 {script_arg}{args} %*\r\n'
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" -3 {script_arg}{args} %*\r\n'
             f":no_py\r\n"
             f"{find('python.exe')}"
-            f"if not defined AF_EXE (echo Python was not found on PATH 1>&2 & exit /b 9009)\r\n"
-            f'(goto) 2>nul & "%AF_EXE%" {script_arg}{args} %*\r\n'
+            f"if not defined AF_EXE (echo Python was not found on PATH 1>&2 & {CODEPAGE_RESTORE}exit /b 9009)\r\n"
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" {script_arg}{args} %*\r\n'
         )
     return body.encode("utf-8")
 
