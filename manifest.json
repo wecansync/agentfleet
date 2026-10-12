@@ -499,7 +499,7 @@
     },
     {
       "path": "tests/test_install_220.py",
-      "sha256": "599bc455b0c9ff5f476d069b7327791c15ac680324688b330c6bba217a2ae152",
+      "sha256": "24671f4029cf1d277b40ec682e7652219355c7b59b9ba93a002999095f4e56e1",
       "mode": "0o644"
     },
     {

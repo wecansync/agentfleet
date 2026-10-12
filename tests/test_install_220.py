@@ -331,6 +331,10 @@ class Install220Tests(unittest.TestCase):
     def test_hook_written_220_pair_upgrades_and_learning_stays_off(self):
         home = self.home_for()
         self.assertEqual(self.install(home).returncode, 0)
+        meta_path = home / ".claude" / ".claude-agents-config-install.json"
+        meta = json.loads(meta_path.read_text())
+        meta["version"] = "2.2.0"
+        meta_path.write_text(json.dumps(meta, indent=2) + "\n")
         conf = home / ".claude" / "agentfleet" / "config.json"
         conf.write_text(json.dumps({"compactPercent": 40}))
         settings_file = home / ".claude" / "settings.json"
