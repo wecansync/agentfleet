@@ -1738,6 +1738,12 @@ def existing_fleet_map(home: Path, config_root: Path) -> dict:
     return {}
 
 
+def dir_on_path(directory: Path, path_value: str) -> bool:
+    """Whether directory is one of the PATH entries; Windows paths compare case-insensitively."""
+    wanted = os.path.normcase(os.path.normpath(str(directory)))
+    return any(os.path.normcase(os.path.normpath(entry)) == wanted for entry in path_value.split(os.pathsep) if entry)
+
+
 def version_key(value: object) -> tuple[int, ...]:
     """(major, minor, patch) of a recorded version; () when there is none."""
     return tuple(int(part) for part in re.findall(r"[0-9]+", value)[:3]) if isinstance(value, str) else ()
@@ -3552,7 +3558,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     preference_changes = {}
     preference_file = provider_catalog.preferences_path(home)
     preference_data = load_json(preference_file, "preferences") if preference_file.is_file() else {}
-    if previous and "learn" not in preference_data:
+    if previous and version_key(previous.get("version")) < (2, 3, 0) and "learn" not in preference_data:
         preference_changes["learn"] = False
     if decided_percent is not None:
         preference_changes["compactPercent"] = decided_percent
@@ -3609,8 +3615,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         print(f"Kept your auto-compact window ({kept_window} tokens). To compact at a percentage of each model's context instead: agentfleet config compact 70")
     if compact_note:
         print(compact_note)
-    in_path = str(bin_dir) in os.environ.get("PATH", "").split(os.pathsep)
-    if not in_path:
+    if not dir_on_path(bin_dir, os.environ.get("PATH", "")):
         print(f"Tip: add {bin_dir} to your PATH to run agentfleet, claude-fleet-setup, claude-fleet-sync, and claude-agents-doctor directly.")
     print("Next: start Claude Code with 'claude', then run /fleet-setup to review the fleet.")
     print("      agentfleet profiles | agentfleet use native | agentfleet status | agentfleet doctor")
