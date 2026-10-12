@@ -511,7 +511,10 @@ class MarkerBearingHookRepairTests(unittest.TestCase):
 
             meta = json.loads(meta_path.read_text())
             entry = journal_entry(meta, "UserPromptSubmit", "route")
-            stale = alternate_marker_form(original.replace(" --home ", " --legacy-arg --home "))
+            # windows_command quotes every argument, so the flag is "--home" there, not --home.
+            home_flag = '"--home"' if os.name == "nt" else "--home"
+            legacy_flag = ('"--legacy-arg" ' if os.name == "nt" else "--legacy-arg ") + home_flag
+            stale = alternate_marker_form(original.replace(home_flag, legacy_flag, 1))
             self.assertNotEqual(stale, alternate_marker_form(original), "the stale entry must differ by more than quoting")
             entry["installed"] = entry["command"] = stale
             meta_path.write_text(json.dumps(meta, indent=2))
