@@ -424,7 +424,7 @@
     },
     {
       "path": "scripts/fleet_suggest.py",
-      "sha256": "5e8fd35ec12c4978dcdf1a6ca4a8e2d43d3c75632acbf2c54be7c0b1dd387260",
+      "sha256": "04fc12c3eb52fe3abb4ffd2cc143765e1a364868c7d0ede0330dcaac795574b6",
       "mode": "0o755"
     },
     {
@@ -494,7 +494,7 @@
     },
     {
       "path": "tests/test_fleet_watch.py",
-      "sha256": "ed170f0faa8f2439e686b5a0000912b2e00664396a3ecd4fa0c5e7fbe3b97f68",
+      "sha256": "68c354f5aed968a13b6f086ac866ce4ca1225fc10080f538e5e4187087a5bce7",
       "mode": "0o644"
     },
     {
@@ -514,7 +514,7 @@
     },
     {
       "path": "tests/test_lane_access.py",
-      "sha256": "67a90c3adda14066ed24316d1cdf1e3ab05bb482cd60c720567a24100b68ef88",
+      "sha256": "58aacee39c619ade0397ec1bc2d8f48a977b75a6cba6918f3cadfa41b294e072",
       "mode": "0o644"
     },
     {
@@ -544,7 +544,7 @@
     },
     {
       "path": "tests/test_suggest.py",
-      "sha256": "a874102fd6f1bea3c36f81db4334a30d2978681d9c8843dbe90b76e70852789b",
+      "sha256": "61f7762c43821c51b39b3a53d3e78f26a7d61ee2dd8c68c9b1026fc332839d89",
       "mode": "0o644"
     },
     {
