@@ -27,6 +27,11 @@ A_IDS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku", "codex-5.5"]
 B_IDS = ["openai/gpt-5", "anthropic/claude-sonnet-4.5", "deepseek/deepseek-chat"]
 C_IDS = ["zen-big", "zen-small"]
 TOKENS = {"a": "token-aaaa-1111", "b": "token-bbbb-2222", "c": "token-cccc-3333"}
+
+
+def bin_script(home: Path, name: str) -> str:
+    # Windows runs the generated .cmd wrapper; the extensionless script has no PATHEXT.
+    return str(home / ".local" / "bin" / (name + ".cmd" if os.name == "nt" else name))
 # An OmniRoute-style policy: named prefix families, nothing namespaced.
 OMNI_FAMILIES = [
     {"name": "claude", "prefixes": ["claude-"], "approved": True, "fallbackFamilies": []},
@@ -108,6 +113,10 @@ class ProfileTests(unittest.TestCase):
         self.env = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config),
                     "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NONINTERACTIVE": "1",
                     **{f"TOK_{key.upper()}": value for key, value in TOKENS.items()}}
+        if os.name == "nt":
+            # Python's SSL setup and cmd.exe both need these on Windows.
+            self.env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            self.env["USERPROFILE"] = str(self.home)
         install = self.run_cmd([PYTHON, str(ROOT / "bin/install.py"), "--provider", "gateway", "--gateway-url", self.url("a"),
                                 "--allow-insecure-http", "--gateway-token-env", "TOK_A", "--home", str(self.home), "--config-home", str(self.config)])
         self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
@@ -130,7 +139,7 @@ class ProfileTests(unittest.TestCase):
         return subprocess.run(command, cwd=ROOT, env={**self.env, **env}, text=True, capture_output=True, stdin=subprocess.DEVNULL)
 
     def af(self, *args, **env):
-        return self.run_cmd([str(self.home / ".local/bin/agentfleet"), *args], **env)
+        return self.run_cmd([bin_script(self.home, "agentfleet"), *args], **env)
 
     def ok(self, result):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -150,9 +159,9 @@ class ProfileTests(unittest.TestCase):
         return self.read(self.home / ".claude/fleet.json")["lanes"]
 
     def gates(self):
-        doctor = self.run_cmd([str(self.home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(self.home), "--config-home", str(self.config)])
+        doctor = self.run_cmd([bin_script(self.home, "claude-agents-doctor"), "--check", "--home", str(self.home), "--config-home", str(self.config)])
         self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
-        sync = self.run_cmd([str(self.home / ".local/bin/claude-fleet-sync"), "--check"])
+        sync = self.run_cmd([bin_script(self.home, "claude-fleet-sync"), "--check"])
         self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
         self.assertEqual(self.read(self.home / ".claude/fleet.json"), self.read(self.config / "delegate-skills/config.json"), "both fleet mirrors match")
 
@@ -180,7 +189,7 @@ class ProfileTests(unittest.TestCase):
         settings = self.read(settings_file)
         settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = "40"
         settings_file.write_text(json.dumps(settings))
-        result = self.run_cmd([str(self.home / ".local/bin/claude-agents-doctor"), "--check", "--home", str(self.home), "--config-home", str(self.config)])
+        result = self.run_cmd([bin_script(self.home, "claude-agents-doctor"), "--check", "--home", str(self.home), "--config-home", str(self.config)])
         self.fails(result, "auto-compact percent in settings (40) differs from AgentFleet's preference (70); run agentfleet config compact 70")
 
     # -- add ----------------------------------------------------------------------
@@ -191,9 +200,10 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("Switch with: agentfleet use b", result.stdout)
         profile_path = self.home / ".claude/agentfleet/profiles/b.json"
         token_path = self.home / ".claude/agentfleet/secrets/b.token"
-        self.assertEqual(stat.S_IMODE(profile_path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(token_path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(profile_path.parent.stat().st_mode), 0o700)
+        if os.name == "posix":  # Windows has no Unix permission bits
+            self.assertEqual(stat.S_IMODE(profile_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(token_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(profile_path.parent.stat().st_mode), 0o700)
         profile = self.read(profile_path)
         self.assertEqual(profile["policy"]["provider"], "b")
         self.assertEqual([f["prefixes"] for f in profile["policy"]["families"]], [[""]])
@@ -203,8 +213,8 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn(TOKENS["b"], result.stdout + result.stderr + profile_path.read_text())
 
     def test_add_use_switches_and_switching_back_restores_everything(self):
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--exclude", "codex-5.5"]))
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--prefer", "plan=claude-sonnet-5[1m]"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--exclude", "codex-5.5"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--prefer", "plan=claude-sonnet-5[1m]"]))
         a_lanes = self.lanes()
         result = self.ok(self.add("b", "b", "--use"))
         self.assertIn("Switched to 'b'", result.stdout)
@@ -255,7 +265,7 @@ class ProfileTests(unittest.TestCase):
         self.ok(self.af("save", "a"))
         self.ok(self.add("b", "b"))
         self.ok(self.af("use", "b"))
-        audit = json.loads(self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--audit", "--json"])).stdout)
+        audit = json.loads(self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--audit", "--json"])).stdout)
         self.assertEqual(audit["live_models"]["total"], 0, "a's cached models must not be shown for b")
 
     # -- refusals --------------------------------------------------------------------
@@ -286,7 +296,7 @@ class ProfileTests(unittest.TestCase):
             (("remove", "native"), "built in"),
         ):
             self.fails(self.af(*args), text)
-        self.fails(self.run_cmd([str(self.home / ".local/bin/agentfleet"), "add", "x", "--gateway-url", self.url("b"), "--allow-insecure-http", "--token-env", "NL"], NL="abc\ndef"), "line break")
+        self.fails(self.run_cmd([bin_script(self.home, "agentfleet"), "add", "x", "--gateway-url", self.url("b"), "--allow-insecure-http", "--token-env", "NL"], NL="abc\ndef"), "line break")
         for mode, text in (("empty", "returned no models"), ("malformed", "could not list models")):
             self.servers["b"][1].mode = mode
             self.fails(self.add("x", "b"), text)
@@ -315,8 +325,8 @@ class ProfileTests(unittest.TestCase):
 
     def test_reinstall_to_another_port_uses_the_generic_policy(self):
         # b runs on the same host as a; only the port differs.
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--exclude", "codex-5.5"]))
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--prefer", "plan=claude-sonnet-5[1m]"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--exclude", "codex-5.5"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--prefer", "plan=claude-sonnet-5[1m]"]))
         result = self.ok(self.install("b"))
         self.assertIn(f"Gateway changed ({self.url('a')} -> {self.url('b')})", result.stdout)
         self.assertEqual(self.read(self.policy_path), self.read(ROOT / "config/provider-policy.json"), "a's families are not carried to b")
@@ -329,7 +339,7 @@ class ProfileTests(unittest.TestCase):
         self.gates()
 
     def test_reinstall_to_the_same_endpoint_keeps_the_policy_and_choices(self):
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--exclude", "codex-5.5"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--exclude", "codex-5.5"]))
         result = self.ok(self.install("a"))
         self.assertNotIn("Gateway changed", result.stdout)
         self.assertEqual(self.read(self.policy_path), self.omni_policy)
@@ -579,7 +589,7 @@ class ProfileTests(unittest.TestCase):
     def test_force_reapplies_the_saved_copy(self):
         self.ok(self.add("b", "b", "--use"))
         saved = self.read(self.home / ".claude/agentfleet/profiles/b.json")
-        self.ok(self.run_cmd([str(self.home / ".local/bin/claude-fleet-setup"), "--exclude", "deepseek/deepseek-chat"]))
+        self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--exclude", "deepseek/deepseek-chat"]))
         self.ok(self.af("use", "b", "--force"))
         self.assertEqual(self.read(self.home / ".claude/agentfleet/profiles/b.json"), saved, "the saved copy is not overwritten first")
         self.assertNotIn("excludedModels", self.read(self.home / ".claude/fleet.json"), "the saved copy is what gets applied")

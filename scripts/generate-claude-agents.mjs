@@ -152,11 +152,11 @@ function failIfSymlinkChain(path, label) {
 }
 
 function processAlive(pid) {
-  // Conservative: an unparseable or unknown pid, or a platform without POSIX
-  // signal-0 semantics, counts as alive. A false "alive" only leaves a
-  // genuinely stale lock in place a little longer; a false "dead" would let
-  // a second writer through the exact race this lock exists to prevent.
-  if (!Number.isInteger(pid) || pid <= 0 || process.platform === "win32") return true;
+  // Conservative: an unparseable or unknown pid counts as alive. A false
+  // "alive" only leaves a genuinely stale lock in place a little longer; a
+  // false "dead" would let a second writer through the exact race this lock
+  // exists to prevent. Node reports an absent pid as ESRCH on every platform.
+  if (!Number.isInteger(pid) || pid <= 0) return true;
   try {
     process.kill(pid, 0);
     return true;

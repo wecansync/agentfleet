@@ -1738,6 +1738,12 @@ def existing_fleet_map(home: Path, config_root: Path) -> dict:
     return {}
 
 
+def dir_on_path(directory: Path, path_value: str) -> bool:
+    """Whether directory is one of the PATH entries; Windows paths compare case-insensitively."""
+    wanted = os.path.normcase(os.path.normpath(str(directory)))
+    return any(os.path.normcase(os.path.normpath(entry)) == wanted for entry in path_value.split(os.pathsep) if entry)
+
+
 def version_key(value: object) -> tuple[int, ...]:
     """(major, minor, patch) of a recorded version; () when there is none."""
     return tuple(int(part) for part in re.findall(r"[0-9]+", value)[:3]) if isinstance(value, str) else ()
@@ -2435,6 +2441,11 @@ def posix_python_wrapper(script: Path, home: Path, prefix: Path, config_root: Pa
 # cmd.exe looks in the current directory before PATH, so a repo-local
 # where.bat, node.bat or python.bat would run instead of the real program.
 NO_CWD_SEARCH = 'set "NoDefaultCurrentDirectoryInExePath=1"\r\n'
+# cmd.exe decodes batch lines with the console code page, so the UTF-8 paths in
+# a shim are read as UTF-8 and the caller's code page is restored before the run.
+CHCP = '"%SystemRoot%\\System32\\chcp.com"'
+CODEPAGE_TO_UTF8 = f'set "AF_CP="\r\nfor /f "tokens=2 delims=:." %%C in (\'{CHCP}\') do set "AF_CP=%%C"\r\n{CHCP} 65001 >nul 2>nul\r\n'
+CODEPAGE_RESTORE = f"{CHCP} %AF_CP% >nul 2>nul & "
 WHERE_EXE = '"%SystemRoot%\\System32\\where.exe"'
 
 
@@ -2459,8 +2470,16 @@ def cmd_dispatch(
     if config_root is not None:
         args += " --config-home " + quote(config_root)
     script_arg = quote(script)
+    def find(name: str) -> str:
+        # %~$PATH searches PATH only, never the working directory.
+        return f'set "AF_EXE="\r\nfor %%I in ({name}) do set "AF_EXE=%%~$PATH:I"\r\n'
+
     if runtime == "node":
-        body = f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{WHERE_EXE} node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\nnode {script_arg}{args} %*\r\nexit /b %errorlevel%\r\n"
+        body = (
+            f"@echo off\r\nsetlocal\r\n{NO_CWD_SEARCH}{CODEPAGE_TO_UTF8}{find('node.exe')}"
+            f"if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & {CODEPAGE_RESTORE}exit /b 1)\r\n"
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" {script_arg}{args} %*\r\n'
+        )
     else:
         # Try the interpreter this installer ran under first: on a machine
         # whose only Python is off PATH (e.g. uv-managed), bare "python" is
@@ -2469,21 +2488,21 @@ def cmd_dispatch(
         # the same way) work fine. "if not exist ... goto" is required
         # instead of a parenthesized "if errorlevel" block: %errorlevel%
         # expands at parse time, so it would read stale inside parentheses.
+        # "(goto) 2>nul" ends setlocal, so the fallbacks resolve absolute paths first.
         pinned = quote(sys.executable)
         body = (
             f"@echo off\r\nsetlocal EnableExtensions DisableDelayedExpansion\r\n"
-            f"{NO_CWD_SEARCH}"
+            f"{NO_CWD_SEARCH}{CODEPAGE_TO_UTF8}"
             f"if not exist {pinned} goto no_pin\r\n"
-            f"{pinned} {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
+            f"(goto) 2>nul & {CODEPAGE_RESTORE}{pinned} {script_arg}{args} %*\r\n"
             f":no_pin\r\n"
-            f"{WHERE_EXE} py >nul 2>nul\r\n"
-            f"if not errorlevel 1 goto run_py\r\n"
-            f"python {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
-            f":run_py\r\n"
-            f"py -3 {script_arg}{args} %*\r\n"
-            f"exit /b %errorlevel%\r\n"
+            f"{find('py.exe')}"
+            f"if not defined AF_EXE goto no_py\r\n"
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" -3 {script_arg}{args} %*\r\n'
+            f":no_py\r\n"
+            f"{find('python.exe')}"
+            f"if not defined AF_EXE (echo Python was not found on PATH 1>&2 & {CODEPAGE_RESTORE}exit /b 9009)\r\n"
+            f'(goto) 2>nul & {CODEPAGE_RESTORE}"%AF_EXE%" {script_arg}{args} %*\r\n'
         )
     return body.encode("utf-8")
 
@@ -2926,6 +2945,11 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 6) -> None:
     immediately so genuine failures still surface fast.
     """
     delay = 0.1
+    # Windows refuses to replace a read-only target, so clear the attribute
+    # for the replace; the restored file keeps its read-only mode on failure.
+    readonly = os.name == "nt" and target.exists() and not os.access(target, os.W_OK)
+    if readonly:
+        os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
     for attempt in range(attempts):
         try:
             os.replace(source, target)
@@ -2933,6 +2957,8 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 6) -> None:
         except OSError as error:
             transient = error.errno in (errno.EPERM, errno.EACCES, errno.EBUSY) or getattr(error, "winerror", None) == 5
             if not transient or attempt + 1 >= attempts:
+                if readonly and target.exists():
+                    os.chmod(target, stat.S_IREAD)
                 raise
             time.sleep(delay)
             delay *= 2
@@ -2952,8 +2978,7 @@ def atomic_write(path: Path, data: bytes, mode: int) -> None:
             os.fchmod(fd, mode)
         os.close(fd)
         replace_with_retry(temp, path)
-        if os.name != "nt":
-            os.chmod(path, mode)
+        os.chmod(path, mode)
         fsync_dir(path.parent)
     except Exception:
         try:
@@ -3552,7 +3577,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     preference_changes = {}
     preference_file = provider_catalog.preferences_path(home)
     preference_data = load_json(preference_file, "preferences") if preference_file.is_file() else {}
-    if previous and "learn" not in preference_data:
+    if previous and version_key(previous.get("version")) < (2, 3, 0) and "learn" not in preference_data:
         preference_changes["learn"] = False
     if decided_percent is not None:
         preference_changes["compactPercent"] = decided_percent
@@ -3609,8 +3634,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         print(f"Kept your auto-compact window ({kept_window} tokens). To compact at a percentage of each model's context instead: agentfleet config compact 70")
     if compact_note:
         print(compact_note)
-    in_path = str(bin_dir) in os.environ.get("PATH", "").split(os.pathsep)
-    if not in_path:
+    if not dir_on_path(bin_dir, os.environ.get("PATH", "")):
         print(f"Tip: add {bin_dir} to your PATH to run agentfleet, claude-fleet-setup, claude-fleet-sync, and claude-agents-doctor directly.")
     print("Next: start Claude Code with 'claude', then run /fleet-setup to review the fleet.")
     print("      agentfleet profiles | agentfleet use native | agentfleet status | agentfleet doctor")

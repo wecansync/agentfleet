@@ -86,6 +86,25 @@ sys.exit(0)
 '''
 
 
+def write_fake_claude(directory: Path) -> Path:
+    script = directory / "claude"
+    script.write_text(FAKE_CLAUDE, encoding="utf-8")
+    script.chmod(0o755)
+    if os.name == "nt":
+        # PATH lookup on Windows finds claude.CMD, not the extensionless script.
+        (directory / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
+    return script
+
+
+def node_dir_for_path(directory: Path, node: Path) -> Path:
+    # Windows cannot create the symlink without Developer Mode; node is only
+    # ever looked up on PATH, so its real directory can stand in for it.
+    if os.name == "nt":
+        return node.parent
+    (directory / "node").symlink_to(node)
+    return directory
+
+
 def new_state(**overrides) -> dict:
     state = {"version": "2.1.295 (Claude Code)", "marketplaces": [], "plugins": [], "exit_codes": {}}
     state.update(overrides)
@@ -99,9 +118,7 @@ class Install220Tests(unittest.TestCase):
         self.root = Path(self.raw.name)
         self.fake_bin = self.root / "fake-bin"
         self.fake_bin.mkdir()
-        self.claude = self.fake_bin / "claude"
-        self.claude.write_text(FAKE_CLAUDE, encoding="utf-8")
-        self.claude.chmod(0o755)
+        self.claude = write_fake_claude(self.fake_bin)
         self.state_path = self.root / "claude-state.json"
         self.log_path = self.root / "claude-calls.jsonl"
 
@@ -109,7 +126,7 @@ class Install220Tests(unittest.TestCase):
         self.node_bin.mkdir()
         node = shutil.which("node")
         if node:
-            (self.node_bin / "node").symlink_to(Path(node).resolve())
+            self.node_bin = node_dir_for_path(self.node_bin, Path(node).resolve())
         self.system_path = [path for path in ("/usr/bin", "/bin") if Path(path).is_dir()]
         self.set_fake_state()
 
@@ -138,6 +155,10 @@ class Install220Tests(unittest.TestCase):
             "FAKE_CLAUDE_STATE": str(self.state_path),
             "FAKE_CLAUDE_LOG": str(self.log_path),
         }
+        if os.name == "nt":
+            # cmd.exe needs these to launch the claude.cmd shim.
+            env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            env["USERPROFILE"] = str(home)
         if mods is not None:
             env["AGENTFLEET_MODS"] = mods
         env.update(extra_env or {})
@@ -310,6 +331,10 @@ class Install220Tests(unittest.TestCase):
     def test_hook_written_220_pair_upgrades_and_learning_stays_off(self):
         home = self.home_for()
         self.assertEqual(self.install(home).returncode, 0)
+        meta_path = home / ".claude" / ".claude-agents-config-install.json"
+        meta = json.loads(meta_path.read_text())
+        meta["version"] = "2.2.0"
+        meta_path.write_text(json.dumps(meta, indent=2) + "\n")
         conf = home / ".claude" / "agentfleet" / "config.json"
         conf.write_text(json.dumps({"compactPercent": 40}))
         settings_file = home / ".claude" / "settings.json"
@@ -501,11 +526,11 @@ class Install220Tests(unittest.TestCase):
         # 5a: cmd_dispatch
         cmd_bytes = install.cmd_dispatch(probe, "python")
         self.assertIn(b'set "NoDefaultCurrentDirectoryInExePath=1"\r\n', cmd_bytes)
-        self.assertIn(b'"%SystemRoot%\\System32\\where.exe" py >nul 2>nul', cmd_bytes)
+        self.assertIn(b'for %%I in (py.exe) do set "AF_EXE=%%~$PATH:I"', cmd_bytes)
 
         node_cmd_bytes = install.cmd_dispatch(probe, "node")
         self.assertIn(b'set "NoDefaultCurrentDirectoryInExePath=1"\r\n', node_cmd_bytes)
-        self.assertIn(b'"%SystemRoot%\\System32\\where.exe" node >nul 2>nul', node_cmd_bytes)
+        self.assertIn(b'for %%I in (node.exe) do set "AF_EXE=%%~$PATH:I"', node_cmd_bytes)
 
         # 5c: powershell_dispatch has UTF-8 BOM
         ps1_bytes = install.powershell_dispatch(probe, "python")

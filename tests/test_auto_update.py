@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -28,22 +29,32 @@ MAJOR_NEXT_VERSION = f"{_v[0] + 1}.0.0"
 
 
 def env_for(home: Path, config: Path, **extra: str) -> dict:
-    return {
+    env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(config),
         "PYTHONDONTWRITEBYTECODE": "1",
         "AGENTFLEET_MODS": "0",
         "AGENTFLEET_NONINTERACTIVE": "1",
-        **extra,
     }
+    if os.name == "nt":
+        # Windows Python needs these to build an SSL context and cmd.exe to run .cmd shims.
+        env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+        env["USERPROFILE"] = str(home)
+    env.update(extra)
+    return env
 
 
 def make_release_store(store: Path) -> None:
     """Set up a fake release store pointing at the repo root."""
     (store / "releases").mkdir(parents=True)
     (store / "current").write_text(VERSION + "\n")
-    (store / "releases" / VERSION).symlink_to(ROOT, target_is_directory=True)
+    release = store / "releases" / VERSION
+    if os.name == "nt":
+        # Symlinks need Developer Mode or elevation on Windows; a copy stands in for one.
+        shutil.copytree(ROOT, release, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+    else:
+        release.symlink_to(ROOT, target_is_directory=True)
 
 
 def run_agentfleet(home: Path, config: Path, *args: str, store: Path | None = None,
@@ -323,9 +334,10 @@ class AutoUpdateOnOffStatusTests(unittest.TestCase):
             self.assertTrue(state_file.exists())
             state = json.loads(state_file.read_text())
             self.assertFalse(state["enabled"])
-            # Check 0600 permissions
-            mode = oct(state_file.stat().st_mode & 0o777)
-            self.assertEqual(mode, oct(0o600))
+            if os.name == "posix":
+                # Windows chmod only toggles the read-only bit, so 0600 is not observable there.
+                mode = oct(state_file.stat().st_mode & 0o777)
+                self.assertEqual(mode, oct(0o600))
 
             r2 = run_agentfleet(home, config, "auto-update", "on")
             self.assertEqual(r2.returncode, 0)

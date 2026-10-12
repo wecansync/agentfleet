@@ -1,4 +1,5 @@
 # Keep bundle bytes stable across clone platforms and core.autocrlf settings.
+* text=auto eol=lf
 *.sh text eol=lf
 *.py text eol=lf
 *.mjs text eol=lf

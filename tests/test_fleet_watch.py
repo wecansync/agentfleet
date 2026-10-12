@@ -192,12 +192,12 @@ class FleetWatchTests(unittest.TestCase):
 
     def test_incremental_offsets_partial_trailing_line_and_system_envelope(self):
         complete = json.dumps(assistant("finished", [tool("Edit", {"file_path": str(self.project / "a.py")})])) + "\n"
-        self.agent.write_text(complete + '{"type":"assistant","mess', encoding="utf-8")
+        self.agent.write_text(complete + '{"type":"assistant","mess', encoding="utf-8", newline="\n")
         self.assertEqual(fleet_watch.on_prompt(self.payload(), self.home), [])
         state = json.loads((self.home / ".claude" / "agentfleet" / "watch-state.json").read_text())
         path = str(self.agent.resolve())
         self.assertEqual(state["sessions"][self.session]["agents"][path]["offset"], len(complete.encode()))
-        with self.agent.open("a", encoding="utf-8") as handle:
+        with self.agent.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write('age":{"id":"last","model":"sonnet","content":[],"stop_reason":"end_turn"}}\n')
         lines = fleet_watch.on_prompt(self.payload(prompt="<task notification>"), self.home)
         self.assertTrue(lines)

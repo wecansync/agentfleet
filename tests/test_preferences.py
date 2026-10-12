@@ -233,6 +233,9 @@ class PreferencesTests(unittest.TestCase):
             encoding="utf-8",
         )
         fake.chmod(0o755)
+        if os.name == "nt":
+            # PATH lookup on Windows finds claude.CMD, not the extensionless script.
+            (fake_bin / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
         metadata = self.home / ".claude" / ".claude-agents-config-install.json"
         metadata.write_text(json.dumps({"modsMarketplace": True}), encoding="utf-8")
         env = dict(self.env)

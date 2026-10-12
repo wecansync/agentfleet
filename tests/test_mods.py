@@ -87,6 +87,25 @@ sys.exit(0)
 '''
 
 
+def write_fake_claude(directory: Path) -> Path:
+    script = directory / "claude"
+    script.write_text(FAKE_CLAUDE, encoding="utf-8")
+    script.chmod(0o755)
+    if os.name == "nt":
+        # PATH lookup on Windows finds claude.CMD, not the extensionless script.
+        (directory / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
+    return script
+
+
+def node_dir_for_path(directory: Path, node: Path) -> Path:
+    # Windows cannot create the symlink without Developer Mode; node is only
+    # ever looked up on PATH, so its real directory can stand in for it.
+    if os.name == "nt":
+        return node.parent
+    (directory / "node").symlink_to(node)
+    return directory
+
+
 def new_state(**overrides) -> dict:
     state = {"version": "2.1.295 (Claude Code)", "marketplaces": [], "plugins": [], "exit_codes": {}}
     state.update(overrides)
@@ -100,9 +119,7 @@ class ModInstallerTests(unittest.TestCase):
         self.root = Path(self.raw.name)
         self.fake_bin = self.root / "fake-bin"
         self.fake_bin.mkdir()
-        self.claude = self.fake_bin / "claude"
-        self.claude.write_text(FAKE_CLAUDE, encoding="utf-8")
-        self.claude.chmod(0o755)
+        self.claude = write_fake_claude(self.fake_bin)
         self.state_path = self.root / "claude-state.json"
         self.log_path = self.root / "claude-calls.jsonl"
 
@@ -112,7 +129,7 @@ class ModInstallerTests(unittest.TestCase):
         self.node_bin.mkdir()
         node = shutil.which("node")
         if node:
-            (self.node_bin / "node").symlink_to(Path(node).resolve())
+            self.node_bin = node_dir_for_path(self.node_bin, Path(node).resolve())
         self.system_path = [path for path in ("/usr/bin", "/bin") if Path(path).is_dir()]
         self.set_fake_state()
 
@@ -140,6 +157,10 @@ class ModInstallerTests(unittest.TestCase):
             "FAKE_CLAUDE_STATE": str(self.state_path),
             "FAKE_CLAUDE_LOG": str(self.log_path),
         }
+        if os.name == "nt":
+            # cmd.exe needs these to launch the claude.cmd shim.
+            env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            env["USERPROFILE"] = str(home)
         if mods is not None:
             env["AGENTFLEET_MODS"] = mods
         env.update(extra_env or {})
@@ -191,7 +212,7 @@ class ModInstallerTests(unittest.TestCase):
                          {"fleet-status", "lane-guard", "token-weather", "fast-jev-compaction"})
         self.assertFalse(any("tests" in path.parts for path in mods_dir.rglob("*")), "plugin test directories are not installed")
         for path in mods_dir.rglob("*"):
-            if path.is_file():
+            if path.is_file() and os.name == "posix":
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644, str(path))
 
         calls = self.calls()
@@ -487,9 +508,7 @@ class ModInstallerTests(unittest.TestCase):
         cwd = self.root / "relative-path-cwd"
         relative_bin = cwd / "relbin"
         relative_bin.mkdir(parents=True)
-        relative_claude = relative_bin / "claude"
-        relative_claude.write_text(FAKE_CLAUDE, encoding="utf-8")
-        relative_claude.chmod(0o755)
+        write_fake_claude(relative_bin)
         result = self.install(home, path=f"relbin{os.pathsep}{os.pathsep.join([str(self.node_bin), *self.system_path])}", cwd=cwd)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("claude plugin marketplace add", result.stdout)
