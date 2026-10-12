@@ -33,10 +33,15 @@ def windows_child_env(home: Path) -> dict[str, str]:
     return env
 
 
+def windows_command(executable: str) -> str:
+    # Hook commands are double-quoted on Windows so backslashes survive shlex.
+    return f'"{executable}"' if os.name == "nt" else executable
+
+
 def installed(home: Path, name: str) -> str:
     # Windows runs the generated .cmd wrapper; the extensionless script has no PATHEXT.
     return str(home / ".local" / "bin" / (name + ".cmd" if os.name == "nt" else name))
-GENERIC_POLICY = json.loads((ROOT / "config/provider-policy.json").read_text())
+GENERIC_POLICY = json.loads((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
 # A provider-specific policy as an existing install carries it: named model
 # families, a namespace alias, and runtime aliases. Family-approval, alias, and
 # upgrade-preservation tests run against it; the shipped default is a single
@@ -161,7 +166,7 @@ def seed_policy(config: Path, policy: dict | None = None) -> Path:
 
 def load_catalog():
     namespace = {}
-    exec(compile((ROOT / "scripts/provider_catalog.py").read_text(), "provider_catalog.py", "exec"), namespace)
+    exec(compile((ROOT / "scripts/provider_catalog.py").read_text(encoding="utf-8"), "provider_catalog.py", "exec"), namespace)
     return namespace
 
 
@@ -347,7 +352,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertEqual(sync.returncode, 0, sync.stderr)
             synced_doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(synced_doctor.returncode, 0, synced_doctor.stderr)
-            settings = json.loads((home / ".claude/settings.json").read_text())
+            settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertEqual(settings["permissions"]["allow"], [])
             self.assertEqual(settings["enabledPlugins"], {})
             decisions = root / "decisions.json"
@@ -392,7 +397,7 @@ class ProviderRepairTests(unittest.TestCase):
             available = {"claude-sonnet-5": {}, "codex-luna": {}}
             fallback_config = {"model": "claude-sonnet-5", "fallbacks": ["codex-luna"]}
 
-            policy = json.loads(policy_path.read_text())
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
             self.assertFalse(family_approved("codex-luna", policy), "codex must not be approved right after setup")
             self.assertTrue(family_approved("claude-sonnet-5", policy))
             eligible, pending = eligible_candidates(fallback_config, available, policy)
@@ -403,7 +408,7 @@ class ProviderRepairTests(unittest.TestCase):
             # "approved": true default for the revoked "codex" family.
             update = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(update.returncode, 0, update.stderr)
-            policy_after_update = json.loads(policy_path.read_text())
+            policy_after_update = json.loads(policy_path.read_text(encoding="utf-8"))
             self.assertEqual(policy_after_update.get("approvedFamilies"), ["claude"])
             self.assertFalse(family_approved("codex-luna", policy_after_update), "reinstall must not silently re-approve a revoked family")
             self.assertTrue(family_approved("claude-sonnet-5", policy_after_update))
@@ -423,7 +428,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertEqual(setup_empty.returncode, 0, setup_empty.stderr)
             update_empty = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(update_empty.returncode, 0, update_empty.stderr)
-            policy_final = json.loads(policy_path.read_text())
+            policy_final = json.loads(policy_path.read_text(encoding="utf-8"))
             self.assertEqual(policy_final.get("approvedFamilies"), [])
             self.assertFalse(family_approved("claude-sonnet-5", policy_final), "an empty approval set must stay empty, not fall back to shipped defaults")
 
@@ -462,7 +467,7 @@ class ProviderRepairTests(unittest.TestCase):
             decisions.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": ["claude"], "allowDiscovery": False}))
             setup = subprocess.run([installed(home, "claude-fleet-setup"), "--decisions", str(decisions)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr)
-            known_family_names = {family["name"] for family in json.loads(policy_path.read_text())["families"] if isinstance(family, dict) and isinstance(family.get("name"), str)}
+            known_family_names = {family["name"] for family in json.loads(policy_path.read_text(encoding="utf-8"))["families"] if isinstance(family, dict) and isinstance(family.get("name"), str)}
             self.assertIn("codex", known_family_names, "fixture assumption: a revocable family other than claude must exist")
 
             def snapshot():
@@ -510,7 +515,7 @@ class ProviderRepairTests(unittest.TestCase):
             policy_path.write_bytes(good_policy_bytes)
             recovered = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(recovered.returncode, 0, recovered.stderr)
-            self.assertEqual(json.loads(policy_path.read_text()).get("approvedFamilies"), ["claude"])
+            self.assertEqual(json.loads(policy_path.read_text(encoding="utf-8")).get("approvedFamilies"), ["claude"])
             self.assertFalse(lock_file.exists(), "lock must not remain held after a successful update")
 
     def test_installed_fake_gateway_sessionstart_update_uninstall(self):
@@ -540,45 +545,45 @@ class ProviderRepairTests(unittest.TestCase):
                 install_args = [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config), "--gateway-url", endpoint, "--allow-insecure-http", "--gateway-token-env", "FAKE_GATEWAY_TOKEN", "--enable-model-discovery"]
                 install = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(install.returncode, 0, install.stderr)
-                installed_settings = json.loads((home / ".claude/settings.json").read_text())
+                installed_settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
                 installed_settings["model"] = "codex-5.5"
                 (home / ".claude/settings.json").write_text(json.dumps(installed_settings, indent=2) + "\n")
-                sync = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift"], cwd=ROOT, env=env, text=True, capture_output=True)
+                sync = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift", "--python", PYTHON], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(sync.returncode, 0, sync.stderr)
-                settings_after_start = json.loads((home / ".claude/settings.json").read_text())
+                settings_after_start = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
                 self.assertEqual(settings_after_start["autoCompactWindow"], 1000000)
                 self.assertEqual(settings_after_start["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
                 self.assertGreaterEqual(FakeProvider.requests, 1)
                 self.assertNotIn("fake-token", sync.stdout + sync.stderr)
                 post_switch = subprocess.run([PYTHON, str(home / ".claude/sync-model-context.py"), "--home", str(home), "--config-home", str(config)], input=json.dumps({"hook_event_name": "PostModelSwitch", "to_model": "codex-5.5"}), cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(post_switch.returncode, 0, post_switch.stderr)
-                switched = json.loads((home / ".claude/settings.json").read_text())
+                switched = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
                 self.assertEqual(switched["autoCompactWindow"], 1000000)
                 self.assertEqual(switched["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
                 self.assertEqual(post_switch.stdout, "")
-                cache = json.loads((home / ".claude/cache/provider-models-cache.json").read_text())
+                cache = json.loads((home / ".claude/cache/provider-models-cache.json").read_text(encoding="utf-8"))
                 self.assertEqual(cache["endpoint"], endpoint)
                 self.assertEqual(cache["account"], hashlib.sha256(b"fake-token").hexdigest()[:24])
                 agents = home / ".claude/agents"
                 # Tier ranking: balanced implement, deep plan, fast explore; the
                 # alternate lane stays off its sibling's model.
                 def lane_model(lane):
-                    text = (agents / f"fleet-{lane}.md").read_text()
+                    text = (agents / f"fleet-{lane}.md").read_text(encoding="utf-8")
                     return json.loads(next(line for line in text.splitlines() if line.startswith("model: "))[len("model: "):])
                 self.assertIn(lane_model("implement"), {"claude-sonnet-5[1m]", "codex-luna[1m]"}, "implement takes a balanced model")
                 self.assertEqual(lane_model("plan"), "claude-opus-5[1m]", "plan takes the deep model")
                 self.assertEqual(lane_model("explore-narrow"), "claude-haiku", "explore takes the fast model")
                 self.assertNotEqual(lane_model("implement-alt"), lane_model("implement"), "an alternate never shares its sibling's model")
-                self.assertEqual(len(list(agents.glob("fleet-*.md"))), len(json.loads((ROOT / "config/delegate-fleet.json").read_text())["lanes"]))
-                picker_models = {row["model"] for row in json.loads((home / ".claude/settings.json").read_text())["modelPicker"]["options"]}
+                self.assertEqual(len(list(agents.glob("fleet-*.md"))), len(json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))["lanes"]))
+                picker_models = {row["model"] for row in json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["modelPicker"]["options"]}
                 self.assertEqual(picker_models, {"claude-opus-5[1m]", "claude-sonnet-5[1m]", "claude-haiku", "codex-luna[1m]", "codex-5.5"}, "the picker mirrors the discovered catalog")
                 self.assertIn("gateway models: 5 (live)", install.stdout)
-                manifest_before = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text())
-                repeat = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift"], cwd=ROOT, env=env, text=True, capture_output=True)
+                manifest_before = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text(encoding="utf-8"))
+                repeat = subprocess.run([shutil.which("node"), str(home / ".claude/sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--drift", "--python", PYTHON], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(repeat.returncode, 0, repeat.stderr)
                 doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(doctor.returncode, 0, doctor.stderr)
-                manifest_after = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text())
+                manifest_after = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text(encoding="utf-8"))
                 self.assertEqual(manifest_after["fleetSha256"], hashlib.sha256((config / "delegate-skills/config.json").read_bytes()).hexdigest())
                 update = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(update.returncode, 0, update.stderr)
@@ -600,7 +605,7 @@ class ProviderRepairTests(unittest.TestCase):
             (txn / "0000.bin").write_bytes(b"damaged")
             namespace = {}
             sys.path.insert(0, str(ROOT / "scripts"))
-            exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+            exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
             with self.assertRaises(OSError):
                 namespace["recover_transaction"](home)
             self.assertTrue(marker.exists())
@@ -621,7 +626,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertEqual(routed.returncode, 0)
             log = home / ".claude/routing-log.jsonl"
             self.assertTrue(log.exists())
-            content = log.read_text()
+            content = log.read_text(encoding="utf-8")
             self.assertNotIn(secret, content)
             self.assertIn("[redacted]", content)
             entries = [json.loads(line) for line in content.splitlines() if line]
@@ -630,7 +635,7 @@ class ProviderRepairTests(unittest.TestCase):
     def test_compaction_pair_reduces_to_smaller_active_model_and_preserves_lower_budget(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
         settings = {"model": "codex-5.5", "autoCompactWindow": 800000, "env": {"ANTHROPIC_BASE_URL": "https://gateway.test", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "800000"}}
         updated, notice, budget = namespace["reconcile_context"](settings, {"codex-5.5": {"context_length": 272000}})
         # The percentage stays global; only the verified context cap scales.
@@ -638,7 +643,7 @@ class ProviderRepairTests(unittest.TestCase):
         self.assertEqual(updated["autoCompactWindow"], 1000000)
         self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertIn("Restart Claude Code", notice)
-        context_script = (ROOT / "scripts/sync-model-context.py").read_text()
+        context_script = (ROOT / "scripts/sync-model-context.py").read_text(encoding="utf-8")
         self.assertIn('latest["autoCompactWindow"] = budget', context_script)
         # Test bidirectional scaling: expanding back up to 1M model from reduced state
         lower = {"model": "agy-gemini-flash[1m]", "autoCompactWindow": 190400, "env": {"ANTHROPIC_BASE_URL": "https://gateway.test", "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "190400", "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "190400"}}
@@ -667,7 +672,7 @@ class ProviderRepairTests(unittest.TestCase):
             decisions_ok.write_text(json.dumps({"format": "provider-policy-decisions.v1", "proposalHash": "abc123", "proposalDecision": "approve"}))
             approve = subprocess.run([PYTHON, str(setup_script), "--home", str(home), "--config-home", str(config), "--decisions", str(decisions_ok)], cwd=ROOT, text=True, capture_output=True)
             self.assertEqual(approve.returncode, 0, approve.stderr)
-            recorded = json.loads(proposal_file.read_text())
+            recorded = json.loads(proposal_file.read_text(encoding="utf-8"))
             self.assertEqual(recorded["decision"], "approve")
             # A decision file whose hash no longer matches the pending proposal
             # must be rejected without touching the recorded evidence.
@@ -675,7 +680,7 @@ class ProviderRepairTests(unittest.TestCase):
             decisions_bad.write_text(json.dumps({"format": "provider-policy-decisions.v1", "proposalHash": "does-not-match", "proposalDecision": "reject"}))
             reject = subprocess.run([PYTHON, str(setup_script), "--home", str(home), "--config-home", str(config), "--decisions", str(decisions_bad)], cwd=ROOT, text=True, capture_output=True)
             self.assertNotEqual(reject.returncode, 0)
-            unchanged = json.loads(proposal_file.read_text())
+            unchanged = json.loads(proposal_file.read_text(encoding="utf-8"))
             self.assertEqual(unchanged["decision"], "approve")
 
     def test_setup_rejects_malformed_decision_documents_without_any_side_effect(self):
@@ -735,7 +740,7 @@ class ProviderRepairTests(unittest.TestCase):
             valid.write_text(json.dumps({"format": "provider-policy-decisions.v1", "approvedFamilies": ["claude"], "allowDiscovery": False}))
             result_valid = subprocess.run([PYTHON, str(setup_script), "--home", str(home), "--config-home", str(config), "--decisions", str(valid)], cwd=ROOT, text=True, capture_output=True)
             self.assertEqual(result_valid.returncode, 0, result_valid.stderr)
-            self.assertEqual(json.loads(policy_path.read_text())["approvedFamilies"], ["claude"])
+            self.assertEqual(json.loads(policy_path.read_text(encoding="utf-8"))["approvedFamilies"], ["claude"])
 
     def test_setup_defers_under_lock_contention_without_success_or_mutation(self):
         # claude-fleet-setup writes both the provider policy and the fleet
@@ -822,7 +827,7 @@ class ProviderRepairTests(unittest.TestCase):
             config = root / "config"
             (home / ".claude" / "cache").mkdir(parents=True)
             (config / "delegate-skills").mkdir(parents=True)
-            (config / "delegate-skills" / "provider-policy.json").write_text((ROOT / "config/provider-policy.json").read_text())
+            (config / "delegate-skills" / "provider-policy.json").write_text((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
             settings = {
                 "model": "codex-5.5",
                 # CLAUDE_CODE_MAX_CONTEXT_TOKENS is already correct (272000), but
@@ -846,7 +851,7 @@ class ProviderRepairTests(unittest.TestCase):
                 cwd=ROOT, text=True, capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            updated = json.loads((home / ".claude" / "settings.json").read_text())
+            updated = json.loads((home / ".claude" / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(updated["autoCompactWindow"], 1000000)
             self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
             self.assertEqual(updated["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
@@ -855,7 +860,7 @@ class ProviderRepairTests(unittest.TestCase):
     def test_reconcile_removed_primary_with_external_config_home_leaves_no_poisoned_marker(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
         with tempfile.TemporaryDirectory(prefix="fleet external config ") as raw:
             root = Path(raw)
             # config_home is deliberately a sibling of home, not nested under
@@ -892,7 +897,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertEqual(result["status"], "applied", result)
             self.assertEqual(result["lane_changes"]["implement"]["to"], "codex-luna[1m]")
             self.assertFalse(marker.exists(), "no leftover transaction marker after a successful external-config-home reconcile")
-            updated_fleet = json.loads(fleet_path.read_text())
+            updated_fleet = json.loads(fleet_path.read_text(encoding="utf-8"))
             self.assertEqual(updated_fleet["lanes"]["implement"]["model"], "codex-luna[1m]")
 
             # Repeat reconciliation (doctor-style re-check) must stay clean and
@@ -905,7 +910,7 @@ class ProviderRepairTests(unittest.TestCase):
     def test_reconcile_settings_prunes_stale_provider_models_while_preserving_first_party_and_custom(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
         policy = OMNIROUTE_POLICY
         settings = {
             "model": "agy-gemini-flash[1m]",
@@ -949,8 +954,8 @@ class ProviderRepairTests(unittest.TestCase):
     def test_resolve_fleet_prunes_removed_candidates_from_lane_fallbacks(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
-        policy = json.loads((ROOT / "config/provider-policy.json").read_text())
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
+        policy = json.loads((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
         fleet = {
             "version": "delegate-fleet.v1",
             "lanes": {
@@ -975,8 +980,8 @@ class ProviderRepairTests(unittest.TestCase):
     def test_resolve_fleet_dynamically_assigns_live_candidate_when_all_lane_models_removed(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
-        policy = json.loads((ROOT / "config/provider-policy.json").read_text())
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
+        policy = json.loads((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
         fleet = {
             "version": "delegate-fleet.v1",
             "lanes": {
@@ -1041,10 +1046,10 @@ class ProviderRepairTests(unittest.TestCase):
             env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "TMPDIR": str(child_tmp), **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
-            sync_bin = home / ".local/bin/claude-fleet-sync"
-            doctor_bin = home / ".local/bin/claude-agents-doctor"
+            sync_bin = installed(home, "claude-fleet-sync")
+            doctor_bin = installed(home, "claude-agents-doctor")
             agent_file = home / ".claude/agents/fleet-implement.md"
-            original = agent_file.read_text()
+            original = agent_file.read_text(encoding="utf-8")
             txn_dir = home / ".claude" / ".claude-fleet-sync-txn"
             marker = home / ".claude" / ".claude-fleet-sync-pending.json"
 
@@ -1073,7 +1078,7 @@ class ProviderRepairTests(unittest.TestCase):
             agent_file.write_text("CORRUPTED MID WRITE")
             recovered = run_sync()
             self.assertEqual(recovered.returncode, 0, recovered.stderr)
-            self.assertNotIn("CORRUPTED", agent_file.read_text())
+            self.assertNotIn("CORRUPTED", agent_file.read_text(encoding="utf-8"))
             self.assertFalse(marker.exists())
             self.assertFalse(txn_dir.exists())
             doctor_after_recovery = subprocess.run([str(doctor_bin), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
@@ -1082,7 +1087,7 @@ class ProviderRepairTests(unittest.TestCase):
             # --- Phase 2: a damaged transaction (record path escapes the
             # managed agents directory). It must be rejected, and rejection
             # must preserve the evidence rather than silently discarding it.
-            good_content = agent_file.read_text()
+            good_content = agent_file.read_text(encoding="utf-8")
             txn_dir.mkdir(parents=True)
             (txn_dir / "manifest.json").write_text(json.dumps({
                 "format": "claude-agents-config.sync-transaction.v1",
@@ -1094,7 +1099,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertNotEqual(damaged.returncode, 0)
             self.assertTrue(marker.exists(), "damaged transaction evidence must be preserved, not deleted")
             self.assertTrue(txn_dir.exists())
-            self.assertEqual(agent_file.read_text(), good_content, "a rejected recovery must not mutate any target")
+            self.assertEqual(agent_file.read_text(encoding="utf-8"), good_content, "a rejected recovery must not mutate any target")
 
             # Clean up the damaged fixture directly (simulating manual
             # operator repair) before exercising the live-lock scenario.
@@ -1113,10 +1118,10 @@ class ProviderRepairTests(unittest.TestCase):
             old = time.time() - 3600
             os.utime(lock_path, (old, old))
             try:
-                before = agent_file.read_text()
+                before = agent_file.read_text(encoding="utf-8")
                 deferred = run_sync()
                 self.assertNotEqual(deferred.returncode, 0)
-                self.assertEqual(agent_file.read_text(), before, "a live-owner lock must defer without mutating any target")
+                self.assertEqual(agent_file.read_text(encoding="utf-8"), before, "a live-owner lock must defer without mutating any target")
                 self.assertTrue(lock_path.exists(), "a live-owner lock must not be evicted merely for its age")
             finally:
                 lock_path.unlink(missing_ok=True)
@@ -1144,9 +1149,9 @@ class ProviderRepairTests(unittest.TestCase):
             env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", **windows_child_env(home)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
-            sync_bin = home / ".local/bin/claude-fleet-sync"
+            sync_bin = installed(home, "claude-fleet-sync")
             agent_file = home / ".claude/agents/fleet-implement.md"
-            live_content = agent_file.read_text()
+            live_content = agent_file.read_text(encoding="utf-8")
             txn_dir = home / ".claude" / ".claude-fleet-sync-txn"
             marker = home / ".claude" / ".claude-fleet-sync-pending.json"
 
@@ -1177,7 +1182,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertIn("backup is corrupted", corrupted.stderr)
             self.assertTrue(marker.exists(), "corrupted-backup evidence must be preserved, not deleted")
             self.assertTrue(txn_dir.exists())
-            self.assertEqual(agent_file.read_text(), live_content, "a rejected corrupted backup must not mutate the target")
+            self.assertEqual(agent_file.read_text(encoding="utf-8"), live_content, "a rejected corrupted backup must not mutate the target")
             shutil.rmtree(txn_dir)
             marker.unlink()
 
@@ -1192,7 +1197,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertFalse(marker.exists(), "a committed marker pointing at a missing directory must be dropped")
             doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
-            live_content = agent_file.read_text()
+            live_content = agent_file.read_text(encoding="utf-8")
 
             # --- A "committed" transaction whose bookkeeping cleanup itself
             # fails (here: an unexpected subdirectory left inside the
@@ -1222,7 +1227,7 @@ class ProviderRepairTests(unittest.TestCase):
             cleanup_failure = run_sync()
             self.assertNotEqual(cleanup_failure.returncode, 0, "an unlinkSync failure during committed-transaction cleanup must not be silently swallowed")
             self.assertNotIn("evidence preserved at", cleanup_failure.stderr, "this must fail from the cleanup loop itself, not from an earlier validation guard")
-            self.assertEqual(agent_file.read_text(), live_content, "a committed transaction must never roll a target back to its pre-commit content, even when cleanup itself fails")
+            self.assertEqual(agent_file.read_text(encoding="utf-8"), live_content, "a committed transaction must never roll a target back to its pre-commit content, even when cleanup itself fails")
             self.assertTrue(marker.exists() or txn_dir.exists(), "cleanup-failure evidence must be preserved, not silently discarded")
             shutil.rmtree(txn_dir, ignore_errors=True)
             marker.unlink(missing_ok=True)
@@ -1250,6 +1255,14 @@ class ProviderRepairTests(unittest.TestCase):
                 self.assertIsNone(catalog["acquire_lock"](home, timeout=0.05)[0])
             finally:
                 catalog["release_lock"](fd, lock)
+
+    @unittest.skipUnless(os.name == "nt", "Windows pid liveness probe")
+    def test_windows_process_liveness_reclaims_dead_owner_only(self):
+        spec = importlib.util.spec_from_file_location("provider_catalog_liveness", ROOT / "scripts/provider_catalog.py")
+        catalog = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(catalog)
+        self.assertTrue(catalog._process_alive(os.getpid()))
+        self.assertFalse(catalog._process_alive(999999999), "an absent Windows pid must not keep a stale lock")
 
     def test_lock_path_is_home_scoped_not_tmpdir(self):
         # Two processes resolving the same home must land on the identical
@@ -1382,7 +1395,7 @@ class ProviderRepairTests(unittest.TestCase):
 
             # Modify a lane in the installed config.json
             fleet_path = config / "delegate-skills/config.json"
-            fleet_data = json.loads(fleet_path.read_text())
+            fleet_data = json.loads(fleet_path.read_text(encoding="utf-8"))
             # A direct install maps lanes to native aliases; move implement
             # from its default (sonnet) to another alias the picker offers.
             fleet_data["lanes"]["implement"]["model"] = "opus"
@@ -1398,7 +1411,7 @@ class ProviderRepairTests(unittest.TestCase):
             self.assertEqual(doctor.returncode, 0, doctor.stderr)
 
             # Verify manifest.managed has the updated sha256 for config:delegate-fleet.json
-            manifest = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text())
+            manifest = json.loads((home / ".claude/.claude-agents-config-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["fleetSha256"], new_fleet_hash)
             fleet_record = next(r for r in manifest["managed"] if r["id"] == "config:delegate-fleet.json")
             self.assertEqual(fleet_record["sha256"], new_fleet_hash)
@@ -1406,8 +1419,8 @@ class ProviderRepairTests(unittest.TestCase):
     def test_resolve_fleet_bidirectional_auto_promotion_cycle(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
-        policy = json.loads((ROOT / "config/provider-policy.json").read_text())
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
+        policy = json.loads((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
         fleet = {
             "version": "delegate-fleet.v1",
             "lanes": {
@@ -1452,7 +1465,7 @@ class ProviderRepairTests(unittest.TestCase):
     def test_reconcile_home_ranks_by_tier_without_seeding_preferences(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
         policy_path = ROOT / "config/provider-policy.json"
         with tempfile.TemporaryDirectory(prefix="fleet-seed-test-") as temp_dir:
             temp_root = Path(temp_dir)
@@ -1491,7 +1504,7 @@ class ProviderRepairTests(unittest.TestCase):
             ]
             result = namespace["reconcile_home"](home, config_home, policy_path, rows, catalog_valid=True)
             self.assertEqual(result["status"], "applied")
-            reconciled_fleet = json.loads((config_home / "delegate-skills" / "config.json").read_text())
+            reconciled_fleet = json.loads((config_home / "delegate-skills" / "config.json").read_text(encoding="utf-8"))
             # A balanced lane already on a live balanced model stays put: the
             # current-model bonus keeps a settled fleet from reshuffling.
             self.assertEqual(reconciled_fleet["lanes"]["implement"]["model"], "claude-sonnet-5[1m]")
@@ -1513,7 +1526,7 @@ class ProviderRepairTests(unittest.TestCase):
             (home / ".claude" / "cache").mkdir(parents=True, mode=0o700)
             (config_home / "delegate-skills").mkdir(parents=True, mode=0o755)
 
-            policy = json.loads((ROOT / "config/provider-policy.json").read_text())
+            policy = json.loads((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
             policy["autoApproveProposals"] = True
             (config_home / "delegate-skills" / "provider-policy.json").write_text(json.dumps(policy, indent=2))
 
@@ -1554,7 +1567,7 @@ class ProviderRepairTests(unittest.TestCase):
                 capture_output=True, text=True, env=env, check=False
             )
             self.assertEqual(proc.returncode, 0)
-            proposal = json.loads((home / ".claude" / "fleet-model-proposal.json").read_text())
+            proposal = json.loads((home / ".claude" / "fleet-model-proposal.json").read_text(encoding="utf-8"))
             self.assertEqual(proposal["decision"], "approved")
             self.assertTrue(proposal.get("auto_approved"))
 
@@ -1604,7 +1617,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
                 "PostToolUse": [
                     {
                         "hooks": [
-                            {"type": "command", "command": f"{sys.executable} -c 'pass' # comment"}
+                            {"type": "command", "command": f"{windows_command(sys.executable)} -c 'pass' # comment"}
                         ]
                     }
                 ]
@@ -1612,7 +1625,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         }
         (self.claude_dir / "settings.json").write_text(json.dumps(self.settings_data, indent=2))
 
-        (self.config_dir / "provider-policy.json").write_text((ROOT / "config/provider-policy.json").read_text())
+        (self.config_dir / "provider-policy.json").write_text((ROOT / "config/provider-policy.json").read_text(encoding="utf-8"))
 
         self.fleet_data = {
             "format": "claude-agents-config.fleet.v1",
@@ -1688,7 +1701,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         # 70% (the default) of the active 1M-context model.
         self.assertIn("235929 -> 1000000", proc.stdout)
 
-        updated = json.loads((self.claude_dir / "settings.json").read_text())
+        updated = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(updated["advisorModel"], "claude-opus-5[1m]")
         self.assertEqual(updated["autoCompactWindow"], 1000000)
         self.assertEqual(updated["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
@@ -1697,7 +1710,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
     def test_fix_settings_advisor_override(self) -> None:
         proc = self.run_fleet_setup("--fix-settings", "--advisor", "codex-5.5")
         self.assertEqual(proc.returncode, 0, f"Error: {proc.stderr}")
-        updated = json.loads((self.claude_dir / "settings.json").read_text())
+        updated = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(updated["advisorModel"], "codex-5.5")
 
     def test_archive_and_restore_agents_by_category(self) -> None:
@@ -1766,7 +1779,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         self.assertEqual(proc_256k.returncode, 0)
         # Window and percentage are static; verified context caps follow the model.
         self.assertIn("70% of each model", proc_256k.stdout)
-        settings_256k = json.loads((self.claude_dir / "settings.json").read_text())
+        settings_256k = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings_256k["autoCompactWindow"], 1000000)
         self.assertEqual(settings_256k["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(settings_256k["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "262144")
@@ -1778,7 +1791,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         )
         self.assertEqual(proc_1m.returncode, 0)
         self.assertIn("1000000", proc_1m.stdout)
-        settings_1m = json.loads((self.claude_dir / "settings.json").read_text())
+        settings_1m = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings_1m["autoCompactWindow"], 1000000)
         self.assertEqual(settings_1m["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(settings_1m["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
@@ -1790,7 +1803,7 @@ class FleetSetupComprehensiveTests(unittest.TestCase):
         )
         self.assertEqual(proc_claude.returncode, 0)
         self.assertEqual(proc_claude.stdout, "")
-        settings_claude = json.loads((self.claude_dir / "settings.json").read_text())
+        settings_claude = json.loads((self.claude_dir / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings_claude["autoCompactWindow"], 1000000)
         self.assertEqual(settings_claude["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(settings_claude["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "1000000")
@@ -1812,7 +1825,7 @@ def export_legacy_bundle(target: Path) -> Path | None:
     target.mkdir(parents=True)
     subprocess.run(["tar", "-x", "-f", "-", "-C", str(target)], input=archive.stdout, check=True)
     # git archive honours the umask; a release archive carries manifest modes.
-    manifest = json.loads((target / "manifest.json").read_text())
+    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     for item in manifest["files"]:
         os.chmod(target / item["path"], int(item["mode"], 8))
     for name in ("manifest.json", "checksums.sha256"):
@@ -1831,12 +1844,12 @@ class AgentFleetTwoTests(unittest.TestCase):
     def reconcile(self):
         namespace = {}
         sys.path.insert(0, str(ROOT / "scripts"))
-        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(), "fleet-reconcile.py", "exec"), namespace)
+        exec(compile((ROOT / "scripts/fleet-reconcile.py").read_text(encoding="utf-8"), "fleet-reconcile.py", "exec"), namespace)
         return namespace
 
     def test_tier_ranking_on_a_generic_catalog(self):
         ns = self.reconcile()
-        fleet = json.loads((ROOT / "config/delegate-fleet.json").read_text())
+        fleet = json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))
         rows = [
             {"id": "claude-opus-5", "max_input_tokens": 1000000, "created_at": "2026-07-24T00:00:00Z", "capabilities": {"thinking": {"supported": True}}},
             {"id": "claude-sonnet-5", "max_input_tokens": 1000000, "created_at": "2026-05-01T00:00:00Z", "capabilities": {"thinking": {"supported": True}}},
@@ -1866,7 +1879,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             {"id": "claude-haiku", "context_length": 200000},
             {"id": "qwen-3", "context_length": 128000},
         ]
-        fleet = json.loads((ROOT / "config/delegate-fleet.json").read_text())
+        fleet = json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))
         fleet["excludedModels"] = ["claude-opus-5"]
         fleet["lanes"]["implement"]["preferred"] = ["claude-sonnet-5[1m]"]
         resolved, picker, pending, _catalog = ns["resolve_fleet"](fleet, {}, rows, GENERIC_POLICY)
@@ -1895,14 +1908,15 @@ class AgentFleetTwoTests(unittest.TestCase):
                 self.assertEqual(result.returncode == 0, ok, result.stderr + result.stdout)
                 return result
             def lanes():
-                return json.loads((home / ".claude/fleet.json").read_text())
+                return json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))
             run("--prefer", "review=opus")
             run("--exclude", "opus")
             fleet = lanes()
             self.assertEqual(fleet["excludedModels"], ["opus"])
             self.assertNotIn("opus", {c["model"] for c in fleet["lanes"].values()})
             self.assertNotIn("preferred", fleet["lanes"]["review"], "excluding a model drops it from lane pins")
-            self.assertEqual(json.loads((config / "delegate-skills/config.json").read_text())["excludedModels"], ["opus"], "both mirrors")
+            self.assertEqual(json.loads((config / "delegate-skills/config.json").read_text(encoding="utf-8"))["excludedModels"], ["opus"], "both mirrors")
+            self.assertEqual(subprocess.run([installed(home, "claude-fleet-sync")], env=env, text=True, capture_output=True).returncode, 0)
             self.assertEqual(subprocess.run(doctor, env=env, text=True, capture_output=True).returncode, 0)
             run("--prefer", "plan=opus", ok=False)
             run("--exclude", "claude-sonnet-5", ok=False)
@@ -1925,13 +1939,13 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             setup = subprocess.run([installed(home, "claude-fleet-setup"), "--exclude", "opus"], env=env, text=True, capture_output=True)
             self.assertEqual(setup.returncode, 0, setup.stderr + setup.stdout)
-            fleet = json.loads((home / ".claude/fleet.json").read_text())
+            fleet = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))
             self.assertEqual(fleet["excludedModels"], ["opus"])
             reinstall = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(reinstall.returncode, 0, reinstall.stderr + reinstall.stdout)
-            fleet = json.loads((home / ".claude/fleet.json").read_text())
+            fleet = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))
             self.assertEqual(fleet.get("excludedModels"), ["opus"], "exclusion must survive an update, not just a fleet-setup edit")
-            mirror = json.loads((config / "delegate-skills/config.json").read_text())
+            mirror = json.loads((config / "delegate-skills/config.json").read_text(encoding="utf-8"))
             self.assertEqual(mirror.get("excludedModels"), ["opus"])
 
     def test_explicit_preference_wins_and_can_be_cleared(self):
@@ -1951,11 +1965,11 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config)
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            settings = json.loads((home / ".claude/settings.json").read_text())
+            settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertNotIn("ANTHROPIC_BASE_URL", settings.get("env", {}))
             self.assertNotIn("ANTHROPIC_API_KEY", settings.get("env", {}), "only gateway installs blank the API key")
             self.assertEqual(settings["model"], "default")
-            lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
+            lanes = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]
             self.assertEqual({config["model"] for config in lanes.values()}, {"opus", "sonnet", "haiku"})
             self.assertTrue((home / ".local/bin/agentfleet").is_file())
             self.assertIn("agentfleet use native", install.stdout)
@@ -1998,30 +2012,30 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             agentfleet = installed(home, "agentfleet")
             doctor = [installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)]
-            gateway_lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
+            gateway_lanes = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]
 
             saved = subprocess.run([agentfleet, "save", "work"], env=env, text=True, capture_output=True)
             self.assertEqual(saved.returncode, 0, saved.stderr)
             token_file = home / ".claude/agentfleet/secrets/work.token"
-            self.assertEqual(token_file.read_text(), "fake-token")
+            self.assertEqual(token_file.read_text(encoding="utf-8"), "fake-token")
             self.assertEqual(stat_mode(token_file), 0o600)
             self.assertEqual(stat_mode(home / ".claude/agentfleet/secrets"), 0o700)
 
             native = subprocess.run([agentfleet, "use", "native"], env=env, text=True, capture_output=True)
             self.assertEqual(native.returncode, 0, native.stderr)
-            settings = json.loads((home / ".claude/settings.json").read_text())
+            settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertNotIn("ANTHROPIC_BASE_URL", settings["env"])
             self.assertNotIn("ANTHROPIC_AUTH_TOKEN", settings["env"])
             self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", settings["env"])
             self.assertEqual(settings["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"], "0")
-            native_lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
+            native_lanes = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]
             self.assertEqual(set(native_lanes), set(gateway_lanes), "lanes keep their names across a switch")
             self.assertTrue({config["model"] for config in native_lanes.values()} <= {"opus", "sonnet", "haiku"})
-            self.assertIn('model: "opus"', (home / ".claude/agents/fleet-plan.md").read_text())
+            self.assertIn('model: "opus"', (home / ".claude/agents/fleet-plan.md").read_text(encoding="utf-8"))
             self.assertEqual(subprocess.run(doctor, env=env, text=True, capture_output=True).returncode, 0)
 
             saved_work = home / ".claude/agentfleet/profiles/work.json"
-            profile = json.loads(saved_work.read_text())
+            profile = json.loads(saved_work.read_text(encoding="utf-8"))
             self.assertIn("agentfleetVersion", profile)
             # Simulate a profile 2.0.0 saved while the 1.0.0 pins were live.
             del profile["agentfleetVersion"]
@@ -2029,11 +2043,11 @@ class AgentFleetTwoTests(unittest.TestCase):
             saved_work.write_text(json.dumps(profile))
             back = subprocess.run([agentfleet, "use", "work"], env=env, text=True, capture_output=True)
             self.assertEqual(back.returncode, 0, back.stderr)
-            restored = json.loads((home / ".claude/settings.json").read_text())
+            restored = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertEqual(restored["env"]["ANTHROPIC_BASE_URL"], endpoint)
             self.assertEqual(restored["env"]["ANTHROPIC_AUTH_TOKEN"], "fake-token")
-            self.assertNotIn("preferred", json.loads((home / ".claude/fleet.json").read_text())["lanes"]["review-deep"], "a 2.0.0 profile does not restore 1.0.0 pins")
-            self.assertEqual({lane: config["model"] for lane, config in json.loads((home / ".claude/fleet.json").read_text())["lanes"].items()},
+            self.assertNotIn("preferred", json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]["review-deep"], "a 2.0.0 profile does not restore 1.0.0 pins")
+            self.assertEqual({lane: config["model"] for lane, config in json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"].items()},
                              {lane: config["model"] for lane, config in gateway_lanes.items()}, "switching back restores every lane")
             result = subprocess.run(doctor, env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -2047,7 +2061,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             stale = subprocess.run([agentfleet, "use", "native"], env=env, text=True, capture_output=True)
             self.assertEqual(stale.returncode, 0, stale.stderr)
             self.assertNotIn("Already using", stale.stdout)
-            self.assertNotIn("ANTHROPIC_AUTH_TOKEN", json.loads((home / ".claude/settings.json").read_text())["env"])
+            self.assertNotIn("ANTHROPIC_AUTH_TOKEN", json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))["env"])
             uninstall = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--uninstall", "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(uninstall.returncode, 0, uninstall.stderr + uninstall.stdout)
             self.assertFalse((home / ".claude/agentfleet").exists(), "uninstall removes saved profiles and tokens")
@@ -2069,26 +2083,26 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(len(list(agents.glob("fleet-*.md"))), 30)
             # The user changes one of 1.0.0's shipped preferences and leaves the rest.
             settings_path = home / ".claude/settings.json"
-            legacy_settings = json.loads(settings_path.read_text())
+            legacy_settings = json.loads(settings_path.read_text(encoding="utf-8"))
             legacy_settings["outputStyle"] = "explanatory"
             settings_path.write_text(json.dumps(legacy_settings, indent=2) + "\n")
             # A choice recorded under a 1.0.0 lane name must follow the rename.
             for fleet_path in (home / ".claude/fleet.json", config / "delegate-skills/config.json"):
-                fleet = json.loads(fleet_path.read_text())
+                fleet = json.loads(fleet_path.read_text(encoding="utf-8"))
                 fleet["lanes"]["implement-02-gemini-flash"]["preferred"] = ["codex-5.5"]
                 fleet_path.write_text(json.dumps(fleet, indent=2) + "\n")
 
             new = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config), *gateway], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(new.returncode, 0, new.stderr + new.stdout)
             names = sorted(path.stem.removeprefix("fleet-") for path in agents.glob("fleet-*.md"))
-            self.assertEqual(names, sorted(json.loads((ROOT / "config/delegate-fleet.json").read_text())["lanes"]))
+            self.assertEqual(names, sorted(json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))["lanes"]))
             self.assertFalse((agents / "fleet-implement-02-gemini-flash.md").exists())
             self.assertFalse((home / ".claude/sync-omniroute-models.mjs").exists(), "the renamed hook script is retired")
             self.assertIn("remove:", new.stdout)
             settings_text = (home / ".claude/settings.json").read_text(encoding="utf-8")
             self.assertIn("sync-provider-models.mjs", settings_text)
             self.assertNotIn("sync-omniroute-models.mjs", settings_text)
-            lanes = json.loads((home / ".claude/fleet.json").read_text())["lanes"]
+            lanes = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]
             self.assertEqual(lanes["implement-fast"]["model"], "codex-5.5", "the old lane's preference moved to its successor")
             self.assertEqual(lanes["implement-fast"]["preferred"], ["codex-5.5"], "a user's own preference is kept")
             pinned = sorted(lane for lane, config in lanes.items() if lane != "implement-fast" and config.get("preferred"))
@@ -2096,19 +2110,19 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual([lane for lane, config in lanes.items() if not config.get("fallbacks")], [], "tier ranking gives every lane fallbacks")
             # 1.0.0 shipped personal preferences. The update takes back the
             # ones the user left alone and keeps the one they changed.
-            upgraded = json.loads((home / ".claude/settings.json").read_text())
+            upgraded = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertNotIn("effortLevel", upgraded)
             self.assertEqual(upgraded.get("outputStyle"), "explanatory")
-            template = json.loads((ROOT / "config/settings.template.json").read_text())
+            template = json.loads((ROOT / "config/settings.template.json").read_text(encoding="utf-8"))
             self.assertFalse({"effortLevel", "outputStyle", "tui", "agentPushNotifEnabled"} & set(template))
-            self.assertNotIn("Co-Authored-By", (home / ".claude/CLAUDE.md").read_text())
+            self.assertNotIn("Co-Authored-By", (home / ".claude/CLAUDE.md").read_text(encoding="utf-8"))
             doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
             sync = subprocess.run([installed(home, "claude-fleet-sync"), "--check"], env=env, text=True, capture_output=True)
             self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
             uninstall = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--uninstall", "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(uninstall.returncode, 0, uninstall.stderr)
-            remaining = json.loads((home / ".claude/settings.json").read_text())
+            remaining = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertEqual(remaining.get("outputStyle"), "explanatory", "uninstall leaves the user's own value alone")
 
 
@@ -2156,10 +2170,10 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(step, len(answers), text[-2000:])
             self.assertNotIn("wizard-token", text, "the hidden token prompt must not echo")
             self.assertIn("Fleet plan:", text)
-            fleet = json.loads((home / ".claude/fleet.json").read_text())
+            fleet = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))
             self.assertEqual(fleet["modelTiers"], {"codex-5.5": "cheap"})
             self.assertEqual(fleet["lanes"]["implement-cheap"]["model"], "codex-5.5", "a tier edit re-plans before installing")
-            settings = json.loads((home / ".claude/settings.json").read_text())
+            settings = json.loads((home / ".claude/settings.json").read_text(encoding="utf-8"))
             self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], endpoint)
             self.assertEqual(settings["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"], "1")
 
@@ -2169,7 +2183,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config, ANTHROPIC_BASE_URL="https://gateway.example.com", ANTHROPIC_AUTH_TOKEN="shell-token-value")
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            text = (home / ".claude/settings.json").read_text()
+            text = (home / ".claude/settings.json").read_text(encoding="utf-8")
             self.assertNotIn("shell-token-value", text, "an explicit native install must not persist a shell token")
             self.assertNotIn("ANTHROPIC_BASE_URL", json.loads(text).get("env", {}))
 
@@ -2185,8 +2199,21 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             rollback = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--rollback", "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(rollback.returncode, 0, rollback.stderr + rollback.stdout)
-            self.assertEqual(original.read_text(), "# my own instructions\n")
+            self.assertEqual(original.read_text(encoding="utf-8"), "# my own instructions\n")
             self.assertEqual(stat_mode(original), 0o444)
+
+    @unittest.skipUnless(os.name == "nt", "Windows read-only attribute")
+    def test_windows_atomic_write_replaces_and_keeps_read_only_target(self):
+        spec = importlib.util.spec_from_file_location("agentfleet_install_readonly", ROOT / "bin/install.py")
+        installer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(installer)
+        with tempfile.TemporaryDirectory(prefix="agentfleet atomic ") as raw:
+            target = Path(raw) / "CLAUDE.md"
+            target.write_text("old\n")
+            os.chmod(target, 0o444)
+            installer.atomic_write(target, b"new\n", 0o444)
+            self.assertEqual(target.read_bytes(), b"new\n")
+            self.assertEqual(stat_mode(target) & 0o200, 0, "read-only mode is applied on Windows")
 
     def test_pruning_never_touches_unowned_user_agents(self):
         spec = importlib.util.spec_from_file_location("agentfleet_install_prune", ROOT / "bin/install.py")
@@ -2218,7 +2245,7 @@ class AgentFleetTwoTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("agentfleet_install_journal", ROOT / "bin/install.py")
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
-        template = json.loads((ROOT / "config/settings.template.json").read_text())
+        template = json.loads((ROOT / "config/settings.template.json").read_text(encoding="utf-8"))
         shipped = {"effortLevel": "xhigh", "outputStyle": "concise", "defaultMode": "bypassPermissions", "skipDangerousModePermissionPrompt": True}
         previous = {"settingsJournal": [
             {"id": f"value:{key}", "kind": "value", "path": [key], "beforePresent": False, "before": None, "installedPresent": True, "installed": value}
@@ -2243,7 +2270,7 @@ class AgentFleetTwoTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("agentfleet_install_pins", ROOT / "bin/install.py")
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
-        bundle = json.loads((ROOT / "config/delegate-fleet.json").read_text())
+        bundle = json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))
         shipped = ["claude-opus-5[1m]", "codex-sol[1m]", "agy-claude-opus[1m]"]
         existing = {"lanes": {"plan": {"preferred": shipped}, "review": {"preferred": ["codex-sol[1m]", 7, "claude-opus-5[1m]", "agy-claude-opus[1m]"]}}}
         migrated = installer.carry_lane_choices(bundle, existing, drop_shipped_pins=True)["lanes"]
@@ -2263,7 +2290,8 @@ class AgentFleetTwoTests(unittest.TestCase):
                     self.send_response(403)
                     self.end_headers()
                     return
-                body = b'#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/update-args"\n'
+                body = (b'[IO.File]::WriteAllLines((Join-Path $env:HOME "update-args"), [string[]]$args)\r\n' if os.name == "nt"
+                        else b'#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/update-args"\n')
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -2281,7 +2309,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, home / ".config", AGENTFLEET_BASE_URL=f"http://127.0.0.1:{server.server_address[1]}")
             result = subprocess.run([PYTHON, str(ROOT / "bin/agentfleet"), "--home", str(home), "update"], env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-            self.assertIn("--home", (home / "update-args").read_text())
+            self.assertIn("--home", (home / "update-args").read_text(encoding="utf-8"))
 
     def test_agentfleet_rollback_restores_the_pre_install_state(self):
         with tempfile.TemporaryDirectory(prefix="agentfleet rollback ") as raw:
@@ -2289,7 +2317,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             (home / ".claude").mkdir(parents=True)
             original = b'{\n  "theme": "light-daltonized"\n}\n'
             (home / ".claude/settings.json").write_bytes(original)
-            version = (ROOT / "VERSION").read_text().strip()
+            version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
             (store / "releases").mkdir(parents=True)
             (store / "current").write_text(version + "\n")
             if os.name == "nt":
@@ -2331,9 +2359,9 @@ class AgentFleetTwoTests(unittest.TestCase):
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             # Review lanes may run commands since 2.2.0; plan stays read-only.
-            self.assertIn("Bash", (home / ".claude/agents/fleet-review-deep.md").read_text())
+            self.assertIn("Bash", (home / ".claude/agents/fleet-review-deep.md").read_text(encoding="utf-8"))
             agent = home / ".claude/agents/fleet-plan.md"
-            text = agent.read_text()
+            text = agent.read_text(encoding="utf-8")
             self.assertNotIn("Bash", text)
             agent.write_text(re.sub(r"^tools: (.*)$", r"tools: \1, Bash", text, count=1, flags=re.M))
             doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
@@ -2355,10 +2383,9 @@ class AgentFleetTwoTests(unittest.TestCase):
             with self.subTest(provider=provider), tempfile.TemporaryDirectory(prefix=f"agentfleet custom {provider} ") as raw:
                 home, config = Path(raw) / "home", Path(raw) / "config"
                 env = self.env_for(home, config, FAKE_GATEWAY_TOKEN="fake-token")
-                bindir = home / ".local/bin"
                 install = [PYTHON, str(ROOT / "bin/install.py"), *flags, "--home", str(home), "--config-home", str(config)]
-                gates = ([str(bindir / "claude-fleet-sync"), "--check"],
-                         [str(bindir / "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)])
+                gates = ([installed(home, "claude-fleet-sync"), "--check"],
+                         [installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)])
 
                 def run(command):
                     result = subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True)
@@ -2366,27 +2393,27 @@ class AgentFleetTwoTests(unittest.TestCase):
                     return result
 
                 def custom_model():
-                    kept = json.loads((home / ".claude/fleet.json").read_text())["lanes"]["db-tuner"]
+                    kept = json.loads((home / ".claude/fleet.json").read_text(encoding="utf-8"))["lanes"]["db-tuner"]
                     self.assertEqual(kept["description"], lane["description"])
-                    self.assertIn(f'model: "{kept["model"]}"', (home / ".claude/agents/fleet-db-tuner.md").read_text())
+                    self.assertIn(f'model: "{kept["model"]}"', (home / ".claude/agents/fleet-db-tuner.md").read_text(encoding="utf-8"))
                     for gate in gates:
                         run(gate)
                     return kept["model"]
 
                 run(install)
                 for mirror in (home / ".claude/fleet.json", config / "delegate-skills/config.json"):
-                    data = json.loads(mirror.read_text())
+                    data = json.loads(mirror.read_text(encoding="utf-8"))
                     data["lanes"]["db-tuner"] = lane
                     # Read-only wins over a name that sounds writable.
                     data["lanes"]["implement-audit"] = {**lane, "description": "Audit an implementation plan."}
                     mirror.write_text(json.dumps(data, indent=2) + "\n")
-                setup = str(bindir / "claude-fleet-setup")
+                setup = installed(home, "claude-fleet-setup")
                 run([setup, "--reconcile"])
                 self.assertEqual(custom_model(), expected, "reconcile gives the new lane a model for its tier")
                 again = run(install)
                 self.assertIn("Keeping custom lane(s): fleet-db-tuner", again.stdout)
                 self.assertEqual(custom_model(), expected)
-                audit_tools = re.search(r"^tools: (.*)$", (home / ".claude/agents/fleet-implement-audit.md").read_text(), re.M).group(1)
+                audit_tools = re.search(r"^tools: (.*)$", (home / ".claude/agents/fleet-implement-audit.md").read_text(encoding="utf-8"), re.M).group(1)
                 self.assertNotIn("Bash", audit_tools)
                 if provider == "native":
                     run([setup, "--prefer", "db-tuner=sonnet"])
@@ -2397,10 +2424,10 @@ class AgentFleetTwoTests(unittest.TestCase):
                     run([setup, "--prefer", "db-tuner="])
                     self.assertEqual(custom_model(), expected, "clearing the pin returns the lane to its tier")
                 if provider == "gateway":
-                    run([str(bindir / "agentfleet"), "save", "work"])
-                    run([str(bindir / "agentfleet"), "use", "native"])
+                    run([installed(home, "agentfleet"), "save", "work"])
+                    run([installed(home, "agentfleet"), "use", "native"])
                     self.assertEqual(custom_model(), "haiku")
-                    run([str(bindir / "agentfleet"), "use", "work"])
+                    run([installed(home, "agentfleet"), "use", "work"])
                     self.assertEqual(custom_model(), expected)
 
 def stat_mode(path: Path) -> int:

@@ -116,7 +116,7 @@ function sharedLockPath() {
 }
 
 function processAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0 || process.platform === "win32") return true;
+  if (!Number.isInteger(pid) || pid <= 0) return true;
   try {
     process.kill(pid, 0);
     return true;
