@@ -17,6 +17,17 @@ import unittest
 
 sys.dont_write_bytecode = True
 
+
+def dir_link(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+            raise
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -508,7 +519,7 @@ services:
         (real_proj / "artisan").write_text("#!/usr/bin/env php\n", encoding="utf-8")
 
         symlink_proj = self.root / "symlink_project"
-        symlink_proj.symlink_to(real_proj)
+        dir_link(symlink_proj, real_proj)
 
         # Write usage file using real path's sha256[:16]
         real_resolved = str(real_proj.resolve())
@@ -631,16 +642,18 @@ services:
         proj = self.root / "escape_proj"
         proj.mkdir()
 
-        # File name containing CSI sequence (ESC[31m)
-        dirty_file = proj / "\x1b[31mevil_component.tsx\x1b[0m"
-        dirty_file.write_text("export const Evil = () => null;", encoding="utf-8")
+        # File name containing CSI sequence (ESC[31m); Windows forbids control characters in names
+        if os.name != "nt":
+            dirty_file = proj / "\x1b[31mevil_component.tsx\x1b[0m"
+            dirty_file.write_text("export const Evil = () => null;", encoding="utf-8")
 
         # .env.example with OSC 52 sequence in key name
         env_content = "\x1b]52;c;c2VjcmV0\x07STRIPE_KEY=\n"
         (proj / ".env.example").write_text(env_content, encoding="utf-8")
 
         signals = fleet_suggest.scan(proj)
-        self.assertIn("evil_component.tsx", signals["files"])
+        if os.name != "nt":
+            self.assertIn("evil_component.tsx", signals["files"])
         self.assertFalse(any("\x1b" in f for f in signals["files"]))
         self.assertIn("STRIPE_KEY", signals["env_keys"])
         self.assertFalse(any("\x1b" in k for k in signals["env_keys"]))

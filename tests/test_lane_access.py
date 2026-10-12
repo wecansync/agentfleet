@@ -6,6 +6,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
+def dir_link(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        if os.name != "nt" or getattr(error, "winerror", None) != 1314:
+            raise
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+
+
 class TestLaneAccess(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -263,7 +274,7 @@ class TestLaneAccess(unittest.TestCase):
     def test_repo_templates_match_generator_default(self):
         root = Path(__file__).parent.parent
         repo_fleet = root / "config" / "delegate-fleet.json"
-        self.fleet_path.write_text(repo_fleet.read_text())
+        self.fleet_path.write_bytes(repo_fleet.read_bytes())
         
         self.settings_path.write_text(json.dumps({
             "modelPicker": {
@@ -299,7 +310,7 @@ class ProjectTargetSafetyTests(unittest.TestCase):
             home, project = root / "home", root / "project"
             (home / ".claude" / "agents").mkdir(parents=True)
             project.mkdir()
-            (project / ".claude").symlink_to(home / ".claude", target_is_directory=True)
+            dir_link(project / ".claude", home / ".claude")
             (home / ".claude" / "settings.json").write_text(json.dumps({"model": "opus", "modelPicker": {"options": [{"model": "opus"}, {"model": "sonnet"}]}}), encoding="utf-8")
             (home / ".claude" / "fleet.json").write_text(json.dumps({"version": "delegate-fleet.v1", "lanes": {
                 "implement": {"implementer": "claude", "model": "sonnet"},
