@@ -113,6 +113,10 @@ class ProfileTests(unittest.TestCase):
         self.env = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config),
                     "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NONINTERACTIVE": "1",
                     **{f"TOK_{key.upper()}": value for key, value in TOKENS.items()}}
+        if os.name == "nt":
+            # Python's SSL setup and cmd.exe both need these on Windows.
+            self.env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            self.env["USERPROFILE"] = str(self.home)
         install = self.run_cmd([PYTHON, str(ROOT / "bin/install.py"), "--provider", "gateway", "--gateway-url", self.url("a"),
                                 "--allow-insecure-http", "--gateway-token-env", "TOK_A", "--home", str(self.home), "--config-home", str(self.config)])
         self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
@@ -196,9 +200,10 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("Switch with: agentfleet use b", result.stdout)
         profile_path = self.home / ".claude/agentfleet/profiles/b.json"
         token_path = self.home / ".claude/agentfleet/secrets/b.token"
-        self.assertEqual(stat.S_IMODE(profile_path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(token_path.stat().st_mode), 0o600)
-        self.assertEqual(stat.S_IMODE(profile_path.parent.stat().st_mode), 0o700)
+        if os.name == "posix":  # Windows has no Unix permission bits
+            self.assertEqual(stat.S_IMODE(profile_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(token_path.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(profile_path.parent.stat().st_mode), 0o700)
         profile = self.read(profile_path)
         self.assertEqual(profile["policy"]["provider"], "b")
         self.assertEqual([f["prefixes"] for f in profile["policy"]["families"]], [[""]])

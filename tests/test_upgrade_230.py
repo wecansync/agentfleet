@@ -82,6 +82,10 @@ class Upgrade230Tests(unittest.TestCase):
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NONINTERACTIVE": "1",
             "AGENTFLEET_NO_CONFIGURE": "1", "TOK_GW": TOKEN,
         }
+        if os.name == "nt":
+            # Python's SSL setup and cmd.exe both need these on Windows.
+            self.env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            self.env["USERPROFILE"] = str(self.home)
 
     # -- helpers ----------------------------------------------------------------
     def run_installer(self, *options: str):
