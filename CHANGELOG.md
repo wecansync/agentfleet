@@ -3,6 +3,34 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.3.1] - 2026-10-12
+
+Windows fixes found by running AgentFleet end to end on a real Windows machine,
+plus one fix that applies to every platform.
+
+### Fixed
+
+- Rerunning or updating a 2.3.0 install no longer turns learning off. Only
+  installs older than 2.3.0 start with learning off, as 2.3.0 intended. A
+  `learn` value you set yourself is never changed.
+- Windows: `agentfleet update`, `rollback` and `uninstall` no longer fail with
+  "The batch file cannot be found." when they replace or remove the
+  `agentfleet.cmd` wrapper they were started from. Wrappers find their
+  interpreter on PATH only, never in the current folder.
+- Windows: wrappers pass non-ASCII paths such as `C:\Users\José` intact and
+  restore the console's code page afterwards.
+- Windows: a lock left by a crashed run no longer blocks the model catalog,
+  the agent generator or suggestions, and a lock held by a running process is
+  never taken over.
+- Windows: rollback can restore over read-only files.
+- Windows: `claude-fleet-setup` now creates agent files for new lanes after
+  reconciling, and reports when it cannot start the agent generator.
+- Windows: the "add this folder to your PATH" tip no longer appears when the
+  folder is already on PATH with different letter case or a trailing
+  backslash.
+- Clones made with Git for Windows' default settings install again: every
+  text file is now checked out with LF line endings, so checksums match.
+
 ## [2.3.0] - 2026-10-12
 
 One command for installation and updates, a configuration wizard with shareable
@@ -198,6 +226,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.3.1]: https://github.com/wecansync/claude-agents-config/pull/27
 [2.3.0]: https://github.com/wecansync/claude-agents-config/pull/25
 [2.2.0]: https://github.com/wecansync/claude-agents-config/pull/24
 [2.1.0]: https://github.com/wecansync/claude-agents-config/pull/23
