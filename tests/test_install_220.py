@@ -526,11 +526,11 @@ class Install220Tests(unittest.TestCase):
         # 5a: cmd_dispatch
         cmd_bytes = install.cmd_dispatch(probe, "python")
         self.assertIn(b'set "NoDefaultCurrentDirectoryInExePath=1"\r\n', cmd_bytes)
-        self.assertIn(b'"%SystemRoot%\\System32\\where.exe" py >nul 2>nul', cmd_bytes)
+        self.assertIn(b'for %%I in (py.exe) do set "AF_EXE=%%~$PATH:I"', cmd_bytes)
 
         node_cmd_bytes = install.cmd_dispatch(probe, "node")
         self.assertIn(b'set "NoDefaultCurrentDirectoryInExePath=1"\r\n', node_cmd_bytes)
-        self.assertIn(b'"%SystemRoot%\\System32\\where.exe" node >nul 2>nul', node_cmd_bytes)
+        self.assertIn(b'for %%I in (node.exe) do set "AF_EXE=%%~$PATH:I"', node_cmd_bytes)
 
         # 5c: powershell_dispatch has UTF-8 BOM
         ps1_bytes = install.powershell_dispatch(probe, "python")
