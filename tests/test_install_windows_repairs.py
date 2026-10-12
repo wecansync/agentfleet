@@ -127,9 +127,10 @@ class ShimGenerationTests(unittest.TestCase):
         self.assertLess(body.index(find_py), body.index(find_python), "py must be tried before python")
         run_lines = [line for line in body.split("\r\n") if line.startswith("(goto) 2>nul & ")]
         self.assertEqual(len(run_lines), 3, "each interpreter runs on a line that leaves the batch first")
+        run_prefix = '(goto) 2>nul & "%SystemRoot%\\System32\\chcp.com" %AF_CP% >nul 2>nul & '
         for line in run_lines:
             # After (goto) the setlocal environment is gone, so only absolute paths may be run.
-            self.assertTrue(line.startswith(f"(goto) 2>nul & {pinned} ") or line.startswith('(goto) 2>nul & "%AF_EXE%" '), line)
+            self.assertTrue(line.startswith(f"{run_prefix}{pinned} ") or line.startswith(f'{run_prefix}"%AF_EXE%" '), line)
         if_lines = [line for line in body.split("\r\n") if line.lower().startswith("if ")]
         self.assertTrue(if_lines, "expected at least one if line")
         for line in if_lines:
@@ -160,9 +161,11 @@ class ShimGenerationTests(unittest.TestCase):
         self.assertEqual(
             cmd_body,
             '@echo off\r\nsetlocal\r\nset "NoDefaultCurrentDirectoryInExePath=1"\r\n'
+            'set "AF_CP="\r\nfor /f "tokens=2 delims=:." %%C in (\'"%SystemRoot%\\System32\\chcp.com"\') do set "AF_CP=%%C"\r\n'
+            '"%SystemRoot%\\System32\\chcp.com" 65001 >nul 2>nul\r\n'
             'set "AF_EXE="\r\nfor %%I in (node.exe) do set "AF_EXE=%%~$PATH:I"\r\n'
-            'if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n'
-            f'(goto) 2>nul & "%AF_EXE%" "{script}" %*\r\n',
+            'if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & "%SystemRoot%\\System32\\chcp.com" %AF_CP% >nul 2>nul & exit /b 1)\r\n'
+            f'(goto) 2>nul & "%SystemRoot%\\System32\\chcp.com" %AF_CP% >nul 2>nul & "%AF_EXE%" "{script}" %*\r\n',
         )
         ps1_body = self.installer.powershell_dispatch(script, "node").decode("utf-8-sig")
         self.assertEqual(
@@ -260,6 +263,35 @@ class ShimExecutionTests(unittest.TestCase):
             )
             self.assertEqual(ps1_result.returncode, 0, ps1_result.stdout + ps1_result.stderr)
             self.assertEqual(ps1_result.stdout.strip(), sys.executable)
+
+    def test_cmd_shim_passes_non_ascii_arguments_intact(self):
+        installer = load_installer()
+        with tempfile.TemporaryDirectory(prefix="af-shim-unicode-") as raw:
+            root = Path(raw)
+            # The script path is written into the .cmd body, which cmd.exe decodes with the console code page.
+            folder = root / "home☃"
+            folder.mkdir()
+            probe = folder / "probe.py"
+            probe.write_text("import sys\nsys.stdout.buffer.write(sys.argv[0].encode('utf-8'))\n", encoding="utf-8")
+            env = {**os.environ, "PATH": path_dirs_without_python(), "PYTHONDONTWRITEBYTECODE": "1"}
+            cmd_path = root / "probe.cmd"
+            cmd_path.write_bytes(installer.cmd_dispatch(probe, "python"))
+            result = subprocess.run(["cmd.exe", "/c", str(cmd_path)], env=env, capture_output=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.decode("utf-8"), str(probe))
+
+    def test_cmd_shim_restores_the_callers_code_page(self):
+        installer = load_installer()
+        with tempfile.TemporaryDirectory(prefix="af-shim-codepage-") as raw:
+            root = Path(raw)
+            probe = root / "probe.py"
+            probe.write_text("pass\n", encoding="utf-8")
+            cmd_path = root / "probe.cmd"
+            cmd_path.write_bytes(installer.cmd_dispatch(probe, "python"))
+            chcp = os.path.join(os.environ["SystemRoot"], "System32", "chcp.com")
+            result = subprocess.run(f'cmd.exe /c "{chcp} & {cmd_path} & {chcp}"', capture_output=True, text=True, timeout=30)
+            before, _, after = result.stdout.partition("\n")
+            self.assertEqual(before.strip(), after.strip(), "the shim must leave the console code page as it found it")
 
     def test_shim_forwards_exit_code_and_arguments(self):
         installer = load_installer()

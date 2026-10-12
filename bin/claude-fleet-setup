@@ -381,7 +381,7 @@ def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file
         pass
 
     # Synchronize agents
-    fleet_sync = home / ".local" / "bin" / "claude-fleet-sync"
+    fleet_sync = home / ".local" / "bin" / ("claude-fleet-sync.cmd" if os.name == "nt" else "claude-fleet-sync")
     if not fleet_sync.is_file():
         fleet_sync = SCRIPTS / "generate-claude-agents.mjs"
         if not fleet_sync.is_file():
@@ -399,8 +399,8 @@ def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file
             else:
                 detail = (proc_sync.stderr or proc_sync.stdout).strip().splitlines()
                 print(f"claude-fleet-sync failed: {detail[-1] if detail else f'exit {proc_sync.returncode}'}", file=sys.stderr)
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"claude-fleet-sync failed: {exc}", file=sys.stderr)
 
 
 def clean_model_id(model_id: str | None) -> str:

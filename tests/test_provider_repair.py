@@ -1020,9 +1020,9 @@ class ProviderRepairTests(unittest.TestCase):
             # this into a silent null response.
             (claude_dir / "fleet-reconcile.py").write_text("import sys\nsys.exit(3)\n")
             shutil.copy(ROOT / "scripts/sync-provider-models.mjs", claude_dir / "sync-provider-models.mjs")
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home)}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), **windows_child_env(home)}
             result = subprocess.run(
-                [shutil.which("node"), str(claude_dir / "sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet"],
+                [shutil.which("node"), str(claude_dir / "sync-provider-models.mjs"), "--home", str(home), "--config-home", str(config), "--quiet", "--python", PYTHON],
                 cwd=ROOT, env=env, text=True, capture_output=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -2018,8 +2018,9 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(saved.returncode, 0, saved.stderr)
             token_file = home / ".claude/agentfleet/secrets/work.token"
             self.assertEqual(token_file.read_text(encoding="utf-8"), "fake-token")
-            self.assertEqual(stat_mode(token_file), 0o600)
-            self.assertEqual(stat_mode(home / ".claude/agentfleet/secrets"), 0o700)
+            if os.name == "posix":
+                self.assertEqual(stat_mode(token_file), 0o600)
+                self.assertEqual(stat_mode(home / ".claude/agentfleet/secrets"), 0o700)
 
             native = subprocess.run([agentfleet, "use", "native"], env=env, text=True, capture_output=True)
             self.assertEqual(native.returncode, 0, native.stderr)
@@ -2346,11 +2347,12 @@ class AgentFleetTwoTests(unittest.TestCase):
             env = self.env_for(home, config)
             install = subprocess.run([PYTHON, str(bundle / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=bundle, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
-            self.assertEqual(stat_mode(home / ".claude/CLAUDE.md"), 0o644, "installed files still get exact modes")
-            (bundle / "README.md").chmod(0o666)
-            refused = subprocess.run([PYTHON, str(bundle / "bin/install.py"), "--dry-run", "--home", str(home), "--config-home", str(config)], cwd=bundle, env=env, text=True, capture_output=True)
-            self.assertNotEqual(refused.returncode, 0)
-            self.assertIn("mode mismatch before installation", refused.stderr + refused.stdout, "world-writable source files are refused")
+            if os.name == "posix":
+                self.assertEqual(stat_mode(home / ".claude/CLAUDE.md"), 0o644, "installed files still get exact modes")
+                (bundle / "README.md").chmod(0o666)
+                refused = subprocess.run([PYTHON, str(bundle / "bin/install.py"), "--dry-run", "--home", str(home), "--config-home", str(config)], cwd=bundle, env=env, text=True, capture_output=True)
+                self.assertNotEqual(refused.returncode, 0)
+                self.assertIn("mode mismatch before installation", refused.stderr + refused.stdout, "world-writable source files are refused")
 
     def test_doctor_rejects_write_tools_on_read_only_lanes(self):
         with tempfile.TemporaryDirectory(prefix="agentfleet readonly ") as raw:
