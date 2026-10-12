@@ -45,7 +45,11 @@ function sources(on: On, files: Record<string, string>, root = '/test/claude/age
     'agentfleet/auto-update.json', 'fleet-model-proposal.json',
     'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json', 'agentfleet/jev-stats.json', 'agentfleet/suggestions-hidden.json', 'agentfleet/wizard.json',
   ]
-  on('fs.stat', (_$, e) => ({ value: { kind: e.path.endsWith('/agentfleet') ? 'directory' : 'file', size: 100, mtimeMs: 0, isLink: false, realPath: e.path } }))
+  on('fs.stat', (_$, e) => {
+    // The kit may hand back native Windows paths (C:\...); compare in the POSIX form the mod builds.
+    const path = e.path.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')
+    return { value: { kind: path.endsWith('/agentfleet') ? 'directory' : 'file', size: 100, mtimeMs: 0, isLink: false, realPath: path } }
+  })
   on('session.root', () => ({ value: '/test' }))
   on('fs.read', (_$, e) => {
     const normalized = e.path.replace(/\\/g, '/')
@@ -448,7 +452,7 @@ test('hidden ids persist only in the allowed guarded file', async ($, on) => {
   let written = ''
   on('fs.exists', () => ({ value: false }))
   on('fs.write', (_$, e) => {
-    expect(e.path.endsWith('/agentfleet/suggestions-hidden.json')).toBe(true)
+    expect(e.path.replace(/\\/g, '/').endsWith('/agentfleet/suggestions-hidden.json')).toBe(true)
     written = e.text
     return { value: undefined }
   })
