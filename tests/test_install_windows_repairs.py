@@ -118,16 +118,24 @@ class ShimGenerationTests(unittest.TestCase):
         pinned = '"' + sys.executable.replace('"', '""') + '"'
         self.assertIn(pinned, body, "the shim must reference the installer's own interpreter")
         self.assertIn("if not exist", body)
-        where_py = '"%SystemRoot%\\System32\\where.exe" py'
+        find_py = 'for %%I in (py.exe) do set "AF_EXE=%%~$PATH:I"'
+        find_python = 'for %%I in (python.exe) do set "AF_EXE=%%~$PATH:I"'
         self.assertIn('set "NoDefaultCurrentDirectoryInExePath=1"', body, "cmd.exe must not search the current directory")
-        self.assertIn(where_py, body, "the py launcher fallback must use the full where.exe path")
-        self.assertIn("python ", body, "the bare python fallback must still be present")
-        self.assertLess(body.index(pinned), body.index(where_py), "the pinned interpreter must be tried first")
+        self.assertIn(find_py, body, "the py launcher fallback must be resolved from PATH only")
+        self.assertIn(find_python, body, "the python fallback must still be present, resolved from PATH only")
+        self.assertLess(body.index(pinned), body.index(find_py), "the pinned interpreter must be tried first")
+        self.assertLess(body.index(find_py), body.index(find_python), "py must be tried before python")
+        run_lines = [line for line in body.split("\r\n") if line.startswith("(goto) 2>nul & ")]
+        self.assertEqual(len(run_lines), 3, "each interpreter runs on a line that leaves the batch first")
+        for line in run_lines:
+            # After (goto) the setlocal environment is gone, so only absolute paths may be run.
+            self.assertTrue(line.startswith(f"(goto) 2>nul & {pinned} ") or line.startswith('(goto) 2>nul & "%AF_EXE%" '), line)
         if_lines = [line for line in body.split("\r\n") if line.lower().startswith("if ")]
         self.assertTrue(if_lines, "expected at least one if line")
         for line in if_lines:
             # The pinned path itself may contain "(" (e.g. "Program Files (x86)").
-            self.assertNotIn("(", line.replace(pinned, ""), f"no parenthesized errorlevel block: {line!r}")
+            if "(" in line.replace(pinned, ""):
+                self.assertNotIn("%errorlevel%", line.lower(), f"no parenthesized errorlevel block: {line!r}")
 
     def test_ps1_shim_tries_pinned_interpreter_before_py_and_python(self):
         script = Path("C:/fleet/claude-agents-doctor.py")
@@ -152,8 +160,9 @@ class ShimGenerationTests(unittest.TestCase):
         self.assertEqual(
             cmd_body,
             '@echo off\r\nsetlocal\r\nset "NoDefaultCurrentDirectoryInExePath=1"\r\n'
-            '"%SystemRoot%\\System32\\where.exe" node >nul 2>nul\r\nif errorlevel 1 (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n'
-            f'node "{script}" %*\r\nexit /b %errorlevel%\r\n',
+            'set "AF_EXE="\r\nfor %%I in (node.exe) do set "AF_EXE=%%~$PATH:I"\r\n'
+            'if not defined AF_EXE (echo Node.js ^>=18 is required 1^>^&2 & exit /b 1)\r\n'
+            f'(goto) 2>nul & "%AF_EXE%" "{script}" %*\r\n',
         )
         ps1_body = self.installer.powershell_dispatch(script, "node").decode("utf-8-sig")
         self.assertEqual(

@@ -154,7 +154,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "a6adc5d991b4275e92151533b518067e09d4ea93d5dc4d31be40cf5e2cba1be8",
+      "sha256": "9096c776b3b4d444c0c4cde51fa744d8fc829348343accec112243b42cb0f67c",
       "mode": "0o755"
     },
     {
@@ -509,7 +509,7 @@
     },
     {
       "path": "tests/test_install_windows_repairs.py",
-      "sha256": "d3c4de081a1ce2fea821e28f9b8f32d15fed25d7fd2a45a77c624c01cdc9ceb6",
+      "sha256": "8fbd7135abf0b432dde5a24bc51a23002538dba1ea973c653a6d61fb26247345",
       "mode": "0o644"
     },
     {
@@ -559,7 +559,7 @@
     },
     {
       "path": "tests/test_windows_install.py",
-      "sha256": "9645e3183ff937095a8b3ff8a85c5a2ab7333cf6773e825a665f30b122260841",
+      "sha256": "b3c654896ef49482abfb9521c46a67540b055508424a4c3ded4ae9917df1b14e",
       "mode": "0o644"
     },
     {
