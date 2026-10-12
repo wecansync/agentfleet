@@ -529,7 +529,7 @@
     },
     {
       "path": "tests/test_profiles.py",
-      "sha256": "611fd68d9703849b7c6291ad04d11c85d946ced9262a224b1410e0a065d21735",
+      "sha256": "88bbb1719218956cfcd9d109e76b7a57bccfe343684868d07f222db2bea21e01",
       "mode": "0o755"
     },
     {
@@ -554,7 +554,7 @@
     },
     {
       "path": "tests/test_upgrade_230.py",
-      "sha256": "97906730fceae57c891c9070eadcb67bbe43af097985993d2cf4a8a5069ae55b",
+      "sha256": "3692b58602ce47b2e701326a99f96d5eb7673578b4cff9e5b302682185434d48",
       "mode": "0o644"
     },
     {
