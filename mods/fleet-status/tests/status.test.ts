@@ -43,7 +43,7 @@ function sources(on: On, files: Record<string, string>, root = '/test/claude/age
   const allowed = [
     '.claude-agents-config-manifest.json', 'agentfleet/active',
     'agentfleet/auto-update.json', 'fleet-model-proposal.json',
-    'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json', 'agentfleet/jev-stats.json', 'agentfleet/suggestions-hidden.json',
+    'agentfleet/config.json', 'agentfleet/outages.json', 'agentfleet/suggestions.json', 'agentfleet/jev-stats.json', 'agentfleet/suggestions-hidden.json', 'agentfleet/wizard.json',
   ]
   on('fs.stat', (_$, e) => ({ value: { kind: e.path.endsWith('/agentfleet') ? 'directory' : 'file', size: 100, mtimeMs: 0, isLink: false, realPath: e.path } }))
   on('session.root', () => ({ value: '/test' }))
@@ -201,6 +201,57 @@ test('malformed versions and timestamps are absent and never request restart', a
   expect(snapshot.lastResult?.version).toBeNull()
   expect(summary(snapshot, '2.1.0')).toContain('AgentFleet version: unknown')
   expect(notices(snapshot, '2.1.0')).toEqual([])
+})
+
+const wizardKeys = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+const wizardSource = (asked: unknown) => JSON.stringify({ format: 'agentfleet.wizard.v1', asked, version: '2.3.0' })
+const optionsNotice = 'New AgentFleet options are available: run agentfleet configure in a terminal.'
+function optionsSnapshot(source: string | null, version = '2.3.0') {
+  return snapshotFromSources('/test/claude', [JSON.stringify({ version }), null, null, null, null, null, null, null, source])
+}
+for (const [label, source, count] of [
+  ['missing', null, 7],
+  ['partial', wizardSource(['compact', 'jev', 'compact', 'future']), 5],
+  ['full', wizardSource(wizardKeys), 0],
+  ['full with unknown key', wizardSource([...wizardKeys, 'future']), 0],
+  ['invalid JSON', '{bad', 7],
+  ['invalid format', '{"format":"bad","asked":[]}', 7],
+  ['invalid asked', wizardSource('compact'), 7],
+  ['invalid entry', wizardSource([...wizardKeys, 7]), 7],
+] as const) {
+  test(`wizard options ${label} and summary`, () => {
+    const snapshot = optionsSnapshot(source)
+    expect(snapshot.newOptions).toBe(count)
+    expect(notices(snapshot, '2.3.0')).toEqual(count ? [optionsNotice] : [])
+    expect(summary(snapshot, '2.3.0')).toContain(count ? `Options: ${count} new (run agentfleet configure)` : 'Options: all reviewed')
+  })
+}
+for (const version of ['2.2.99', '2.1.0', '1.99.99', '2.3.0-rc.1', 'bad']) {
+  test(`older or unknown manifest ${version} never announces options`, () => {
+    const snapshot = optionsSnapshot(null, version)
+    expect(notices(snapshot, snapshot.version)).toEqual([])
+    expect(summary(snapshot, snapshot.version)).not.toContain('Options:')
+  })
+}
+for (const version of ['2.3.0+build.1', '2.3.1', '2.4.0', '3.0.0']) {
+  test(`manifest ${version} announces new options`, () => {
+    expect(notices(optionsSnapshot(null, version), version)).toEqual([optionsNotice])
+  })
+}
+test('wizard notice uses guarded read and stays hidden after refresh', async ($, on) => {
+  const files: Record<string, string> = healthy()
+  files['.claude-agents-config-manifest.json'] = '{"version":"2.3.0"}'
+  files['agentfleet/wizard.json'] = wizardSource(['compact'])
+  const clock = sources(on, files)
+  await $.session.start(start)
+  const ui = await $.ui.mount({ plugin: 'fleet-status', surface: 'terminal', component: 'AbovePrompt', props })
+  expect((await ui.find({ text: 'New AgentFleet options are available' }))?.text).toContain(optionsNotice)
+  await ui.press({ key: 'hide' })
+  await clock.advance(60_000)
+  expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+  files['agentfleet/wizard.json'] = wizardSource(wizardKeys)
+  await clock.advance(60_000)
+  expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
 })
 
 const now = Date.parse('2026-10-09T09:00:00Z')

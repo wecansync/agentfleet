@@ -134,6 +134,7 @@ class Install220Tests(unittest.TestCase):
             "XDG_CONFIG_HOME": str(home / ".config"),
             "PYTHONDONTWRITEBYTECODE": "1",
             "AGENTFLEET_NONINTERACTIVE": "1",
+            "AGENTFLEET_NO_CONFIGURE": "1",
             "FAKE_CLAUDE_STATE": str(self.state_path),
             "FAKE_CLAUDE_LOG": str(self.log_path),
         }

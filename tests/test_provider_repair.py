@@ -320,7 +320,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home ☃"
             config = root / "config space"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             # Family-approval flows need named families, which only a provider-
@@ -359,7 +359,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             # Family-approval flows need named families, which only a provider-
@@ -427,7 +427,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install_args = [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)]
             install = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
@@ -522,7 +522,7 @@ class ProviderRepairTests(unittest.TestCase):
                 home = root / "home"
                 config = root / "config"
                 endpoint = f"http://127.0.0.1:{server.server_address[1]}"
-                env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "FAKE_GATEWAY_TOKEN": "fake-token"}
+                env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "FAKE_GATEWAY_TOKEN": "fake-token"}
                 install_args = [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config), "--gateway-url", endpoint, "--allow-insecure-http", "--gateway-token-env", "FAKE_GATEWAY_TOKEN", "--enable-model-discovery"]
                 install = subprocess.run(install_args, cwd=ROOT, env=env, text=True, capture_output=True)
                 self.assertEqual(install.returncode, 0, install.stderr)
@@ -1024,7 +1024,7 @@ class ProviderRepairTests(unittest.TestCase):
             # not depend on it (see test_lock_path_is_home_scoped_not_tmpdir).
             child_tmp = root / "child-tmp"
             child_tmp.mkdir()
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "TMPDIR": str(child_tmp)}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "TMPDIR": str(child_tmp)}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             sync_bin = home / ".local/bin/claude-fleet-sync"
@@ -1127,7 +1127,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
             sync_bin = home / ".local/bin/claude-fleet-sync"
@@ -1326,7 +1326,7 @@ class ProviderRepairTests(unittest.TestCase):
             home = root / "home"
             config = root / "config"
             # No PYTHONDONTWRITEBYTECODE: this is the real-user environment.
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install = subprocess.run(
                 [PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)],
                 cwd=ROOT, env=env, text=True, capture_output=True,
@@ -1362,7 +1362,7 @@ class ProviderRepairTests(unittest.TestCase):
             root = Path(raw)
             home = root / "home"
             config = root / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             install = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--apply", "--home", str(home), "--config-home", str(config)], cwd=ROOT, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr)
 
@@ -1811,7 +1811,7 @@ class AgentFleetTwoTests(unittest.TestCase):
 
     def env_for(self, home: Path, config: Path, **extra: str) -> dict:
         return {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config),
-                "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NONINTERACTIVE": "1", **extra}
+                "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1", "AGENTFLEET_NONINTERACTIVE": "1", **extra}
 
     def reconcile(self):
         namespace = {}
@@ -2108,12 +2108,12 @@ class AgentFleetTwoTests(unittest.TestCase):
         endpoint = self.serve(self.GATEWAY_ROWS)
         with tempfile.TemporaryDirectory(prefix="agentfleet wizard ") as raw:
             home, config = Path(raw) / "home", Path(raw) / "config"
-            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0"}
+            env = {"PATH": os.environ.get("PATH", ""), "HOME": str(home), "XDG_CONFIG_HOME": str(config), "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NO_CONFIGURE": "1"}
             pid, fd = pty.fork()
             if pid == 0:
                 os.execve(PYTHON, [PYTHON, str(ROOT / "bin/install.py"), "--allow-insecure-http", "--home", str(home), "--config-home", str(config)], env)
             answers = [(b"Choose 1-3", b"3\n"), (b"Gateway URL", endpoint.encode() + b"\n"), (b"holds the gateway token", b"\n"),
-                       (b"input hidden", b"wizard-token\n"), (b"percent of each model's context", b"\n"), (b"Adjust model tiers", b"y\n"), (b"[deep]", b"\n"),
+                       (b"input hidden", b"wizard-token\n"), (b"Adjust model tiers", b"y\n"), (b"[deep]", b"\n"),
                        (b"claude-sonnet-5[1m] [balanced]", b"\n"), (b"claude-haiku [fast]", b"\n"), (b"codex-5.5 [balanced]", b"cheap\n"),
                        (b"Adjust model tiers", b"n\n")]
             output, step, position, deadline = b"", 0, 0, time.time() + 90

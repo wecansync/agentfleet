@@ -3,6 +3,31 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.3.0] - 2026-10-12
+
+One command for installation and updates, a configuration wizard with shareable
+team presets, one auto-compact percentage for every model, visible JEV results,
+and suggestions that clear when reviewed.
+
+### Added
+- `agentfleet configure`: asks about auto-compact, JEV, reviewer access, learning, fleet-status, lane-guard, and automatic updates. Enter keeps the current value; `--yes` keeps values and marks unanswered questions reviewed. `--preset FILE` applies a team preset; `--export FILE` exports settings without secrets.
+- Automatic configuration after a successful terminal install or update asks only unanswered questions. Skip with `AGENTFLEET_NO_CONFIGURE=1` or `--no-configure`. Background updates never prompt; fleet-status says "New AgentFleet options are available: run agentfleet configure in a terminal."
+- Team presets in `agentfleet.preset.v1` format, accepted through `AGENTFLEET_PRESET=team.json` by the install command or `agentfleet update --preset team.json`. Feature keys are optional; keys containing "key", "token", or "secret" are rejected.
+- JEV result band with before/after token estimates, reduction, verbatim messages kept, and elapsed time, or a fallback reason. `/jev` shows key availability, auto-compact percentage, session totals, and the last five compactions. Lifetime counters in `~/.claude/agentfleet/jev-stats.json` contain no conversation content or key.
+
+### Changed
+- The same download command now installs or updates. `agentfleet update` remains available and keeps the installed provider profile.
+- Auto-compact uses Claude Code's `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` with a 1,000,000-token window clamped by Claude Code to each model. Default 70; range 20–95 or `off`. Restart once after changing the percentage. Gateway model switches need a restart only if their real-context cap changes. Existing 2.2.0 installs migrate automatically.
+- Learning is on by default for new installs; existing installs keep their setting and are asked once. Local counters record command/tool names, documentation sites, and slash commands, never prompt text. Disable with `agentfleet config learn off`; erase with `agentfleet suggest --forget`.
+- `fleet-status` 1.2.1 shows one unseen suggestion at a time, remembers Hide, and includes options and JEV lines in `/fleet-status`. The model-facing suggestion notice is skipped when the band is enabled.
+- `fast-jev-compaction` 0.3.0-agentfleet.3; the wizard can accept a TypeSafe key with hidden input and store it as `TYPESAFE_API_KEY` in the settings environment. Conversation text still goes to `api.typesafe.ai` when JEV compacts.
+
+### Fixed
+- The suggestion band no longer stays after opening `/fleet-suggest`; installed items drop out on the next prompt.
+- Compaction no longer needs recalculation or a restart merely to retain the percentage on model switches (gateway cap changes still require a restart).
+- 30% and other low percentages now work on smaller models.
+- `agentfleet jev status` detects keys in the settings environment as well as the shell; `agentfleet config` shows every feature, and the doctor checks that the percentage in settings matches the preference.
+
 ## [2.2.0] - 2026-10-11
 
 Auto-compact percentages based on model context, reviewer command execution
@@ -163,6 +188,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.3.0]: TBD
 [2.2.0]: https://github.com/wecansync/claude-agents-config/pull/24
 [2.1.0]: https://github.com/wecansync/claude-agents-config/pull/23
 [2.0.6]: https://github.com/wecansync/claude-agents-config/pull/22

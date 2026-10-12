@@ -890,6 +890,13 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         except (OSError, ValueError, TypeError):
             pass
         print(f"jev: {state}")
+        import fleet_configure
+        for key in ("statusBand", "laneGuard", "autoUpdate"):
+            try:
+                value = fleet_configure.current(sys.modules[__name__], paths, key)
+                print(f"{key}: {fleet_configure.display(value)}")
+            except (OSError, ValueError, RuntimeError):
+                print(f"{key}: unknown")
         return 0
 
     if value is None:
@@ -971,6 +978,11 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         )
         return 0
     return 2
+
+
+def cmd_configure(paths: Paths, args: argparse.Namespace) -> int:
+    import fleet_configure
+    return fleet_configure.run(sys.modules[__name__], paths, args)
 
 
 def cmd_jev(paths: Paths, args: argparse.Namespace) -> int:
@@ -1257,7 +1269,7 @@ class DownloadError(Exception):
     pass
 
 
-def _run_installer(paths: Paths, extra_args: list, version: str | None = None, output=None) -> int:
+def _run_installer(paths: Paths, extra_args: list, version: str | None = None, output=None, configure_args=None) -> int:
     """Download and run install.sh / install.ps1. Shared by cmd_update and
     auto-update --run; with ``output`` (a file), all installer output goes
     there. Raises DownloadError when the script cannot be fetched."""
@@ -1275,6 +1287,8 @@ def _run_installer(paths: Paths, extra_args: list, version: str | None = None, o
             raise DownloadError(f"could not download {url}: {exc}") from exc
         forwarded = ["--home", str(paths.home), "--config-home", str(paths.config), *extra_args]
         run_env = dict(os.environ)
+        if configure_args:
+            run_env["AGENTFLEET_CONFIGURE_ARGS"] = json.dumps(configure_args)
         if version:
             run_env["AGENTFLEET_VERSION"] = version
         run_env["AGENTFLEET_NONINTERACTIVE"] = "1"
@@ -1585,9 +1599,34 @@ def _auto_update_hook(paths: Paths) -> None:
 def cmd_update(paths: Paths, args: argparse.Namespace) -> int:
     try:
         forwarded = list(getattr(args, "installer_args", []))
+        # REMAINDER can contain configure flags after installer positional args.
+        yes = getattr(args, "yes", False)
+        preset = getattr(args, "preset", None)
+        remaining = []
+        index = 0
+        while index < len(forwarded):
+            item = forwarded[index]
+            if item == "--yes":
+                yes = True
+            elif item == "--preset":
+                index += 1
+                if index >= len(forwarded):
+                    die("update --preset requires a file", 2)
+                preset = forwarded[index]
+            else:
+                remaining.append(item)
+            index += 1
+        if yes and preset:
+            die("update accepts only one of --yes and --preset", 2)
+        forwarded = remaining
         if os.environ.get("AGENTFLEET_MODS") == "0" and "--mods" not in forwarded and "--no-mods" not in forwarded:
             forwarded.append("--no-mods")
-        return _run_installer(paths, forwarded)
+        configure_args = []
+        if yes:
+            configure_args.append("--yes")
+        if preset:
+            configure_args += ["--preset", str(Path(preset).expanduser().resolve())]
+        return _run_installer(paths, forwarded, configure_args=configure_args) if configure_args else _run_installer(paths, forwarded)
     except DownloadError as exc:
         die(str(exc))
 
@@ -1647,6 +1686,12 @@ def main() -> int:
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
     config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn"))
     config.add_argument("value", nargs="?")
+    configure = sub.add_parser("configure", help="configure all AgentFleet features")
+    modes = configure.add_mutually_exclusive_group()
+    modes.add_argument("--after-install", action="store_true")
+    modes.add_argument("--yes", action="store_true")
+    modes.add_argument("--preset", metavar="FILE")
+    modes.add_argument("--export", metavar="FILE")
     jev = sub.add_parser("jev", help="enable, disable, or inspect fast-jev-compaction")
     jev.add_argument("action", choices=("on", "off", "status"))
     rep = sub.add_parser("report", help="summarize subagent runs and active provider outages")
@@ -1672,6 +1717,9 @@ def main() -> int:
     p_show = proj_sub.add_parser("show", help="show project-level lane overrides")
     p_show.add_argument("--dir", metavar="DIR", help="project directory (default: current directory)")
     update = sub.add_parser("update", help="download and install the latest release")
+    update_modes = update.add_mutually_exclusive_group()
+    update_modes.add_argument("--yes", action="store_true")
+    update_modes.add_argument("--preset", metavar="FILE")
     update.add_argument("installer_args", nargs=argparse.REMAINDER, help="extra arguments for the installer")
     sub.add_parser("uninstall", help="remove AgentFleet and restore your earlier settings")
     rollback = sub.add_parser("rollback", help="restore the settings and files from before the last install or update")
@@ -1691,7 +1739,7 @@ def main() -> int:
     paths = Paths(args)
     handlers = {
         "profiles": cmd_profiles, "use": cmd_use, "save": cmd_save, "status": cmd_status,
-        "doctor": cmd_doctor, "sync": cmd_sync, "config": cmd_config, "jev": cmd_jev,
+        "doctor": cmd_doctor, "sync": cmd_sync, "config": cmd_config, "configure": cmd_configure, "jev": cmd_jev,
         "update": cmd_update, "uninstall": cmd_uninstall, "rollback": cmd_rollback,
         "version": cmd_version, "auto-update": cmd_auto_update, "add": cmd_add, "remove": cmd_remove,
         "report": cmd_report, "suggest": cmd_suggest, "project": cmd_project,

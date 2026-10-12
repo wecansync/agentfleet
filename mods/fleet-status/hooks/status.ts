@@ -98,6 +98,24 @@ export function parseJev(source: string | null | undefined): JevStats | null {
     after: latest ? latest.tokensAfter as number | null : null }
 }
 
+const optionKeys = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+
+export function parseNewOptions(source: string | null | undefined): number {
+  const data = jsonRecord(source)
+  if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
+      !data.asked.every(key => typeof key === 'string')) return optionKeys.length
+  // Unknown string keys belong to newer bundles and do not count as reviewed options here.
+  const asked = data.asked
+  return optionKeys.filter(key => !asked.includes(key)).length
+}
+
+export function hasWizardOptions(version: string | null): boolean {
+  if (!version || !versionPattern.test(version)) return false
+  const [major, minor, patch] = version.split(/[.+-]/).slice(0, 3).map(Number)
+  return major > 2 || (major === 2 && (minor > 3 || (minor === 3 &&
+    (patch > 0 || (patch === 0 && !version.split('+')[0].includes('-'))))))
+}
+
 export function snapshotFromSources(claudeDir: string | null, sources: (string | null)[], project: string | null = null, now = Date.now()): Snapshot {
   function json(source: string | null | undefined): Record<string, unknown> | null {
     try { return record(JSON.parse(source ?? 'null')) } catch { return null }
@@ -117,6 +135,7 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
     outages: parseOutages(sources[5], now),
     suggestion: parseSuggestion(sources[6], project),
     jev: parseJev(sources[7]),
+    newOptions: parseNewOptions(sources[8]),
     claudeDir,
     version: text(manifest?.version, versionPattern),
     profile: text(profile, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
@@ -155,6 +174,9 @@ export function notices(snapshot: Snapshot, versionAtStart: string | null, hidde
   if (suggestion && suggestion.pending > 0 && first) {
     lines.push(`AgentFleet suggests ${first.title} (${first.kind}): ${first.why}. Run /fleet-suggest to install or dismiss it.${suggestion.pending > 1 ? ` (+${suggestion.pending - 1} more)` : ''}`)
   }
+  if (hasWizardOptions(snapshot.version) && snapshot.newOptions > 0) {
+    lines.push('New AgentFleet options are available: run agentfleet configure in a terminal.')
+  }
   return lines
 }
 
@@ -164,6 +186,7 @@ export function summary(snapshot: Snapshot, versionAtStart: string | null): stri
   return [
     `AgentFleet version: ${snapshot.version ?? 'unknown'}`,
     `Profile: ${snapshot.profile ?? 'not recorded'}`,
+    ...(hasWizardOptions(snapshot.version) ? [snapshot.newOptions === 0 ? 'Options: all reviewed' : `Options: ${snapshot.newOptions} new (run agentfleet configure)`] : []),
     `Auto-update: ${snapshot.enabled === null ? 'enabled (default)' : snapshot.enabled ? 'enabled' : 'disabled'}`,
     `Auto-compact: ${snapshot.compactPercent === 'off' ? 'off (AgentFleet leaves the window alone)' : `${snapshot.compactPercent}% of each model's context`}`,
     `Reviewer access: ${snapshot.reviewerAccess}`,

@@ -25,6 +25,7 @@ export async function readSnapshot($: CoreEngineInterface): Promise<Snapshot> {
     readSource('agentfleet/outages.json'),
     readSource('agentfleet/suggestions.json'),
     readSource('agentfleet/jev-stats.json'),
+    readSource('agentfleet/wizard.json'),
   ])
   const project = await $.session.root().catch(() => null)
   return snapshotFromSources(claudeDir, sources, project, await $.clock.now())

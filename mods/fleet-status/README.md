@@ -42,6 +42,7 @@ The mod derives the Claude directory only from its known installed location
 - `agentfleet/suggestions.json`
 - `agentfleet/suggestions-hidden.json`
 - `agentfleet/jev-stats.json`
+- `agentfleet/wizard.json` — on AgentFleet 2.3.0+, unreviewed options prompt `agentfleet configure` in a terminal and appear in `/fleet-status`.
 - `agentfleet/lane-reports.jsonl`
 
 It uses filesystem stat to check size and resolved paths before reading; links

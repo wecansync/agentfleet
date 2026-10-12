@@ -19,6 +19,7 @@ export type Snapshot = {
   outages: Outage[]
   suggestion: Suggestion | null
   jev: JevStats | null
+  newOptions: number
 }
 export type LaneReport = { at: string; lane: string; model: string; files: string[]; rules: string[]; apiError: number | null }
 export type LaneTask = { lane: string; status: string; description: string; elapsedSeconds: number | null }

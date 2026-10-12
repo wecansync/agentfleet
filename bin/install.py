@@ -668,7 +668,7 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
         fail("bundle fleet must contain at least one lane")
     for rel in (
         PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT,
-        "scripts/fleet_watch.py", "scripts/fleet_suggest.py",
+        "scripts/fleet_watch.py", "scripts/fleet_suggest.py", "scripts/fleet_configure.py",
         "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
     ):
         if not (bundle / rel).is_file():
@@ -2640,6 +2640,7 @@ def managed_specs(
     add(claude / "fleet-reconcile.py", source_bytes(bundle, RECONCILE_SCRIPT), 0o755, "home:.claude/fleet-reconcile.py")
     add(claude / "fleet_watch.py", source_bytes(bundle, "scripts/fleet_watch.py"), 0o755, "home:.claude/fleet_watch.py")
     add(claude / "fleet_suggest.py", source_bytes(bundle, "scripts/fleet_suggest.py"), 0o755, "home:.claude/fleet_suggest.py")
+    add(claude / "fleet_configure.py", source_bytes(bundle, "scripts/fleet_configure.py"), 0o755, "home:.claude/fleet_configure.py")
     add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")
     add(claude / "skills" / "fleet-suggest" / "SKILL.md", source_bytes(bundle, "skills/fleet-suggest/SKILL.md"), 0o644, "home:.claude/skills/fleet-suggest/SKILL.md")
@@ -3238,26 +3239,33 @@ def run_provider_wizard(args: argparse.Namespace) -> None:
     args.interactive_review = True
 
 
-def ask_compact_percent(home: Path) -> None:
-    """First-run question: the share of a model's context at which Claude
-    Code compacts. Stored as a preference before the install runs, so the
-    install and the startup watcher both use it."""
-    default = provider_catalog.PREFERENCE_DEFAULTS["compactPercent"]
-    print("\nClaude Code compacts the conversation when it fills part of the model's context.")
-    while True:
-        answer = prompt(f"Auto-compact at what percent of each model's context? ({provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX} or off)", str(default)).strip().lower()
-        value: object = answer if answer == "off" else (int(answer) if answer.isdigit() else None)
-        if provider_catalog.valid_compact_percent(value):
-            break
-        print(f"Type a number from {provider_catalog.COMPACT_PERCENT_MIN} to {provider_catalog.COMPACT_PERCENT_MAX}, or off.")
-    if value == default:
+def run_configure(args: argparse.Namespace, home: Path) -> None:
+    """Configure only after the install transaction and its lock have finished."""
+    if args.no_wizard or args.no_configure or os.environ.get("AGENTFLEET_NO_CONFIGURE") == "1":
         return
+    encoded = os.environ.get("AGENTFLEET_CONFIGURE_ARGS")
+    if encoded is not None:
+        try:
+            mode_args = json.loads(encoded)
+            if not isinstance(mode_args, list) or not all(isinstance(item, str) for item in mode_args):
+                raise ValueError("expected a JSON array of strings")
+        except (ValueError, TypeError) as exc:
+            print(f"Warning: invalid AGENTFLEET_CONFIGURE_ARGS ({exc}); skipping configuration.", file=sys.stderr)
+            return
+    elif os.environ.get("AGENTFLEET_PRESET"):
+        mode_args = ["--preset", str(Path(os.environ["AGENTFLEET_PRESET"]).resolve())]
+    else:
+        mode_args = ["--after-install"]
+    command = [sys.executable, str(home / ".claude" / "agentfleet.py"),
+               "--home", str(home), "--config-home", str(config_home(args, home)),
+               "configure", *mode_args]
     try:
-        provider_catalog.write_preferences(home, {"compactPercent": value})
-    except (OSError, ValueError) as exc:
-        print(f"Could not save the auto-compact preference ({exc}); change it later with: agentfleet config compact {value}")
-        return
-    print(f"Saved. Change it later with: agentfleet config compact <{provider_catalog.COMPACT_PERCENT_MIN}-{provider_catalog.COMPACT_PERCENT_MAX}|off>")
+        result = subprocess.run(command)
+        if result.returncode == 0:
+            return
+    except (OSError, KeyboardInterrupt) as exc:
+        print(f"Warning: AgentFleet configuration did not finish ({exc}).", file=sys.stderr)
+    print("AgentFleet is installed; finish setup later with: agentfleet configure")
 
 
 def lane_summary(fleet: dict, template: dict) -> None:
@@ -3859,6 +3867,7 @@ def main() -> int:
     parser.add_argument("--provider", choices=("native", "anthropic-api", "gateway"), help="native = Claude subscription login; anthropic-api = ANTHROPIC_API_KEY; gateway = --gateway-url endpoint")
     parser.add_argument("--wizard", action="store_true", help="run the interactive provider wizard even on an existing install")
     parser.add_argument("--no-wizard", action="store_true", help="never prompt; keep or infer the provider")
+    parser.add_argument("--no-configure", action="store_true", help="skip post-install configuration")
     mods = parser.add_mutually_exclusive_group()
     mods.add_argument("--mods", action="store_true", help="enable Claude Code plugin registration, overriding a previous decline")
     mods.add_argument("--no-mods", action="store_true", help="skip Claude Code plugin registration and remember the choice")
@@ -3881,7 +3890,6 @@ def main() -> int:
     installing = args.apply and not (args.check or args.uninstall or args.rollback)
     if installing and wizard_eligible(args, target_home(args)):
         run_provider_wizard(args)
-        ask_compact_percent(target_home(args))
     if args.provider == "gateway":
         args.enable_model_discovery = True
         if not args.gateway_url:
@@ -3910,7 +3918,10 @@ def main() -> int:
         if not args.apply and not args.dry_run:
             parser.error("--uninstall requires explicit --apply or --dry-run")
         return uninstall(args, bundle, dry=args.dry_run)
-    return apply_install(args, bundle, dry=args.dry_run)
+    result = apply_install(args, bundle, dry=args.dry_run)
+    if result == 0 and not args.dry_run:
+        run_configure(args, target_home(args))
+    return result
 
 
 if __name__ == "__main__":
