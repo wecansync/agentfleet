@@ -4,7 +4,7 @@
   "files": [
     {
       "path": ".gitattributes",
-      "sha256": "1f69be76b9bf13ef44f5ed750760e632dc84dadcabe39f1e5c86f826bb013dfa",
+      "sha256": "9d838ffe4493e76fcf24c68fa46f3d6b7cd9dc15512ee8bb150414a3bdf554dd",
       "mode": "0o644"
     },
     {
@@ -545,6 +545,11 @@
     {
       "path": "tests/test_suggest.py",
       "sha256": "a874102fd6f1bea3c36f81db4334a30d2978681d9c8843dbe90b76e70852789b",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/test_update_manifest.py",
+      "sha256": "bb3be6a8df5224a782f71fd3d58f9c6aaaa27719a8638a808a8a01061506bfa2",
       "mode": "0o644"
     },
     {

@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,9 +23,20 @@ EXCLUDED = {".ai", ".claude", ".commandcode", ".kilo", ".github", "site", "packa
 INDEX_FILES = {"manifest.json", "checksums.sha256"}
 
 
+def index_modes() -> dict[str, int]:
+    proc = subprocess.run(["git", "ls-files", "-s", "-z"], cwd=ROOT, capture_output=True, check=True)
+    modes = {}
+    for entry in proc.stdout.split(b"\0"):
+        if entry:
+            meta, path = entry.split(b"\t", 1)
+            modes[path.decode("utf-8")] = 0o755 if meta.split()[0] == b"100755" else 0o644
+    return modes
+
+
 def main() -> int:
+    tracked = index_modes()
     files = []
-    for path in sorted(ROOT.rglob("*")):
+    for path in sorted(ROOT.rglob("*"), key=lambda item: item.relative_to(ROOT).as_posix()):
         rel_parts = path.relative_to(ROOT).parts
         if ".git" in path.parts or rel_parts[0] in EXCLUDED or path.is_dir():
             continue
@@ -39,16 +51,18 @@ def main() -> int:
             continue
         if rel in INDEX_FILES:
             continue
-        executable = bool(path.stat().st_mode & stat.S_IXUSR)
-        mode = 0o755 if executable else 0o644
+        if rel in tracked:
+            mode = tracked[rel]
+        else:
+            mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
         os.chmod(path, mode)
-        files.append({"path": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "mode": oct(mode).replace("0o", "0o")})
+        files.append({"path": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "mode": oct(mode)})
     manifest_path = ROOT / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["version"] = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     manifest["files"] = files
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    (ROOT / "checksums.sha256").write_text("".join(f"{item['sha256']}  {item['path']}\n" for item in files), encoding="utf-8")
+    manifest_path.write_bytes((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
+    (ROOT / "checksums.sha256").write_bytes("".join(f"{item['sha256']}  {item['path']}\n" for item in files).encode("utf-8"))
     os.chmod(manifest_path, 0o644)
     os.chmod(ROOT / "checksums.sha256", 0o644)
     print(f"manifest {manifest['version']}: {len(files)} files")
