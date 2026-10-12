@@ -154,7 +154,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "9096c776b3b4d444c0c4cde51fa744d8fc829348343accec112243b42cb0f67c",
+      "sha256": "805158daa605cf9e00f69c40e2e14173ea2fcf30c8e15c251239ca032091a439",
       "mode": "0o755"
     },
     {
@@ -434,12 +434,12 @@
     },
     {
       "path": "scripts/generate-claude-agents.mjs",
-      "sha256": "82cd965eaed5ee2d582db6945c376f7f8ed28d4223bbc459998f176591d02e6b",
+      "sha256": "53ff8da29769d063c213cca896722855585a0aecdcd86455de5964dbd0ec12f8",
       "mode": "0o755"
     },
     {
       "path": "scripts/provider_catalog.py",
-      "sha256": "4c16c938219f5779e34a1561b19ec02586448322e588a60c0bd4fa8a25da6cfa",
+      "sha256": "af9c0851092a7e020f928f88d8cdf37462d306ecc1c72325fb488b10d3b8e02e",
       "mode": "0o755"
     },
     {
@@ -459,7 +459,7 @@
     },
     {
       "path": "scripts/sync-provider-models.mjs",
-      "sha256": "11f7adffcfd96c3dece88c1ff7a73ece913bc04457ab85e00fc4bb4e5fe0f112",
+      "sha256": "be166291cfd325790181c42761eccfe9f2ef63a875951b4ded9ccb7ca04c5ee2",
       "mode": "0o755"
     },
     {
@@ -534,7 +534,7 @@
     },
     {
       "path": "tests/test_provider_repair.py",
-      "sha256": "df9118903fcdf052087de8a1fe26e18c9a20869130ff5dede048a20355b4acd5",
+      "sha256": "35fd17dc0b246d18470d6fbf149f15452b02a47286d338426a64f98b0217dd22",
       "mode": "0o755"
     },
     {

@@ -2940,6 +2940,11 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 6) -> None:
     immediately so genuine failures still surface fast.
     """
     delay = 0.1
+    # Windows refuses to replace a read-only target, so clear the attribute
+    # for the replace; the restored file keeps its read-only mode on failure.
+    readonly = os.name == "nt" and target.exists() and not os.access(target, os.W_OK)
+    if readonly:
+        os.chmod(target, stat.S_IWRITE | stat.S_IREAD)
     for attempt in range(attempts):
         try:
             os.replace(source, target)
@@ -2947,6 +2952,8 @@ def replace_with_retry(source: Path, target: Path, attempts: int = 6) -> None:
         except OSError as error:
             transient = error.errno in (errno.EPERM, errno.EACCES, errno.EBUSY) or getattr(error, "winerror", None) == 5
             if not transient or attempt + 1 >= attempts:
+                if readonly and target.exists():
+                    os.chmod(target, stat.S_IREAD)
                 raise
             time.sleep(delay)
             delay *= 2
@@ -2966,8 +2973,7 @@ def atomic_write(path: Path, data: bytes, mode: int) -> None:
             os.fchmod(fd, mode)
         os.close(fd)
         replace_with_retry(temp, path)
-        if os.name != "nt":
-            os.chmod(path, mode)
+        os.chmod(path, mode)
         fsync_dir(path.parent)
     except Exception:
         try:
