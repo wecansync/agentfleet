@@ -15,7 +15,7 @@ required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 By default Claude works on your task directly and uses a lane only for large
 work. See [Work style](#work-style).
 
-Version: **2.4.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.4.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.

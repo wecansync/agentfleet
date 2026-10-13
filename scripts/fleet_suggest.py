@@ -113,6 +113,18 @@ KIND_ORDER = {
     "tool": 6,
 }
 GIT_URL_RE = re.compile(r"^\s*url\s*=\s*(\S+)", re.MULTILINE)
+INTERPRETERS = frozenset({"python", "python3", "node", "bash", "sh", "zsh", "ruby", "php", "deno", "bun"})
+# General-purpose tools Claude already knows; a project skill wrapping them
+# adds nothing. Many only show up as the tail of a pipe (`... | tail -3`).
+GENERIC_PROGRAMS = frozenset({
+    "awk", "basename", "bash", "cat", "cd", "chmod", "chown", "clear", "cmp", "column", "cp", "curl",
+    "cut", "date", "df", "diff", "dirname", "du", "echo", "env", "export", "false", "fd", "file",
+    "find", "gh", "git", "grep", "head", "jq", "kill", "less", "ln", "ls", "man", "mkdir", "more",
+    "mv", "nl", "node", "nohup", "paste", "php", "printf", "ps", "pwd", "python", "python3",
+    "readlink", "realpath", "rg", "rm", "rmdir", "rsync", "scp", "sed", "sh", "sha256sum", "sleep",
+    "sort", "source", "ssh", "stat", "sudo", "tail", "tar", "tee", "test", "time", "timeout",
+    "touch", "tr", "true", "ugrep", "uniq", "unzip", "wc", "wget", "which", "xargs", "zip", "zsh",
+})
 
 
 def resolve_home(home_arg: str | None = None) -> Path:
@@ -692,6 +704,11 @@ def _derive_verb(command: str) -> str:
     # e.g., npm run build -> build
     if len(parts) >= 3 and parts[0] in ("npm", "pnpm", "yarn", "bun") and parts[1] == "run":
         candidate = parts[2]
+    # e.g., python3 -m pytest -> pytest; node scripts/seed.js -> seed
+    elif len(parts) >= 3 and parts[0] in INTERPRETERS and parts[1] == "-m":
+        candidate = parts[2].rsplit(".", 1)[-1]
+    elif len(parts) >= 2 and parts[0] in INTERPRETERS and re.search(r"\.(py|js|mjs|cjs|ts|sh|rb|php)$", parts[1]):
+        candidate = re.sub(r"\.[a-z]+$", "", parts[1].replace("\\", "/").rsplit("/", 1)[-1])
     # e.g., php artisan test -> test
     elif len(parts) >= 3 and parts[0] == "php" and parts[1] == "artisan":
         candidate = parts[2]
@@ -780,30 +797,39 @@ def suggest(home: Path, project: Path) -> list[dict]:
             min_count = match_spec.get("bashMinCount", 10)
             min_sessions = match_spec.get("bashMinSessions", 3)
             bash_usage = usage.get("bash", {})
+            # One suggestion per skill name, for its most-used command.
+            best: dict[str, tuple[str, int, int]] = {}
             for cmd, stats in bash_usage.items():
                 if not isinstance(stats, dict):
                     continue
                 c_count = stats.get("count", 0)
                 c_sess = stats.get("sessions", 0)
+                if not isinstance(c_count, int) or not isinstance(c_sess, int):
+                    continue
                 if c_count >= min_count and c_sess >= min_sessions:
                     verb = _derive_verb(cmd)
-                    if not verb:
+                    # A skill named after a general tool itself (git, tail);
+                    # subcommands such as `php artisan test` still count.
+                    if not verb or (verb == cmd.split()[0].lower() and verb in GENERIC_PROGRAMS):
                         continue
-                    skill_id = f"create-skill-{verb}"
-                    if skill_id in dismissed or verb in inv["project_skills"] or verb in inv["user_skills"]:
-                        continue
-                    tmpl = entry.get("template", "")
-                    tmpl = tmpl.replace("{{command}}", cmd).replace("{{project}}", project.name).replace("{{verb}}", verb)
-                    results.append({
-                        "id": skill_id,
-                        "kind": "create-skill",
-                        "title": f"Project skill for '{cmd}'",
-                        "why": f"Frequently ran '{cmd}' ({c_count} times across {c_sess} sessions)",
-                        "install": "AgentFleet drafts this for you",
-                        "access": f"Local project skill in .claude/skills/{verb}/SKILL.md",
-                        "template": tmpl,
-                        "_strength": 2,
-                    })
+                    if verb not in best or (c_count, cmd) > (best[verb][1], best[verb][0]):
+                        best[verb] = (cmd, c_count, c_sess)
+            for verb, (cmd, c_count, c_sess) in sorted(best.items()):
+                skill_id = f"create-skill-{verb}"
+                if skill_id in dismissed or verb in inv["project_skills"] or verb in inv["user_skills"]:
+                    continue
+                tmpl = entry.get("template", "")
+                tmpl = tmpl.replace("{{command}}", cmd).replace("{{project}}", project.name).replace("{{verb}}", verb)
+                results.append({
+                    "id": skill_id,
+                    "kind": "create-skill",
+                    "title": f"Project skill for '{cmd}'",
+                    "why": f"Frequently ran '{cmd}' ({c_count} times across {c_sess} sessions)",
+                    "install": "AgentFleet drafts this for you",
+                    "access": f"Local project skill in .claude/skills/{verb}/SKILL.md",
+                    "template": tmpl,
+                    "_strength": 2,
+                })
             continue
 
         # Special hook: format-after-edit

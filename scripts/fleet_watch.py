@@ -1023,8 +1023,12 @@ def _head_for_segment(segment: str) -> str | None:
     program = _program(words)
     words[0] = Path(words[0].replace("\\", "/")).name
     selected = [words[0]]
-    if program in {"python", "python3"} and len(words) > 2 and words[1] == "-m":
-        selected.extend(words[1:3])
+    # Options before -m (python3 -B -m pytest) do not change the module run.
+    options = 1
+    while options < len(words) and words[options].startswith("-") and words[options] != "-m":
+        options += 1
+    if program in {"python", "python3"} and options + 1 < len(words) and words[options] == "-m":
+        selected.extend(("-m", words[options + 1]))
     elif program in {"npm", "pnpm", "yarn", "bun"} and len(words) > 2 and words[1] == "run":
         selected.extend(words[1:3])
     elif program == "php" and len(words) > 2 and words[1] == "artisan":

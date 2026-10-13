@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.4.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.4.3</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,19 +431,27 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.4.2</span>
+        <span class="release-version" data-latest-version>v2.4.3</span>
         <span class="release-date" data-latest-date>October 13, 2026</span>
       </div>
-      <p><code class="il">/fleet-suggest</code> now helps set up how Claude works in each project.</p>
+      <p>Cleaner learned suggestions in <code class="il">/fleet-suggest</code>.</p>
       <ul class="release-list">
-        <li>For a GitHub repository, it drafts a "Git workflow" section for the project's <code class="il">CLAUDE.md</code>: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It is written only after you approve.</li>
-        <li>For a new or small project, it offers <a href="https://github.com/github/spec-kit">Spec Kit</a>, which writes a spec, a plan and a task list before code.</li>
-        <li><code class="il">agentfleet config</code> shows <code class="il">agent-brain: not installed</code> when the agent-brain CLI is missing.</li>
+        <li>A learned skill is suggested once, for the command you run most, instead of once per similar command.</li>
+        <li>No more skill suggestions for general-purpose tools such as <code class="il">git</code>, <code class="il">head</code> or <code class="il">tail</code>.</li>
+        <li><code class="il">python3 -m pytest</code> suggests a <code class="il">pytest</code> skill, even when options come before <code class="il">-m</code>.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.4.2</span><span class="release-date">October 13, 2026</span><span class="version-summary"><code class="il">/fleet-suggest</code> now helps set up how Claude works in each project.</span></summary>
+        <ul class="release-list">
+          <li>For a GitHub repository, it drafts a "Git workflow" section for the project's <code class="il">CLAUDE.md</code>: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It is written only after you approve.</li>
+          <li>For a new or small project, it offers <a href="https://github.com/github/spec-kit">Spec Kit</a>, which writes a spec, a plan and a task list before code.</li>
+          <li><code class="il">agentfleet config</code> shows <code class="il">agent-brain: not installed</code> when the agent-brain CLI is missing.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.4.1</span><span class="release-date">October 13, 2026</span><span class="version-summary">Fixes the instruction check added in 2.4.0.</span></summary>
         <ul class="release-list">

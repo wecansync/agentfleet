@@ -736,5 +736,36 @@ services:
         self.assertEqual(fleet_suggest._derive_verb("php artisan evil:cmd"), "evil-cmd")
 
 
+    def test_learned_skills_skip_generic_tools_and_never_repeat_a_name(self):
+        proj = self.root / "learned_proj"
+        proj.mkdir()
+        (proj / "CLAUDE.md").write_text("# CLAUDE.md\n", encoding="utf-8")
+        key = fleet_suggest.hashlib.sha256(str(proj.resolve()).encode("utf-8")).hexdigest()[:16]
+        usage_dir = self.home / ".claude" / "agentfleet" / "usage"
+        usage_dir.mkdir(parents=True, exist_ok=True)
+        row = lambda count, sessions: {"count": count, "sessions": sessions, "last": "2026-10-13T00:00:00Z"}
+        usage = {"format": "agentfleet.usage.v1", "project": str(proj), "updated": "2026-10-13T00:00:00Z", "bash": {
+            # General-purpose tools, often only the tail of a pipe.
+            "git log": row(44, 3), "git status": row(50, 3), "tail": row(241, 3), "head": row(305, 4),
+            "python3 unittest": row(114, 3),
+            # Two commands that map to one skill name: the more-used one wins.
+            "make deploy": row(12, 3), "npm run deploy": row(30, 4),
+            "python3 -m pytest": row(15, 3),
+            # A subcommand named like a shell builtin is still a project command.
+            "make test": row(11, 3),
+        }}
+        (usage_dir / f"{key}.json").write_text(json.dumps(usage), encoding="utf-8")
+        skills = [s for s in fleet_suggest.suggest(self.home, proj) if s["kind"] == "create-skill"]
+        ids = [s["id"] for s in skills]
+        self.assertEqual(sorted(ids), ["create-skill-deploy", "create-skill-pytest", "create-skill-test"])
+        deploy = next(s for s in skills if s["id"] == "create-skill-deploy")
+        self.assertIn("npm run deploy", deploy["title"])
+
+    def test_derive_verb_names_interpreter_scripts_and_modules(self):
+        self.assertEqual(fleet_suggest._derive_verb("python3 -m pytest"), "pytest")
+        self.assertEqual(fleet_suggest._derive_verb("node scripts/seed.js"), "seed")
+        self.assertEqual(fleet_suggest._derive_verb("python3 manage.py"), "manage")
+        self.assertEqual(fleet_suggest._derive_verb("python3 unittest"), "python3")
+
 if __name__ == "__main__":
     unittest.main()
