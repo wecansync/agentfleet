@@ -10,7 +10,13 @@ Changes from upstream:
 
 - `README.md`: the screenshot links point to the upstream repository, because
   AgentFleet does not ship the screenshots.
+- `hooks/token-weather.mjs`: the AbovePrompt hook always calls `next(e)` and
+  draws its forecast after what the other mods drew, instead of replacing the
+  band; it reads `hasSurvey` and `bodyColumns` from `e.props`, where Claude
+  Code 2.1.296 puts them. The band logic is the exported `withBand` so tests
+  can reach it.
+- `tests/band.test.ts` (new): tests for the band.
+- `.claude-plugin/plugin.json`: version `0.1.0-agentfleet.1`.
 
-AgentFleet lists it in its plugin catalog but does not install it. To use it:
-
-    claude plugin install token-weather@agentfleet
+Since AgentFleet 2.5.0 it is installed and on by default. Turn it off with
+`/plugin`, or with `agentfleet configure`.

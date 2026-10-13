@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -238,7 +239,13 @@ class Install240Tests(unittest.TestCase):
         self.agent_brain_on_path()
         self.install_native()
         self.assertTrue(any("claude-agents-config:agent-brain" in command for command in self.hook_commands()))
-        self.assertIn("mcp__agent-brain-memory__memory_save", (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8"))
+        lane = (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8")
+        # Lanes search memory but leave saving it to the main agent.
+        self.assertIn("mcp__agent-brain-memory__memory_search", lane)
+        self.assertNotIn("memory_save", lane)
+        self.assertNotIn("session summary", lane)
+        # agent-brain's tool-use checkpoint also reaches lanes; they skip it.
+        self.assertIn("Do not save memory, even when a hook asks you to", lane)
         provider_catalog.write_preferences(self.home, {"agentBrain": False})
         self.update()
         self.assertFalse(any("claude-agents-config:agent-brain" in command for command in self.hook_commands()))
@@ -247,6 +254,16 @@ class Install240Tests(unittest.TestCase):
         fleet = json.loads((self.claude / "fleet.json").read_text(encoding="utf-8"))
         self.assertIs(fleet["integrations"]["agentBrain"], False)
         self.doctor()
+
+    def test_installer_and_generator_render_the_same_lane_memory_text(self):
+        # The installer renders lanes itself when Node is missing; both copies
+        # must say the same thing.
+        pattern = r'MEMORY_LIFECYCLE = "([^"]*)"'
+        generator = re.search(pattern, (ROOT / "scripts" / "generate-claude-agents.mjs").read_text(encoding="utf-8"))
+        installer = re.search(pattern, (ROOT / "bin" / "install.py").read_text(encoding="utf-8"))
+        self.assertIsNotNone(generator)
+        self.assertIsNotNone(installer)
+        self.assertEqual(generator.group(1), installer.group(1))
 
     # -- uninstall --------------------------------------------------------------------
     def test_uninstall_removes_the_rules_and_keeps_the_personal_file(self):

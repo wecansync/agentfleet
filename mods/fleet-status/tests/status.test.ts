@@ -250,6 +250,14 @@ test('2.4.0 counts new wizard questions while 2.3.x keeps the legacy seven', () 
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.4.0' }), null, null, null, null, null, null, null, wizardSource(wizardKeys24)]).newOptions).toBe(0)
 })
 
+test('2.5.0 adds the ask-first and token-weather options to the count', () => {
+  const keys25 = [...wizardKeys24, 'askFirst', 'tokenWeather']
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, null]).newOptions).toBe(11)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, wizardSource(wizardKeys24)]).newOptions).toBe(2)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(0)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '3.0.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(0)
+})
+
 test('wizard notice uses guarded read and stays hidden after refresh', async ($, on) => {
   const files: Record<string, string> = healthy()
   files['.claude-agents-config-manifest.json'] = '{"version":"2.3.0"}'
@@ -305,6 +313,22 @@ test('outages expire and alternatives come only from the watcher file', () => {
   expect(notices(snapshot, null)[0]).toBe('fleet-docs is failing (503 at 08:58 UTC; claude-sonnet-4.6). Dispatch fleet-custom-alt until 09:13 UTC.')
   expect(notices(snapshot, null)[1]).toContain('Retry it after 09:13 UTC.')
   expect(summary(snapshot, null)).toContain('Lane outages: fleet-docs 503 until 09:13 UTC')
+})
+test('models down show which model each lane switched to, and expire', () => {
+  const source = JSON.stringify({ format: 'agentfleet.outages.v1', lanes: {}, models: {
+    'codex-luna[1m]': { lane: 'implement', switchedTo: 'claude-haiku-5.5[1m]', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+    'gemini-3.8-flash[1m]': { lane: 'implement', status: 429, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:58:00Z' },
+    'old-model': { lane: 'docs', switchedTo: 'x', status: 503, at: '2026-10-09T07:00:00Z', until: '2026-10-09T07:15:00Z' },
+    'bad model': { lane: 'docs', switchedTo: 'x', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+    'ok-model': { lane: '../docs', switchedTo: 'x', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+  } })
+  const snapshot = snapshotFromSources(null, [null, null, null, null, null, source], null, now)
+  expect(snapshot.failovers.map(item => item.model)).toEqual(['codex-luna[1m]', 'gemini-3.8-flash[1m]'])
+  expect(snapshot.outages).toEqual([])
+  expect(notices(snapshot, null)).toContain('fleet-implement runs on claude-haiku-5.5[1m] until 09:13 UTC: codex-luna[1m] failed with 503.')
+  expect(notices(snapshot, null).filter(line => line.includes('gemini')).length).toBe(0)
+  expect(summary(snapshot, null)).toContain('Models down: codex-luna[1m] 503 until 09:13 UTC (fleet-implement uses claude-haiku-5.5[1m]); gemini-3.8-flash[1m] 429 until 09:58 UTC')
+  expect(summary(snapshotFromSources(null, [], null, now), null)).toContain('Models down: none')
 })
 for (const alternative of [undefined, null, '', 'Bad', '../ui', 'ui\n', 'ui‮', 7]) {
   test(`missing or invalid alternative recommends retry: ${JSON.stringify(alternative)}`, () => {

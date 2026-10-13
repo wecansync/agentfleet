@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 # claude-agents-config:managed
-"""UserPromptSubmit hook: classify the request and name the fleet lane to dispatch.
+"""UserPromptSubmit hook: AgentFleet notices, and lane routing in fleet mode.
 
-Runs on every prompt. Emits additionalContext naming one lane when the request
-has delegable shape; stays silent otherwise.
+Runs on every prompt. In every work style it passes on the watcher's lines
+(lane reports, outages) and a pending suggestion notice. Only the fleet work
+style also names a lane to dispatch: the wording of a prompt says nothing
+reliable about the size of the job, so in balanced and direct mode Claude
+decides after reading the code (see config/agentfleet.md).
 """
 
 import json
@@ -45,29 +48,6 @@ LANES = [
     ("fleet-triage-static",   r"\b(triage|prioriti[sz]|who owns|scope (?:of|this)|next step|what should we do about)\w*"),
     ("fleet-implement",       r"\b(implement|build|add|create|write|fix|refactor|migrate|rename|extract|wire up|hook up|support for|make it|change the)\w*"),
 ]
-
-BROAD_SCOPE = re.compile(
-    r"\b(?:across the codebase|all files|entire|end to end|migrate|whole repo|every module)\b",
-    re.IGNORECASE,
-)
-LIST_ITEM = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", re.MULTILINE)
-SECURITY_REVIEW = re.compile(r"\bsecurity\s+(?:review|audit)\b", re.IGNORECASE)
-BRANCH_REVIEW = re.compile(r"\b(?:review|audit)\b.{0,100}\b(?:branch|pr|pull request|diff)\b|"
-                           r"\b(?:branch|pr|pull request|diff)\b.{0,100}\b(?:review|audit)\b", re.IGNORECASE)
-CODEBASE_RESEARCH = re.compile(r"\b(?:web|codebase)\s+research\b", re.IGNORECASE)
-
-
-def large_prompt(prompt):
-    """Return true only for the explicitly defined balanced-mode large shapes."""
-    return (
-        len(prompt) >= 400
-        or len(LIST_ITEM.findall(prompt)) >= 3
-        or BROAD_SCOPE.search(prompt) is not None
-        or SECURITY_REVIEW.search(prompt) is not None
-        or BRANCH_REVIEW.search(prompt) is not None
-        or CODEBASE_RESEARCH.search(prompt) is not None
-    )
-
 
 SKIP = re.compile(
     r"^(y|n|yes|no|ok|okay|sure|thanks|thank you|go|go ahead|do it|continue|resume|stop|wait|"
@@ -214,10 +194,10 @@ def record(reason, prompt, lane=None):
             "lane": lane,
             "chars": len(prompt),
         }
-        # Only the silent prompts are the tuning surface, so only they keep text.
-        # Redact the complete excerpt before truncation so a secret crossing the
-        # boundary cannot leave a partially preserved token in the log.
-        if reason in ("no-match", "small-task"):
+        # Only fleet mode's unmatched prompts are a tuning surface, so only they
+        # keep text. Redact the complete excerpt before truncation so a secret
+        # crossing the boundary cannot leave a partially preserved token.
+        if reason == "no-match" and work_style == "fleet":
             entry["prompt"] = SECRETS.sub("[redacted]", prompt)[:PROMPT_EXCERPT]
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
         fd = os.open(LOG_PATH, flags, 0o600)
@@ -241,7 +221,9 @@ def record(reason, prompt, lane=None):
 
 prompt = (payload.get("prompt") or "").strip()
 preference_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
-work_style = "fleet"
+# The default style, also used when the preferences cannot be read: it adds no
+# routing line and keeps no prompt text.
+work_style = "balanced"
 if provider_catalog is not None:
     try:
         work_style = provider_catalog.load_preferences(preference_home)["workStyle"]
@@ -348,6 +330,14 @@ else:
     else:
         lane = min(hits)[2]
 original_lane = lane
+
+# Balanced and direct leave the decision to Claude, which reads the code; the
+# guessed lane is only logged. The watcher's notices still go through.
+if work_style in ("direct", "balanced"):
+    record(work_style, prompt, original_lane)
+    emit_context(watcher_lines)
+    sys.exit(0)
+
 outage = None
 alternative = None
 if fleet_watch is not None:
@@ -363,35 +353,7 @@ if fleet_watch is not None:
         outage = None
         alternative = None
 
-if work_style == "direct":
-    record("direct", prompt, original_lane)
-    emit_context(watcher_lines)
-    sys.exit(0)
-if work_style == "balanced" and not large_prompt(prompt):
-    leave("small-task", prompt, original_lane)
-
 shape = original_lane.replace("fleet-", "")
-if work_style == "balanced":
-    if outage:
-        status = outage.get("status", "unknown")
-        try:
-            failed_at = datetime.fromisoformat(outage.get("at", "").replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M UTC")
-        except (AttributeError, TypeError, ValueError):
-            failed_at = "unknown time"
-        dispatch_lane = alternative
-        outage_note = f" The requested `{original_lane}` lane is failing ({status} since {failed_at}); use `{alternative}` instead." if alternative else f" The requested `{original_lane}` lane is failing ({status} since {failed_at}) and has no configured alternative."
-        lane = alternative or lane
-    else:
-        dispatch_lane = lane
-        outage_note = ""
-    context = (
-        f"Routing: this looks like large {shape} work. If it splits into independent parts, consider dispatching "
-        f"`{dispatch_lane}`{outage_note}; otherwise do it yourself."
-    )
-    record("routed", prompt, original_lane)
-    emit_context(watcher_lines + [context])
-    sys.exit(0)
-
 if outage:
     status = outage.get("status", "unknown")
     try:

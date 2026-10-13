@@ -1,4 +1,4 @@
-import type { JevStats, Outage, Snapshot, Suggestion } from '../types'
+import type { Failover, JevStats, Outage, Snapshot, Suggestion } from '../types'
 
 // Only the installer's known layout may select a Claude directory.
 export function claudeDirectory(root: string): string | null {
@@ -49,6 +49,24 @@ export function parseOutages(source: string | null | undefined, now: number): Ou
     }
   }
   return result.sort((a, b) => a.lane.localeCompare(b.lane))
+}
+// Models recorded as down; lane-guard starts their lanes on `switchedTo`.
+export function parseFailovers(source: string | null | undefined, now: number): Failover[] {
+  const data = jsonRecord(source)
+  if (data?.format !== 'agentfleet.outages.v1') return []
+  const result: Failover[] = []
+  for (const [key, value] of Object.entries(record(data.models) ?? {})) {
+    const item = record(value)
+    const model = text(key, modelPattern)
+    const lane = text(item?.lane, lanePattern)
+    const switchedTo = text(item?.switchedTo, modelPattern)
+    const until = timestamp(item?.until)
+    const status = item?.status
+    if (model && lane && until && typeof status === 'number' && Number.isInteger(status) && status >= 400 && status <= 599 && Date.parse(until) > now) {
+      result.push({ model, lane, switchedTo, status, until })
+    }
+  }
+  return result.sort((a, b) => a.lane.localeCompare(b.lane) || a.model.localeCompare(b.model))
 }
 export function parseSuggestion(source: string | null | undefined, project: string | null): Suggestion | null {
   const data = jsonRecord(source)
@@ -101,9 +119,11 @@ export function parseJev(source: string | null | undefined): JevStats | null {
 const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
 // The instruction check is an action offered by the wizard, not a new option.
 const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
+const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
-  const optionKeys = isVersion24(version) ? optionKeys24 : optionKeys23
+  const minor = releaseMinor(version)
+  const optionKeys = minor >= 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
       !data.asked.every(key => typeof key === 'string')) return optionKeys.length
@@ -112,10 +132,12 @@ export function parseNewOptions(source: string | null | undefined, version: stri
   return optionKeys.filter(key => !asked.includes(key)).length
 }
 
-function isVersion24(version: string | null): boolean {
-  if (!version || !versionPattern.test(version) || /-/.test(version)) return false
+// The 2.x minor of a final release (a later major counts as the newest list);
+// prereleases and unknown versions count as 2.3, the first wizard release.
+function releaseMinor(version: string | null): number {
+  if (!version || !versionPattern.test(version) || /-/.test(version)) return 3
   const [major, minor] = version.split(/[.+-]/).slice(0, 2).map(Number)
-  return major > 2 || (major === 2 && minor >= 4)
+  return major > 2 ? Number.MAX_SAFE_INTEGER : major === 2 ? minor : 3
 }
 
 export function hasWizardOptions(version: string | null): boolean {
@@ -144,6 +166,7 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
     learn: typeof config?.learn === 'boolean' ? config.learn : true,
     workStyle: config?.workStyle === 'direct' || config?.workStyle === 'fleet' ? config.workStyle : 'balanced',
     outages: parseOutages(sources[5], now),
+    failovers: parseFailovers(sources[5], now),
     suggestion: parseSuggestion(sources[6], project),
     jev: parseJev(sources[7]),
     newOptions: parseNewOptions(sources[8], manifestVersion),
@@ -176,6 +199,9 @@ export function notices(snapshot: Snapshot, versionAtStart: string | null, hidde
   if (snapshot.decision === 'pending') {
     lines.push('Model changes are waiting for review. Run /fleet-setup.')
   }
+  for (const item of snapshot.failovers) {
+    if (item.switchedTo) lines.push(`fleet-${item.lane} runs on ${item.switchedTo} until ${utcTime(item.until)}: ${item.model} failed with ${item.status}.`)
+  }
   for (const outage of snapshot.outages) {
     const alt = outage.alternative
     lines.push(`fleet-${outage.lane} is failing (${outage.status} at ${utcTime(outage.at)}; ${outage.model}). ${alt ? `Dispatch fleet-${alt} until ${utcTime(outage.until)}.` : `Retry it after ${utcTime(outage.until)}.`}`)
@@ -205,6 +231,7 @@ export function summary(snapshot: Snapshot, versionAtStart: string | null): stri
     snapshot.jev ? `JEV: ${snapshot.jev.compactions} compactions (${snapshot.jev.jev} verbatim, ${snapshot.jev.fallbacks} fallbacks)${snapshot.jev.at ? `, last at ${utcTime(snapshot.jev.at)}` : ''}${snapshot.jev.before !== null && snapshot.jev.after !== null ? `; ${snapshot.jev.before} → ${snapshot.jev.after} tokens` : ''}` : 'JEV: no compactions recorded',
     `Suggestions learning: ${snapshot.learn ? 'on' : 'off'}`,
     `Lane outages: ${snapshot.outages.length ? snapshot.outages.map(item => `fleet-${item.lane} ${item.status} until ${utcTime(item.until)}`).join('; ') : 'none'}`,
+    `Models down: ${snapshot.failovers.length ? snapshot.failovers.map(item => `${item.model} ${item.status} until ${utcTime(item.until)}${item.switchedTo ? ` (fleet-${item.lane} uses ${item.switchedTo})` : ''}`).join('; ') : 'none'}`,
     ...(snapshot.suggestion ? [`Suggestions for ${snapshot.suggestion.name}: ${snapshot.suggestion.pending} (run /fleet-suggest)`] : []),
     `Last check: ${snapshot.lastCheck ?? 'unknown'}; latest seen: ${snapshot.latestSeen ?? 'unknown'}`,
     `Last result: ${result ? `${result.version ?? 'unknown'} (${result.ok ? 'succeeded' : 'failed'})` : 'none'}`,

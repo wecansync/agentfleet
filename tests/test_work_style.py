@@ -63,19 +63,19 @@ class WorkStyleTests(unittest.TestCase):
         return subprocess.run([sys.executable, "-B", str(AGENTFLEET), "--home", str(self.home), *args],
                               text=True, capture_output=True, env=env or self.env, cwd=ROOT, timeout=20)
 
-    def test_balanced_small_and_large_list_routing(self):
-        small = self.route("fix the typo in the README title")
-        self.assertNotIn("Routing:", small)
-        large = self.route("Implement these independent changes:\n1. Add the first endpoint.\n2. Add the second endpoint.\n3. Add the third endpoint.")
-        self.assertIn("Routing:", large)
-        self.assertIn("consider dispatching", large)
-        self.assertIn("otherwise do it yourself", large)
-
-    def test_balanced_security_review_is_large_but_unmatched_large_text_is_silent(self):
-        review = self.route("security review of this branch")
-        self.assertIn("Routing:", review)
-        unmatched = self.route("Please summarize the current status for me. " + ("There are several details to consider. " * 12))
-        self.assertNotIn("Routing:", unmatched)
+    def test_balanced_never_routes_whatever_the_wording(self):
+        # The wording says nothing reliable about the size of the job, so
+        # balanced mode leaves the decision to Claude after it reads the code.
+        prompts = [
+            "fix the typo in the README title",
+            "Implement these independent changes:\n1. Add the first endpoint.\n2. Add the second endpoint.\n3. Add the third endpoint.",
+            "security review of this branch",
+            "Implement this large update across all files: " + ("Refactor each module carefully. " * 14),
+            "apply the fixes, build the binary and create the docs site",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt[:40]):
+                self.assertNotIn("Routing:", self.route(prompt))
 
     def test_direct_never_routes_and_fleet_preserves_existing_routing(self):
         direct = self.route("fix the typo in the README title", "direct")
@@ -87,7 +87,7 @@ class WorkStyleTests(unittest.TestCase):
         context = self.route("fix the typo in the README title", None)
         self.assertNotIn("Routing:", context)
 
-    def test_balanced_outage_uses_alternative_lane(self):
+    def test_balanced_stored_outage_adds_no_routing_line(self):
         self.set_style("balanced")
         (self.claude / "fleet.json").write_text(json.dumps({"lanes": {
             "implement": {"model": "sonnet"},
@@ -102,17 +102,18 @@ class WorkStyleTests(unittest.TestCase):
                           "at": now.isoformat().replace("+00:00", "Z"),
                           "until": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")},
         }}), encoding="utf-8")
+        # The outage notice went out when the failure was seen; balanced mode
+        # does not repeat it as a routing line on later prompts.
         context = self.route("Implement this large update across all files: " + ("Refactor each module carefully. " * 14))
-        self.assertIn("Routing:", context)
-        self.assertIn("consider dispatching `fleet-implement-alt`", context)
-        self.assertIn("`fleet-implement` lane is failing", context)
-
-    def test_balanced_small_task_is_logged_with_small_task_reason(self):
-        self.set_style("balanced")
-        context = self.route("fix the typo in the README title")
         self.assertNotIn("Routing:", context)
+
+    def test_balanced_prompt_is_logged_without_its_text(self):
+        self.set_style("balanced")
+        self.route("fix the typo in the README title")
         entries = [json.loads(line) for line in (self.claude / "routing-log.jsonl").read_text().splitlines()]
-        self.assertTrue(any(item["reason"] == "small-task" for item in entries))
+        self.assertTrue(entries)
+        self.assertTrue(all(item["reason"] == "balanced" for item in entries))
+        self.assertTrue(all("prompt" not in item for item in entries))
 
     def test_config_work_style_renders_only_managed_policy(self):
         store = self.claude / "agentfleet"
@@ -143,6 +144,94 @@ class WorkStyleTests(unittest.TestCase):
         self.assertEqual(target.read_bytes(), original)
         invalid = self.cli("config", "work-style", "bogus")
         self.assertEqual(invalid.returncode, 2)
+
+    def test_config_keeps_a_managed_policy_with_user_edits(self):
+        store = self.claude / "agentfleet"
+        store.mkdir(parents=True)
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        (store / "policy-template.md").write_text(template, encoding="utf-8")
+        self.assertEqual(self.cli("config", "work-style", "balanced").returncode, 0)
+        target = self.claude / "rules" / "agentfleet.md"
+        edited = target.read_text(encoding="utf-8") + "\nMY OWN RULE\n"
+        target.write_text(edited, encoding="utf-8")
+        for args in (("ask-first", "off"), ("work-style", "direct")):
+            result = self.cli("config", *args)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("has your own edits", result.stderr)
+            self.assertNotIn("Restart Claude Code", result.stdout)
+            self.assertEqual(target.read_text(encoding="utf-8"), edited)
+        # Removing the edit lets the next run re-render with the saved choices.
+        target.write_text(provider_catalog.render_policy(template, "balanced", True), encoding="utf-8")
+        self.assertEqual(self.cli("config", "work-style", "direct").returncode, 0)
+        self.assertEqual(target.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "direct", False))
+
+    def test_policy_renders_ask_first_section_per_preference(self):
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        for style in provider_catalog.WORK_STYLES:
+            with self.subTest(style=style):
+                on = provider_catalog.render_policy(template, style, True)
+                off = provider_catalog.render_policy(template, style, False)
+                for rendered in (on, off):
+                    self.assertNotIn("<!-- ask-first", rendered)
+                    self.assertNotIn("<!-- /", rendered)
+                    self.assertNotIn("work-style:", rendered)
+                self.assertIn("## How to approach a task", on)
+                self.assertIn("Do small, clear tasks straight away.", on)
+                self.assertIn("/speckit-constitution", on)
+                self.assertNotIn("How to approach a task", off)
+                self.assertNotIn("speckit", off)
+                # The rest of the policy is the same either way.
+                self.assertEqual(off, on.replace(on[on.index("## How to approach a task"):on.index("## Work style")], ""))
+                self.assertEqual("then lanes for the independent parts" in on, style != "direct")
+                self.assertEqual("then build, test and fix it yourself" in on, style == "direct")
+                self.assertIn('--integration-options="--no-model-invocation"', on)
+        self.assertEqual(provider_catalog.render_policy_for(template, {"workStyle": "direct"}),
+                         provider_catalog.render_policy(template, "direct", True))
+        self.assertEqual(provider_catalog.render_policy_for(template, {"workStyle": "direct", "askFirst": False}),
+                         provider_catalog.render_policy(template, "direct", False))
+
+    def test_config_ask_first_rerenders_policy_and_keeps_work_style(self):
+        store = self.claude / "agentfleet"
+        store.mkdir(parents=True)
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        (store / "policy-template.md").write_text(template, encoding="utf-8")
+        self.assertIn("ask-first: on (default)", self.cli("config").stdout)
+        self.assertEqual(self.cli("config", "work-style", "direct").returncode, 0)
+        result = self.cli("config", "ask-first", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Restart Claude Code to apply.", result.stdout)
+        rules = self.claude / "rules" / "agentfleet.md"
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "direct", False))
+        self.assertIn("ask-first: off", self.cli("config").stdout)
+        self.assertNotIn("ask-first: off (default)", self.cli("config").stdout)
+        # Changing the work style afterwards keeps the ask-first choice.
+        self.assertEqual(self.cli("config", "work-style", "balanced").returncode, 0)
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "balanced", False))
+        self.assertEqual(self.cli("config", "ask-first", "on").returncode, 0)
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "balanced", True))
+        self.assertEqual(self.cli("config", "ask-first", "maybe").returncode, 2)
+        self.assertTrue(provider_catalog.load_preferences(self.home)["askFirst"])
+        with self.assertRaises(ValueError):
+            provider_catalog.write_preferences(self.home, {"askFirst": "yes"})
+
+    def test_preset_carries_ask_first(self):
+        store = self.claude / "agentfleet"
+        store.mkdir(parents=True)
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        (store / "policy-template.md").write_text(template, encoding="utf-8")
+        preset = self.root / "preset.json"
+        self.assertEqual(self.cli("configure", "--export", str(preset)).returncode, 0)
+        data = json.loads(preset.read_text(encoding="utf-8"))
+        self.assertIs(data["askFirst"], True)
+        data["askFirst"] = False
+        preset.write_text(json.dumps(data), encoding="utf-8")
+        applied = self.cli("configure", "--preset", str(preset))
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertFalse(provider_catalog.load_preferences(self.home)["askFirst"])
+        self.assertNotIn("How to approach a task", (self.claude / "rules" / "agentfleet.md").read_text(encoding="utf-8"))
+        data["askFirst"] = "no"
+        preset.write_text(json.dumps(data), encoding="utf-8")
+        self.assertEqual(self.cli("configure", "--preset", str(preset)).returncode, 2)
 
     def test_config_show_defaults_and_configure_preset_round_trip(self):
         shown = self.cli("config")

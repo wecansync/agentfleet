@@ -12,12 +12,12 @@
     {
       "name": "lane-guard",
       "source": "./lane-guard",
-      "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts."
+      "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts, and starts a lane on another of its models while its own model is down."
     },
     {
       "name": "token-weather",
       "source": "./token-weather",
-      "description": "Optional: a live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
+      "description": "A live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
     },
     {
       "name": "fast-jev-compaction",

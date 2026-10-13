@@ -8,14 +8,15 @@ Anthropic-compatible gateway whose models are discovered from `GET /v1/models`.
 It also installs a routing hook, a model-sync startup hook, a context-budget
 hook, a privacy-safe status line, a short delegation policy in
 `~/.claude/rules/agentfleet.md`, the `/fleet-setup` and `/fleet-suggest` skills,
-and a local Claude Code mods catalog with `fleet-status` and `lane-guard` on by
-default. Everything lives under your home directory; no root or admin access is
+and a local Claude Code mods catalog with `fleet-status`, `lane-guard` and
+`token-weather` on by default. Everything lives under your home directory; no root or admin access is
 required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 
-By default Claude works on your task directly and uses a lane only for large
-work. See [Work style](#work-style).
+By default Claude works on your task directly, uses a lane only for large
+work, and agrees on the approach with you before large, unclear or risky
+tasks. See [Work style](#work-style).
 
-Version: **2.4.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.5.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -199,7 +200,7 @@ existing installs.
 
 | Style | Behavior |
 |---|---|
-| `balanced` (default) | Claude works directly. The prompt hook suggests a lane only for large prompts: 400 or more characters, three or more list items, broad wording such as "across the codebase", a branch or PR review, a security review, or codebase or web research. |
+| `balanced` (default) | Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, broad sweeps whose detail it won't need, and independent reviews of risky changes. The prompt hook adds no routing suggestion. |
 | `direct` | Claude uses a lane only when you ask for one. |
 | `fleet` | The 2.3 behavior: Claude delegates by default. |
 
@@ -209,6 +210,32 @@ agentfleet config work-style balanced
 
 AgentFleet writes the policy for your chosen style to
 `~/.claude/rules/agentfleet.md`, which Claude Code loads automatically.
+
+### Ask first
+
+With `ask-first` on (the default), the policy adds a short "How to approach a
+task" section. Claude still does small, clear tasks straight away. For larger,
+unclear or risky ones it:
+
+- checks the project's `docs/`, README and CLAUDE.md before changing an area or
+  answering how something works, and searches the web only for outside
+  libraries and services;
+- investigates first, then asks what is still open in one message, with its
+  recommended answer to each question;
+- explains what worries it about a risky or doubtful request and recommends a
+  safer way;
+- for a large task, offers Spec Kit (and offers to install it and write the
+  project's constitution if missing) or a plan to approve followed by lanes and
+  a review, and says which it recommends;
+- for several tasks, asks whether to give each its own git worktree or do them
+  in turn in the current checkout;
+- for a new project, asks about a base project or boilerplate and proposes the
+  structure, design pattern and, for a backend, the database schema first;
+- stops and reports after two failed attempts at the same fix.
+
+It follows a "Workflow" section in the project's CLAUDE.md instead of asking,
+and offers to record the workflow you pick there. Turn the section off with
+`agentfleet config ask-first off`.
 
 ### Lane effort and stopping
 
@@ -344,7 +371,7 @@ differs from auto-ranking.
 ## Preferences and configuration
 
 Run `agentfleet configure` in a terminal to ask every question: work style,
-auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard,
+ask-first, auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, token-weather,
 automatic updates, and the `agent-brain` hooks (asked only when `agent-brain` is
 installed). It ends by offering the [instruction check](#instruction-check).
 Enter keeps the current value. When enabling JEV without an available
@@ -360,14 +387,15 @@ agentfleet configure --export team.json # export settings, never secrets
 ```
 
 Presets use `agentfleet.preset.v1`; feature keys are optional. Unknown fields,
-invalid values, and any key containing "key", "token", or "secret" are rejected.
+invalid values, and any other key containing "key", "token", or "secret" are rejected.
 Example `team.json`:
 
 ```json
-{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"autoUpdate":true,"agentBrain":true}
+{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrain":true,"askFirst":true}
 ```
 
-`workStyle` and `agentBrain` are accepted from 2.4.0. A preset never runs the
+`workStyle` and `agentBrain` are accepted from 2.4.0, `askFirst` and
+`tokenWeather` from 2.5.0. A preset never runs the
 instruction check.
 
 `agentfleet config` shows every feature, including work-style and agent-brain.
@@ -376,18 +404,21 @@ The shared preferences live in `~/.claude/agentfleet/config.json`:
 ```bash
 agentfleet config                                    # view effective preferences
 agentfleet config work-style direct|balanced|fleet   # how readily Claude uses lanes (default: balanced)
+agentfleet config ask-first on|off                   # agree on the approach before large or unclear tasks (default: on)
 agentfleet config compact <20-95|off>                # set auto-compact percentage (default: 70)
 agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
 agentfleet config learn on|off                       # command usage learning (new installs: on)
 agentfleet config agent-brain on|off                 # agent-brain memory hooks (off removes them)
 ```
 
-Restart Claude Code after changing the work style.
+Restart Claude Code after changing the work style or ask-first.
 
 ### agent-brain hooks
 
-If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which save
-memory after every reply and after every lane run. To remove that step, run
+If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which ask
+Claude to save project memory as it works. Lanes can search that memory but never
+save to it: they report what they learned and the main conversation records it,
+which keeps each lane run to its task. To remove the hooks, run
 `agentfleet config agent-brain off` or answer no in the wizard, which asks only
 when `agent-brain` is installed. Without the CLI, `agentfleet config` shows
 `agent-brain: not installed` and nothing is connected.
@@ -533,7 +564,7 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet add <name> --gateway-url URL` | Add a gateway profile without reinstalling (`--token-env VAR`, `--use`, `--force`, `--allow-insecure-http`). |
 | `agentfleet remove <name> [--yes]` | Delete a saved profile and its token. The active profile and `native` cannot be removed. |
 | `agentfleet configure [--yes\|--preset FILE\|--export FILE]` | Revisit every feature; keep values and mark questions answered, apply a team preset, or export settings without secrets. |
-| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
+| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `ask-first`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
 | `agentfleet instructions [--project DIR] [--check]` | Check your Claude Code instruction files for stale lane names, duplicates, and contradictions; apply edits only with your approval. `--check` reports without editing. |
 | `agentfleet jev <on\|off\|status>` | Enable, disable, or inspect optional `fast-jev-compaction` plugin. |
 | `agentfleet report [--days N] [--json]` | Summarize subagent runs (files changed, blocked commands) and active provider outages. |
@@ -564,15 +595,15 @@ install command (or an update) keeps the gateway you switched to.
   an optional fallback model chain (at most three entries, for provider
   unavailability or overload only).
 - `~/.claude/agentfleet/mods/` — the local `agentfleet` plugin catalog.
-  `fleet-status` and `lane-guard` are installed and on by default; `token-weather`
-  and `fast-jev-compaction` are opt-in. See [Mods](#mods).
+  `fleet-status`, `lane-guard` and `token-weather` are installed and on by
+  default; `fast-jev-compaction` is opt-in. See [Mods](#mods).
 - `~/.claude/settings.json` — merged settings. Unrelated permissions, hooks,
   plugins, and environment values are preserved. Mode 0600 because it can
   contain a gateway token.
 - `~/.claude/agentfleet/config.json` — user preferences (`workStyle`,
-  `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
-- `~/.claude/rules/agentfleet.md` — the delegation policy for your work style
-  (about 350 words). Claude Code loads it automatically. AgentFleet manages
+  `askFirst`, `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
+- `~/.claude/rules/agentfleet.md` — the policy for your work style (300 to 500
+  words, plus about 300 for the ask-first section). Claude Code loads it automatically. AgentFleet manages
   this file and rewrites it on update. It does not touch your own
   `~/.claude/CLAUDE.md`, so a first install over a personal `CLAUDE.md` works.
   Keep your own instructions in `CLAUDE.md` or in other files under
@@ -627,7 +658,7 @@ your user permissions and are not sandboxed.
 
 ### Installed by default
 
-- **fleet-status** (v1.3.0): displays an advisory band above the prompt when
+- **fleet-status** (v1.4.0): displays an advisory band above the prompt when
   action is needed: restart after an update, inspect a failed update, review
   missing models or proposals with `/fleet-setup`, dispatch a fallback for a
   failing lane, or review suggestions with `/fleet-suggest`. The band has a
@@ -635,8 +666,9 @@ your user permissions and are not sandboxed.
   if absent), `Work style: …`, auto-update state ("enabled (default)" if
   unconfigured), model proposals, auto-compact percentage, reviewer access level, learning state,
   active outages, project suggestions, a JEV stats line, and `Options: all reviewed`
-  or `Options: N new (run agentfleet configure)`; from 1.3.0 the count includes
-  the work style and agent-brain options. New unanswered options trigger
+  or `Options: N new (run agentfleet configure)`; from 1.4.0 the count includes
+  the work style, ask-first, token-weather and agent-brain options. The band
+  also names a lane that failed over to another of its models. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
   closable pane showing active subagents, recent lane execution reports, and
@@ -649,12 +681,16 @@ your user permissions and are not sandboxed.
   - Migrations: `artisan migrate`, `rails db:migrate`, `prisma migrate`, `alembic`, `manage.py migrate`, etc.
   - Destructive SQL: `DROP`, `TRUNCATE`, `ALTER TABLE … DROP`, and unconstrained `DELETE`/`UPDATE` without a `WHERE` clause across DB CLI tools and MCP servers.
   - Dangerous file removal: `rm -rf` targeting root, home, parent directories, `.git`, or wildcard.
-  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`.
+  - Model failover: while a lane's own model is down (see [Outages and lane reports](#outages-and-lane-reports)), new runs of that lane start on the first of its fallback models that works, marked `(failover: <model>)` in the task description.
+  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover.
+- **token-weather** (v0.1.0-agentfleet.1), Anthropic's sample mod (Apache-2.0),
+  forecasts how full the context window is above the prompt. It draws below the
+  other mods' bands and never replaces them. On by default from 2.5.0; an update
+  adds it once and never re-adds it after you remove it. Turn it off with
+  `/plugin` or `agentfleet configure`.
 
 ### Optional mods
 
-- **token-weather**, Anthropic's sample mod (Apache-2.0), forecasts how full
-  the context window is above the prompt. Install with `claude plugin install token-weather@agentfleet`.
 - **fast-jev-compaction** (v0.3.0-agentfleet.3), by tamaratran (MIT), replaces Claude Code's
   compaction summary with TypeSafe's Jev model decisions: obsolete tool calls
   and results are dropped or truncated while retained turns remain verbatim.
@@ -728,9 +764,11 @@ claude-fleet-setup --compaction 300000   # absolute token override (disables per
 
 ## Outages and lane reports
 
-When a provider gateway responds to a lane model with a 5xx gateway error:
-- **Automatic outage tracking**: When a lane's model fails with a 5xx gateway error, that lane is marked as failing for 15 minutes from the failure in `~/.claude/agentfleet/outages.json`.
-- **Intelligent failover**: AgentFleet's routing hook alerts the main agent and suggests a configured non-outage alternative lane with a different model. While the outage lasts, a request routed to that lane is sent to the alternative instead.
+On a gateway profile, each lane in `~/.claude/fleet.json` has a model and up to three fallback models, ranked from your provider's live models. `/fleet-setup` can pin a lane to your own list instead, for example `fleet-implement` on `claude-haiku-5.5`, then `codex-luna`, then a Gemini model; the first is the lane's model and the rest are its fallbacks in that order. Native profiles have no fallbacks. When a lane run fails with an API error 429 (quota), 5xx or 529 (overloaded):
+- **Model outages**: AgentFleet records that model as down in `~/.claude/agentfleet/outages.json`: for 60 minutes after a 429, 15 minutes after other errors, or until a later run on it succeeds.
+- **Same-lane failover**: with the `lane-guard` mod on (the default), the lane keeps working. New runs start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane. In the example above, if `claude-haiku-5.5` runs out of quota, the next `fleet-implement` run uses `codex-luna`, and the Gemini model if `codex-luna` is down too.
+- **Another lane**: only when every model of a lane is down, or `lane-guard` is off, does the prompt hook name a lane with a working model instead. In the `fleet` work style a request routed to that lane is sent to the alternative while the outage lasts.
+- **Status**: the fleet-status band shows which model a lane switched to, and `/fleet-status` lists the models that are down.
 - **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), and API errors, allowing the main agent to verify lane actions before merging.
 - **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.
 

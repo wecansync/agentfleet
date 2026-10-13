@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.4.3</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.5.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -204,7 +204,7 @@ How should Claude Code reach its models?
         <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="2"/><path d="M3 15h18M3 20h10"/></svg></div>
         <div>
           <h3>Status band and optional mods</h3>
-          <p>The included <code class="il">fleet-status</code> mod draws a band above the prompt only when something needs action. Optional JEV compaction shows token savings, verbatim messages kept, time, or a fallback reason above the prompt; <code class="il">/jev</code> shows session stats. It sends conversation text to api.typesafe.ai. Context forecasts are also opt-in. <a href="/docs/#mods">See mods, requirements, and privacy</a>.</p>
+          <p>The included <code class="il">fleet-status</code> mod draws a band above the prompt only when something needs action. Optional JEV compaction shows token savings, verbatim messages kept, time, or a fallback reason above the prompt; <code class="il">/jev</code> shows session stats. It sends conversation text to api.typesafe.ai. The token-weather context forecast is on by default. <a href="/docs/#mods">See mods, requirements, and privacy</a>.</p>
         </div>
       </div>
       <div class="feature-card feature-wide">
@@ -431,19 +431,29 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.4.3</span>
+        <span class="release-version" data-latest-version>v2.5.0</span>
         <span class="release-date" data-latest-date>October 13, 2026</span>
       </div>
-      <p>Cleaner learned suggestions in <code class="il">/fleet-suggest</code>.</p>
+      <p>Claude checks with you before big or unclear tasks, lanes keep working when a model runs out, and everything uses fewer tokens.</p>
       <ul class="release-list">
-        <li>A learned skill is suggested once, for the command you run most, instead of once per similar command.</li>
-        <li>No more skill suggestions for general-purpose tools such as <code class="il">git</code>, <code class="il">head</code> or <code class="il">tail</code>.</li>
-        <li><code class="il">python3 -m pytest</code> suggests a <code class="il">pytest</code> skill, even when options come before <code class="il">-m</code>.</li>
+        <li>When a lane's model hits its quota or fails, the lane moves to the next of its fallback models instead of stopping. You can pin your own chain, such as Haiku, then Luna, then Gemini.</li>
+        <li>Claude decides whether to split work across lanes after reading the code, not from how long your prompt is, and tells you when it splits.</li>
+        <li>Lanes no longer spend turns saving memory, and keep their reports short.</li>
+        <li>Before a large, unclear or risky task, Claude reads the project's docs, investigates, and agrees the approach with you: Spec Kit or a plan, worktrees for several tasks, and the structure of a new project. Small, clear tasks are still done straight away.</li>
+        <li>The token-weather context forecast is on by default.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.4.3</span><span class="release-date">October 13, 2026</span><span class="version-summary">Cleaner learned suggestions in <code class="il">/fleet-suggest</code>.</span></summary>
+        <ul class="release-list">
+          <li>A learned skill is suggested once, for the command you run most, instead of once per similar command.</li>
+          <li>No more skill suggestions for general-purpose tools such as <code class="il">git</code>, <code class="il">head</code> or <code class="il">tail</code>.</li>
+          <li><code class="il">python3 -m pytest</code> suggests a <code class="il">pytest</code> skill, even when options come before <code class="il">-m</code>.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.4.2</span><span class="release-date">October 13, 2026</span><span class="version-summary"><code class="il">/fleet-suggest</code> now helps set up how Claude works in each project.</span></summary>
         <ul class="release-list">

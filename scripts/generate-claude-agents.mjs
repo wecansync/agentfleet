@@ -538,13 +538,14 @@ function laneRole(lane, config) {
   return "implement";
 }
 
-const memoryTools = "mcp__agent-brain-memory__memory_search, mcp__agent-brain-memory__memory_save, mcp__agent-brain-memory__session_summary";
+const memoryTools = "mcp__agent-brain-memory__memory_search";
 // The optional agent-brain memory integration is recorded in the fleet map by
 // the installer (integrations.agentBrain) rather than detected here, because
 // hooks run with a different PATH than the installer did. Without it, agents
-// carry neither the memory tools nor the lifecycle instruction.
+// carry neither the memory tool nor the memory instruction. Lanes only search
+// memory: saving is the main agent's job, which keeps a lane run to its task.
 const MEMORY_TOOLS_SUFFIX = `, ${memoryTools}`;
-const MEMORY_LIFECYCLE = " Project memory search may be unavailable in custom-agent sessions; use it when permitted and continue from the brief and repository evidence when it is not. Before stopping, save only durable project knowledge and write the local session summary required by the agent-brain lifecycle.";
+const MEMORY_LIFECYCLE = " Search project memory when it helps; it may be unavailable, so continue from the brief and repository evidence. Do not save memory, even when a hook asks you to: put what you learned in your report, and the main agent records it.";
 const staticTools = `Read, Glob, Grep, LSP, ${memoryTools}`;
 const webTools = `Read, Glob, Grep, WebSearch, WebFetch, ${memoryTools}`;
 const writableTools = `Read, Glob, Grep, LSP, Bash, Edit, Write, ${memoryTools}`;
@@ -695,7 +696,7 @@ function renderAgent(lane, config, sourceHash, picker) {
       overrides.push(t);
     }
     // Filter out memory tools from override if any, since we append them below based on agentBrain
-    baseTools = overrides.filter(t => !memoryTools.includes(t)).join(", ");
+    baseTools = overrides.filter(t => !t.startsWith("mcp__agent-brain-memory__")).join(", ");
     if (baseTools && agentBrain) baseTools += MEMORY_TOOLS_SUFFIX;
     else if (!baseTools && agentBrain) baseTools = memoryTools;
   } else {
@@ -703,7 +704,7 @@ function renderAgent(lane, config, sourceHash, picker) {
   }
   const tools = baseTools || "";
   const lifecycle = agentBrain ? MEMORY_LIFECYCLE : "";
-  return `---\nname: ${agentName}\ndescription: ${yamlString(descriptionFor(lane, config.model, role, config))}\nmodel: ${yamlString(config.model)}\n${fallbackLine}effort: ${config.effort || "high"}\ntools: ${tools}\nbackground: true\nomitClaudeMd: true\ncolor: ${spec.color}\nmaxTurns: ${spec.maxTurns}\n---\n\n<!-- ${marker}; source-sha256: ${sourceHash} -->\n\n# Fleet lane: ${lane}\n\nYou are the native Claude Code subagent for global fleet lane \`${lane}\`. The main agent owns decomposition, integration, final gates, and outward-facing actions. You own only the bounded assignment in your invocation.\n\n${spec.prompt}\n\nThe main agent must put every applicable project instruction, gate, and handoff requirement in the brief because this generated agent omits CLAUDE.md to keep context bounded and avoid delegated handoff writes.${lifecycle} If the brief lacks a decision required to continue safely, stop and report the gap instead of expanding scope. If the work turns out larger than the brief implies, finish and check one complete part, then stop and report what is done and what remains; never run out of turns without a report.\n`;
+  return `---\nname: ${agentName}\ndescription: ${yamlString(descriptionFor(lane, config.model, role, config))}\nmodel: ${yamlString(config.model)}\n${fallbackLine}effort: ${config.effort || "high"}\ntools: ${tools}\nbackground: true\nomitClaudeMd: true\ncolor: ${spec.color}\nmaxTurns: ${spec.maxTurns}\n---\n\n<!-- ${marker}; source-sha256: ${sourceHash} -->\n\n# Fleet lane: ${lane}\n\nYou are the native Claude Code subagent for global fleet lane \`${lane}\`. The main agent owns decomposition, integration, final gates, and outward-facing actions. You own only the bounded assignment in your invocation.\n\n${spec.prompt}\n\nThe main agent must put every applicable project instruction, gate, and handoff requirement in the brief because this generated agent omits CLAUDE.md to keep context bounded and avoid delegated handoff writes.${lifecycle} If the brief lacks a decision required to continue safely, stop and report the gap instead of expanding scope. If the work turns out larger than the brief implies, finish and check one complete part, then stop and report what is done and what remains; never run out of turns without a report. Keep the report short: lead with the outcome, then one line per file, check, or finding; do not restate the brief or narrate your steps.\n`;
 }
 
 function candidatesFor(config) {

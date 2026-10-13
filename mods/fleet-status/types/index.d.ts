@@ -1,4 +1,5 @@
 export type Outage = { lane: string; model: string; alternative: string | null; status: number; message: string; at: string; until: string }
+export type Failover = { model: string; lane: string; switchedTo: string | null; status: number; until: string }
 export type SuggestionItem = { id: string; title: string; kind: string; why: string }
 export type Suggestion = { name: string; catalog: string; pending: number; seen: string | null; new: SuggestionItem[] }
 export type JevStats = { compactions: number; jev: number; fallbacks: number; at: string | null; before: number | null; after: number | null }
@@ -18,6 +19,7 @@ export type Snapshot = {
   learn: boolean
   workStyle: 'direct' | 'balanced' | 'fleet'
   outages: Outage[]
+  failovers: Failover[]
   suggestion: Suggestion | null
   jev: JevStats | null
   newOptions: number

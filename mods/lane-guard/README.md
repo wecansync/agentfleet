@@ -1,6 +1,6 @@
 # lane-guard
 
-Claude Code mod for AgentFleet that guards fleet subagent lanes from running destructive or publishing commands.
+Claude Code mod for AgentFleet that guards fleet subagent lanes from running destructive or publishing commands, and keeps a lane working when its model is down.
 
 ## What It Blocks
 
@@ -73,6 +73,16 @@ When a command is blocked, the subagent receives a denial result instructing it 
 AgentFleet lane-guard blocked this <label> command in <type>. Fleet lanes may not commit, push, merge, deploy, publish, run migrations or destructive SQL, or revert the working tree. Report the command to the main agent instead; it decides whether to run it.
 ```
 
+## Model Failover
+
+Each lane in `~/.claude/fleet.json` has a model and a list of `fallbacks`. When a lane run fails with an API error 429 (quota), 5xx or 529 (overloaded), AgentFleet's prompt hook records that model as down in `~/.claude/agentfleet/outages.json`: for 60 minutes after a 429, 15 minutes otherwise, or until a later run on it succeeds.
+
+While a lane's own model is down, `lane-guard` starts each new run of that lane on the first of its fallbacks that is not down, and adds `(failover: <model>)` to the task's description so you can see it. The prompt hook tells Claude to re-dispatch the failed task to the same lane. Only when every model of a lane is down does it name another lane instead.
+
+It leaves a run alone when the caller chose a model, for forks and workflow agents, and for lanes without fallbacks. A run on a model the caller chose is not counted against the lane's own models, whether it fails or succeeds. A project pin (`<project>/.claude/fleet.local.json`, written by `agentfleet project pin`) is laid over the lane's global row, so a pin of only the model keeps the global fallbacks.
+
+It reads only `fleet.json`, the project's `fleet.local.json` and `agentfleet/outages.json`. It skips any of these files whose path goes through a symlink, so if your Claude folder or project is reached through one, failover (or the pin) may be skipped and runs start on their own model as before.
+
 ## Main Conversation Is Never Blocked
 
 `lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked. When a subagent's type cannot be resolved, a matching command is blocked rather than allowed. The `PowerShell` tool is checked like `Bash`, and secrets in the logged command are redacted.
@@ -101,3 +111,5 @@ If you need to disable `lane-guard`:
 3. Choose `Disable`
 
 Or run Claude Code with the plugin disabled via settings or plugin arguments.
+
+Turning it off also turns off model failover: when a lane's model fails, AgentFleet then names another lane instead.

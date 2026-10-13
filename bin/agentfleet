@@ -875,7 +875,47 @@ def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
         explicit.add("workStyle")
     if isinstance(raw.get("agentBrain"), bool):
         explicit.add("agentBrain")
+    if isinstance(raw.get("askFirst"), bool):
+        explicit.add("askFirst")
     return preferences, explicit
+
+
+def render_rules_file(paths: Paths, changes: dict) -> int:
+    """Save ``changes`` to the preferences and re-render ~/.claude/rules/agentfleet.md
+    for them, under the shared lock. Only a file AgentFleet itself rendered is
+    rewritten: one without the marker is the user's own, and one with the
+    marker that matches no rendering carries the user's edits."""
+    fd, lock = with_lock(paths)
+    try:
+        preferences = provider_catalog.write_preferences(paths.home, changes)
+        template_path = paths.claude / "agentfleet" / "policy-template.md"
+        target = paths.claude / "rules" / "agentfleet.md"
+        if not template_path.is_file():
+            print("Policy template is missing; run agentfleet update", file=sys.stderr)
+            return 1
+        template = template_path.read_text(encoding="utf-8")
+        should_render = not target.exists()
+        if target.exists():
+            try:
+                current = target.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                current = ""
+            if "claude-agents-config:managed" not in current:
+                should_render = False
+            elif current in provider_catalog.policy_renderings(template):
+                should_render = True
+            else:
+                print(f"{target} has your own edits, so it was not rewritten and the new setting "
+                      "is not in effect yet. Move your own rules to another file in that folder "
+                      "(AgentFleet updates replace this one), then run this command again.",
+                      file=sys.stderr)
+                return 1
+        if should_render:
+            rendered = provider_catalog.render_policy_for(template, preferences)
+            atomic_write(target, rendered.encode("utf-8"), 0o644)
+    finally:
+        provider_catalog.release_lock(fd, lock)
+    return 0
 
 
 def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
@@ -889,11 +929,13 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         learn = "on" if preferences["learn"] else "off"
         work_style = preferences["workStyle"]
         agent_brain = "on" if preferences["agentBrain"] is True else ("off" if preferences["agentBrain"] is False else "auto")
+        ask_first = "on" if preferences["askFirst"] else "off"
         for key, display in (
             ("compactPercent", f"compact: {compact_text}"),
             ("reviewerAccess", f"reviewer-access: {reviewer}"),
             ("learn", f"learn: {learn}"),
             ("workStyle", f"work-style: {work_style}"),
+            ("askFirst", f"ask-first: {ask_first}"),
             ("agentBrain", f"agent-brain: {agent_brain}"),
         ):
             suffix = " (default)" if key not in explicit else ""
@@ -990,26 +1032,21 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         if value not in provider_catalog.WORK_STYLES:
             print(f"agentfleet: work-style must be one of {', '.join(provider_catalog.WORK_STYLES)}", file=sys.stderr)
             return 2
-        fd, lock = with_lock(paths)
-        try:
-            provider_catalog.write_preferences(paths.home, {"workStyle": value})
-            template = paths.claude / "agentfleet" / "policy-template.md"
-            target = paths.claude / "rules" / "agentfleet.md"
-            if not template.is_file():
-                print("Policy template is missing; run agentfleet update", file=sys.stderr)
-                return 1
-            should_render = not target.exists()
-            if target.exists():
-                try:
-                    should_render = "claude-agents-config:managed" in target.read_text(encoding="utf-8")
-                except (OSError, UnicodeError):
-                    should_render = False
-            if should_render:
-                rendered = provider_catalog.render_policy(template.read_text(encoding="utf-8"), value).encode("utf-8")
-                atomic_write(target, rendered, 0o644)
-        finally:
-            provider_catalog.release_lock(fd, lock)
+        if render_rules_file(paths, {"workStyle": value}):
+            return 1
         print(f"Work style set to {value}. Restart Claude Code to apply.")
+        return 0
+
+    if setting == "ask-first":
+        if value not in {"on", "off"}:
+            print("agentfleet: ask-first must be on or off", file=sys.stderr)
+            return 2
+        if render_rules_file(paths, {"askFirst": value == "on"}):
+            return 1
+        if value == "on":
+            print("Claude will investigate and agree on the approach before large, unclear or risky tasks. Restart Claude Code to apply.")
+        else:
+            print("Claude will start tasks without the ask-first steps. Restart Claude Code to apply.")
         return 0
 
     if setting == "agent-brain":
@@ -1776,7 +1813,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "agent-brain"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "agent-brain"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")

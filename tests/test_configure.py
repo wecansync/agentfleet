@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "agentBrain", "instructions"]
+KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "askFirst", "tokenWeather", "agentBrain", "instructions"]
 
 
 class ConfigureTests(unittest.TestCase):
@@ -146,16 +146,17 @@ class ConfigureTests(unittest.TestCase):
     def test_no_hint_without_mods_when_only_plugin_features_remain(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
         self.paths.store.mkdir(parents=True, exist_ok=True)
-        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'agentBrain', 'instructions'], "version": "2.3.0"}))
+        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'askFirst', 'agentBrain', 'instructions'], "version": "2.3.0"}))
         self.assertEqual(self.cli('--after-install').stdout, "")
 
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
         self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
-        self.assertTrue(all(f.introduced == "2.4.0" for f in wizard.FEATURES[7:]))
+        later = {f.key: f.introduced for f in wizard.FEATURES[7:]}
+        self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrain": "2.4.0", "instructions": "2.4.0"})
 
     def test_validation(self):
-        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}):
+        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"tokenSecret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}):
             with self.subTest(data=data):
                 result = self.cli("--preset", str(self.preset(data)))
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -175,7 +176,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_plugin_install_enable_disable(self):
         for value in (True, False, True):
-            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value})))
+            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value, 'tokenWeather': value})))
             self.assertEqual(result.returncode, 0, result.stderr)
         calls = [json.loads(line) for line in (self.home / 'commands.log').read_text().splitlines()]
         for ident in wizard.PLUGIN_IDS.values():

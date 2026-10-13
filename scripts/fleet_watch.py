@@ -110,6 +110,16 @@ WRAPPERS = {"sudo", "command", "env", "time", "nohup", "exec"}
 # Stop reasons that end a lane's turn; a record without one is mid-message.
 TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "refusal"}
 OUTAGE_MINUTES = 15
+# A 429 is usually an exhausted quota, which lasts longer than an overload.
+QUOTA_OUTAGE_MINUTES = 60
+# The lane-guard mod marks a lane it switched to another model this way; keep
+# the format in step with mods/lane-guard/hooks/failover.ts.
+FAILOVER_SUFFIX = re.compile(r"\s*\(failover: ([^()\s]{1,100})\)\s*$")
+# The lane-guard mod's pattern for a model id. Ids are matched exactly, so they
+# are checked against this rather than passed through the secret redaction,
+# which can rewrite part of an id ("claude-risk-…") and stop it matching.
+MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}")
+LANE_GUARD_PLUGIN = "lane-guard@agentfleet"
 # A transcript idle this long ended without a final message (killed, turn limit).
 IDLE_DONE_SECONDS = 30 * 60
 # An agent first seen this long after its last write finished before this watcher ran.
@@ -1105,6 +1115,8 @@ def _new_agent_state(agent_id: str, lane: str, description: str) -> dict:
         "firstAt": None,
         "lastAt": None,
         "model": "",
+        "failoverModel": "",
+        "explicitModel": False,
         "lastAssistantHasToolUse": False,
         "lastAssistantSeen": False,
         "done": False,
@@ -1160,7 +1172,7 @@ def _agent_record(state: dict, record: dict, cwd: object) -> None:
             match = re.search(r"API\s+Error:\s*(\d{3})\s*:?\s*(.*)", text, re.IGNORECASE | re.DOTALL) if isinstance(text, str) else None
             if match:
                 status = int(match.group(1))
-                if 500 <= status <= 599 or status == 529:
+                if _is_outage_status(status):
                     state["apiError"] = status
                 else:
                     state["isApiError"] = False
@@ -1208,7 +1220,20 @@ def _as_int(value: object) -> int:
         return 0
 
 
-def _load_meta(path: Path) -> tuple[str, str] | None:
+def _model_key(value: object) -> str:
+    """A model id as fleet.json and the outages file spell it, or "" when the
+    value is not one."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    return value if MODEL_ID.fullmatch(value) else ""
+
+
+def _load_meta(path: Path) -> tuple[str, str, str, bool] | None:
+    """Return the lane, the shown description, the model lane-guard switched
+    the lane to (empty when it runs on its own model), and whether the caller
+    chose the model itself (the Agent tool's model override), in which case
+    the run says nothing about the lane's own models."""
     value = _load_json(path, None)
     if not isinstance(value, dict):
         return None
@@ -1218,8 +1243,76 @@ def _load_meta(path: Path) -> tuple[str, str] | None:
     lane = _clean_lane(agent_type)
     if not lane:
         return None
-    description = _clean_text(value.get("description", ""), 80)
-    return lane, description
+    raw = value.get("description", "")
+    # Read the marker before truncating, which could cut it off.
+    match = FAILOVER_SUFFIX.search(raw) if isinstance(raw, str) else None
+    failover = _model_key(match.group(1)) if match else ""
+    description = _clean_text(raw, 80)
+    chosen = value.get("model")
+    explicit = not failover and isinstance(chosen, str) and bool(chosen.strip())
+    return lane, description, failover, explicit
+
+
+def _model_id(value: object) -> str:
+    if isinstance(value, dict):
+        value = value.get("model") or value.get("primary") or value.get("id")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _is_outage_status(status: int) -> bool:
+    return status == 429 or 500 <= status <= 599
+
+
+def _outage_window(status: int) -> timedelta:
+    return timedelta(minutes=QUOTA_OUTAGE_MINUTES if status == 429 else OUTAGE_MINUTES)
+
+
+def lane_models(row: object) -> list[str]:
+    """A lane's own model, then its fallbacks, in order and without repeats."""
+    if not isinstance(row, dict):
+        return []
+    models: list[str] = []
+    fallbacks = row.get("fallbacks") if isinstance(row.get("fallbacks"), list) else []
+    for value in [row.get("model"), *fallbacks]:
+        model = _model_id(value)
+        if model and model not in models:
+            models.append(model)
+    return models
+
+
+def effective_model(row: object, model_outages: dict) -> str | None:
+    """The model a lane runs on now: the first of its models without a
+    current outage. The lane-guard mod applies the same rule at spawn."""
+    for model in lane_models(row):
+        if model not in model_outages:
+            return model
+    return None
+
+
+def _lane_rows(home: Path, cwd: object) -> dict[str, dict]:
+    """The fleet map's lanes, with this project's pins (`agentfleet project
+    pin` writes <project>/.claude/fleet.local.json) laid over their rows the
+    way the agent generator merges them; the lane-guard mod reads the same
+    files."""
+    config = _load_json(home / ".claude" / "fleet.json", {})
+    rows = config.get("lanes") if isinstance(config, dict) else None
+    lanes = {name: row for name, row in rows.items()
+             if isinstance(name, str) and isinstance(row, dict)} if isinstance(rows, dict) else {}
+    if isinstance(cwd, str) and cwd:
+        local = _load_json(Path(cwd) / ".claude" / "fleet.local.json", {})
+        pinned = local.get("lanes") if isinstance(local, dict) and local.get("version") == "delegate-fleet.local.v1" else None
+        if isinstance(pinned, dict):
+            for name, row in pinned.items():
+                if isinstance(name, str) and isinstance(row, dict):
+                    lanes[name] = {**lanes.get(name, {}), **row}
+    return lanes
+
+
+def failover_enabled(home: Path) -> bool:
+    """Whether the lane-guard mod, which switches a lane's model, is enabled."""
+    settings = _load_json(home / ".claude" / "settings.json", {})
+    plugins = settings.get("enabledPlugins") if isinstance(settings, dict) else None
+    return isinstance(plugins, dict) and plugins.get(LANE_GUARD_PLUGIN) is True
 
 
 def _lane_model_for_report(lane: object, home: Path | None = None) -> str:
@@ -1291,26 +1384,37 @@ def _append_report(home: Path, row: dict) -> bool:
         return False
 
 
-def current_outages(home: Path) -> dict:
-    """Return the outages file with entries whose retry deadline has passed removed."""
-    value = _load_json(_store(home) / "outages.json", {})
-    lanes = value.get("lanes", {}) if isinstance(value, dict) else {}
+def _current_rows(rows: object, key) -> dict[str, dict]:
     current: dict[str, dict] = {}
     now = _utcnow()
-    if isinstance(lanes, dict):
-        for lane, row in lanes.items():
-            if not isinstance(lane, str) or not isinstance(row, dict):
+    if isinstance(rows, dict):
+        for name, row in rows.items():
+            if not isinstance(name, str) or not isinstance(row, dict):
                 continue
             until = _parse_time(row.get("until"))
             status = _as_int(row.get("status"))
-            if until and until > now and status:
-                current[_clean_lane(lane)] = row
-    return {"format": OUTAGE_FORMAT, "lanes": {key: val for key, val in current.items() if key}}
+            name = key(name)
+            if name and until and until > now and status:
+                current[name] = row
+    return current
 
 
-def _write_outages(home: Path, lanes: dict) -> None:
+def current_outages(home: Path) -> dict:
+    """Return the outages file with entries whose retry deadline has passed
+    removed. ``lanes`` lists lanes with no working model (dispatch another
+    lane); ``models`` lists failed models (lane-guard switches lanes off them)."""
+    value = _load_json(_store(home) / "outages.json", {})
+    value = value if isinstance(value, dict) else {}
+    return {
+        "format": OUTAGE_FORMAT,
+        "lanes": _current_rows(value.get("lanes"), _clean_lane),
+        "models": _current_rows(value.get("models"), _model_key),
+    }
+
+
+def _write_outages(home: Path, lanes: dict, models: dict | None = None) -> None:
     path = _store(home) / "outages.json"
-    payload = {"format": OUTAGE_FORMAT, "lanes": lanes}
+    payload = {"format": OUTAGE_FORMAT, "lanes": lanes, "models": models or {}}
     _atomic_write(path, (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
@@ -1318,9 +1422,11 @@ def _outage_for(home: Path, lane: str) -> dict | None:
     return current_outages(home).get("lanes", {}).get(_clean_lane(lane))
 
 
-def alternative_lane(home: Path, lane: str, outages: dict | None = None) -> str | None:
+def alternative_lane(home: Path, lane: str, outages: dict | None = None,
+                     models: dict | None = None) -> str | None:
     """Choose a configured, non-outage lane on a different model. ``outages``
-    (lane -> entry) replaces the stored set while a scan is recording new ones."""
+    (lane -> entry) and ``models`` (model -> entry) replace the stored sets
+    while a scan is recording new ones."""
     primary = _clean_lane(lane)
     if not primary:
         return None
@@ -1336,17 +1442,23 @@ def alternative_lane(home: Path, lane: str, outages: dict | None = None) -> str 
     candidates.extend(candidate for candidate in FALLBACKS.get(primary, ()) if candidate not in candidates)
     if primary.startswith("implement-") and "implement" not in candidates:
         candidates.append("implement")
-    outage_lanes = outages if outages is not None else current_outages(home).get("lanes", {})
-    failing_row = lane_rows.get(primary, {})
-    failing_model = failing_row.get("model") if isinstance(failing_row, dict) else None
+    stored = current_outages(home) if outages is None or models is None else {}
+    outage_lanes = outages if outages is not None else stored.get("lanes", {})
+    model_outages = models if models is not None else stored.get("models", {})
+    failover = failover_enabled(home)
+    failing_model = _model_id(lane_rows.get(primary, {}).get("model")) if isinstance(lane_rows.get(primary), dict) else ""
     for candidate in candidates:
         row = lane_rows.get(candidate)
         if not isinstance(row, dict):
             continue
         if candidate in outage_lanes:
             continue
-        model = row.get("model")
-        if failing_model and model and model == failing_model:
+        # With lane-guard a lane whose own model is down still works on a
+        # fallback; without it, a lane on a failed model is no alternative.
+        model = effective_model(row, model_outages) if failover else _model_id(row.get("model"))
+        if not model or model in model_outages:
+            continue
+        if failing_model and model == failing_model:
             continue
         return candidate
     return None
@@ -1405,6 +1517,19 @@ def _outage_line(lane: str, row: dict, alternative: str | None) -> str:
     status = _as_int(row.get("status"))
     dispatch = f"Until {until_text}, dispatch fleet-{alternative} instead." if alternative else f"Until {until_text}, retry later."
     return _clean_text(f"AgentFleet outage: fleet-{lane} ({model}) failed with {status} at {at_text}. {dispatch}", MAX_CONTEXT_LINE)
+
+
+def _failover_line(lane: str, model: str, row: dict, switch_to: str) -> str:
+    at = _parse_time(row.get("at"))
+    until = _parse_time(row.get("until"))
+    at_text = at.strftime("%H:%M UTC") if at else "unknown time"
+    until_text = until.strftime("%H:%M UTC") if until else "unknown time"
+    status = _as_int(row.get("status"))
+    return _clean_text(
+        f"AgentFleet outage: fleet-{lane}'s model {model} failed with {status} at {at_text}. "
+        f"Until {until_text}, fleet-{lane} runs on {switch_to} instead; re-dispatch the failed task to fleet-{lane}.",
+        MAX_CONTEXT_LINE,
+    )
 
 
 def _bounded_context(lines: list[str]) -> list[str]:
@@ -1601,8 +1726,13 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
     budget = [0]
     deadline = time.monotonic() + SCAN_MAX_SECONDS
     lines: list[str] = []
-    old_outages = current_outages(home).get("lanes", {})
+    stored_outages = current_outages(home)
+    old_outages = stored_outages.get("lanes", {})
     outage_data = dict(old_outages)
+    old_models = stored_outages.get("models", {})
+    model_data = dict(old_models)
+    lane_failures: dict[str, dict] = {}
+    lane_rows = _lane_rows(home, cwd)
     for file_path in files:
         if time.monotonic() >= deadline or budget[0] >= SCAN_MAX_BYTES:
             break
@@ -1610,7 +1740,7 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         meta = _load_meta(meta_path)
         if not meta:
             continue
-        lane, description = meta
+        lane, description, failover_model, explicit_model = meta
         agent_id = file_path.name[len("agent-"):-len(".jsonl")]
         agent_id = _clean_text(agent_id, 80)
         if not agent_id:
@@ -1624,6 +1754,8 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         else:
             agent["lane"] = lane
             agent["description"] = description
+        agent["failoverModel"] = failover_model
+        agent["explicitModel"] = explicit_model
         try:
             current_size = file_path.stat().st_size
         except OSError:
@@ -1633,6 +1765,8 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         if current_size < offset:
             offset = 0
             agent.update(_new_agent_state(agent_id, lane, description))
+            agent["failoverModel"] = failover_model
+            agent["explicitModel"] = explicit_model
         try:
             idle_seconds = time.time() - file_path.stat().st_mtime
         except OSError:
@@ -1665,36 +1799,76 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
                 lane_name = row["lane"]
                 error = row["apiError"]
                 ended = _parse_time(agent.get("lastAt")) or _utcnow()
-                if isinstance(error, int) and (500 <= error <= 599 or error == 529):
-                    until = ended + timedelta(minutes=OUTAGE_MINUTES)
-                    known = _parse_time((outage_data.get(lane_name) or {}).get("at"))
-                    if until > _utcnow() and (known is None or ended >= known):
-                        outage_data[lane_name] = {
-                            "model": row["model"],
-                            "status": error,
-                            "message": _clean_text(agent.get("apiMessage", ""), 160),
-                            "at": _iso(ended),
-                            "until": _iso(until),
-                        }
+                # The model the lane was configured to run on: the one
+                # lane-guard switched it to, else the lane's own. The API's
+                # name for it (row["model"]) can differ from fleet.json's.
+                lane_row = lane_rows.get(lane_name)
+                model = (_model_key(agent.get("failoverModel"))
+                         or (_model_id(lane_row.get("model")) if isinstance(lane_row, dict) else "")
+                         or row["model"])
+                if agent.get("explicitModel"):
+                    # The caller picked the model, so neither a failure nor a
+                    # success tells us anything about the lane's own models.
+                    pass
+                elif isinstance(error, int) and _is_outage_status(error):
+                    until = ended + _outage_window(error)
+                    entry = {
+                        "model": model,
+                        "status": error,
+                        "message": _clean_text(agent.get("apiMessage", ""), 160),
+                        "at": _iso(ended),
+                        "until": _iso(until),
+                    }
+                    if until > _utcnow():
+                        known = _parse_time((model_data.get(model) or {}).get("at")) if model else None
+                        if model and (known is None or ended >= known):
+                            model_data[model] = {**{k: v for k, v in entry.items() if k != "model"}, "lane": lane_name}
+                        prior = _parse_time((lane_failures.get(lane_name) or {}).get("at"))
+                        if prior is None or ended >= prior:
+                            lane_failures[lane_name] = entry
                 elif not agent.get("isApiError"):
-                    # Only a run that ended after the failure proves the lane works again.
+                    # Only a run that ended after the failure proves the lane
+                    # (and the model it ran on) works again.
                     failed_at = _parse_time((outage_data.get(lane_name) or {}).get("at"))
                     if failed_at is not None and ended > failed_at:
                         outage_data.pop(lane_name, None)
+                    pending_at = _parse_time((lane_failures.get(lane_name) or {}).get("at"))
+                    if pending_at is not None and ended > pending_at:
+                        lane_failures.pop(lane_name, None)
+                    model_failed_at = _parse_time((model_data.get(model) or {}).get("at")) if model else None
+                    if model_failed_at is not None and ended > model_failed_at:
+                        model_data.pop(model, None)
                 lane_notice = _lane_line({**row, "apiMessage": agent.get("apiMessage", ""), "isApiError": agent.get("isApiError", False)}, cwd)
                 if lane_notice:
                     lines.append(lane_notice)
+    # A failed lane keeps working when lane-guard can switch it to another of
+    # its models; only a lane with none left is an outage that sends work to
+    # another lane.
+    failover = failover_enabled(home) if lane_failures else False
+    for lane_name, entry in lane_failures.items():
+        model = entry["model"]
+        switch_to = effective_model(lane_rows.get(lane_name), model_data) if failover else None
+        if switch_to and model in model_data:
+            model_data[model]["switchedTo"] = switch_to
+            previous = old_models.get(model)
+            if not isinstance(previous, dict) or previous.get("at") != entry["at"]:
+                lines.append(_failover_line(lane_name, model, entry, switch_to))
+            continue
+        known = _parse_time((outage_data.get(lane_name) or {}).get("at"))
+        ended = _parse_time(entry.get("at"))
+        if known is None or (ended is not None and ended >= known):
+            outage_data[lane_name] = entry
     # Alternatives are chosen once every failure of this scan is known, so two
     # lanes failing together never recommend each other; the choice is stored
     # for the fleet-status mod to show.
     for lane_name, outage in outage_data.items():
         if lane_name not in old_outages or "alternative" not in outage:
-            outage["alternative"] = alternative_lane(home, lane_name, outage_data)
+            outage["alternative"] = alternative_lane(home, lane_name, outage_data, model_data)
             if lane_name not in old_outages:
                 lines.append(_outage_line(lane_name, outage, outage["alternative"]))
-    live = current_outages(home).get("lanes", {})
-    if outage_data != live:
-        _write_outages(home, outage_data)
+    live = current_outages(home)
+    if outage_data != live.get("lanes", {}) or model_data != live.get("models", {}):
+        _write_outages(home, outage_data, model_data)
 
     _learn_main(home, session, payload, session_id, str(payload.get("cwd") or ""), budget, deadline)
     return _bounded_context(lines)
