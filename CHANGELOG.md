@@ -9,6 +9,8 @@ file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
 - Same-lane model failover. When a lane's model fails with an API error 429 (quota), 5xx or 529 (overloaded), AgentFleet records that model as down (60 minutes after a 429, 15 minutes after other errors, or until a run on it succeeds). While it is down, the `lane-guard` mod starts new runs of that lane on the first of its fallback models that works, and marks them `(failover: <model>)`. The prompt hook tells Claude to re-dispatch the failed task to the same lane; it names another lane only when every model of the lane is down or `lane-guard` is off.
 - The fleet-status band shows which model a lane failed over to, and `/fleet-status` lists the models that are down.
+- Ask first: a new `askFirst` setting, on by default, adds a short "How to approach a task" section to the policy. Claude still does small, clear tasks straight away; for larger, unclear or risky ones it checks the project's `docs/`, README and CLAUDE.md first, investigates and asks what is still open with a recommended answer, flags risky or doubtful requests with a safer alternative, offers Spec Kit (installing it and writing the constitution only if you agree) or a plan followed by lanes and a review, asks whether several tasks should each get a git worktree, proposes structure, design pattern and database schema for a new project after asking about a boilerplate, and stops after two failed attempts at the same fix. It follows a "Workflow" section in the project's CLAUDE.md instead of asking. Set it with `agentfleet config ask-first on|off`, the wizard, or `"askFirst"` in a preset.
+- `token-weather` is installed and on by default. Existing installs get it once on their next update; removing it is respected by later updates. Wizard question and `"tokenWeather"` preset key.
 
 ### Changed
 
@@ -16,11 +18,15 @@ file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 - In the balanced and direct work styles the routing log keeps no prompt text.
 - A lane keeps up to three fallback models instead of two, so a lane pinned with `/fleet-setup` to four models keeps all four in order.
 - Fewer tokens per lane run:
-  - With agent-brain connected, lanes only search project memory. They no longer save memory or write a session summary, and skip hook requests to; the main conversation records what they report.
+  - With agent-brain connected, lanes only search project memory. They no longer save memory or write a session summary, and ignore hook requests to do so; the main conversation records what they report.
   - Lanes are told to keep reports short: the outcome first, then one line per file, check or finding.
   - The policy asks for the lightest lane that fits and for briefs that point at files instead of pasting them.
   - When new models are approved automatically, the session-start notice lists only lanes left without a model, not every unused model.
-- `lane-guard` 1.1.0 and `fleet-status` 1.4.0.
+- `lane-guard` 1.1.0, `fleet-status` 1.4.0 and `token-weather` 0.1.0-agentfleet.1.
+
+### Fixed
+
+- `token-weather` no longer replaces the bands other mods draw above the prompt (such as the fleet-status notice); it draws its forecast below them.
 
 ## [2.4.3] - 2026-10-13
 
