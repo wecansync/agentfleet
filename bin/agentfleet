@@ -162,6 +162,8 @@ def instructions_module():
         raise ImportError("fleet_instructions is not installed")
     spec = importlib.util.spec_from_file_location("agentfleet_instructions", script)
     module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    # Its dataclasses look the module up in sys.modules while it loads.
+    sys.modules[spec.name] = module  # type: ignore[union-attr]
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
 

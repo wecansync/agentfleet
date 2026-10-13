@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "2ae76d7311b4336ed5efb779c5f82b48644443f5a6110016d03b33bdd81ad6d6",
+      "sha256": "45d8af5b143d8378261b8354c177f62d69a99a3defea175d62f89a815665f174",
       "mode": "0o644"
     },
     {
@@ -29,12 +29,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "32a9389459e4c8cea9ff6ea896efba1b07f46f8ab20453cfd27532243f32db45",
+      "sha256": "5cba5071cc2ff2d47feeace718389cfbd22c3705d1d9ea465ff7c18a2d8ee211",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "2ad7b0c3f0ede58c3165b7a8a5479e890a758d39bfe8683eaef50ce6afad7232",
+      "sha256": "6d850e3ac42d0dd06bfdcce9151c1e6b40f4cf5272778f63eececea27c78f0b6",
       "mode": "0o644"
     },
     {
@@ -134,7 +134,7 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "5bffd19cc0bf9f1109e60939353a5e86198ace45a7f3d6eebe26e63b4816f0de",
+      "sha256": "6635e795c4b277e33c2f8f7e4fc5242d1ef47e3e0c34719172f7f3c551de3814",
       "mode": "0o755"
     },
     {
@@ -579,7 +579,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "b1e5e6b859d8f815bb9effb75d6f1e5af589904bcd2092e58dba3c2bab13a3b6",
+      "sha256": "3a3d4f4bbd16654168756e28a9d054c01d6afa6e161b9011dbcfde31acb79652",
       "mode": "0o644"
     },
     {

@@ -3,6 +3,15 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.4.1] - 2026-10-13
+
+### Fixed
+
+- `agentfleet instructions`, and the instruction check offered by
+  `agentfleet configure`, no longer stop with a Python error
+  (`AttributeError: 'NoneType' object has no attribute '__dict__'`) before
+  checking anything.
+
 ## [2.4.0] - 2026-10-13
 
 Claude works directly by default and uses lanes for large work, AgentFleet's
@@ -255,6 +264,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.4.1]: https://github.com/wecansync/claude-agents-config/pull/30
 [2.4.0]: https://github.com/wecansync/claude-agents-config/pull/29
 [2.3.1]: https://github.com/wecansync/claude-agents-config/pull/27
 [2.3.0]: https://github.com/wecansync/claude-agents-config/pull/25
