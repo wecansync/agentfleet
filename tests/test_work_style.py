@@ -197,6 +197,19 @@ class WorkStyleTests(unittest.TestCase):
         self.assertIn("--prefix", argv)
         self.assertEqual(Path(argv[argv.index("--prefix") + 1]), prefix.resolve())
 
+    def test_instructions_command_runs_from_the_cli(self):
+        # The real loader, not a mock: the module must import from the CLI.
+        target = self.claude / "CLAUDE.md"
+        original = b"Rule local.\nRule local.\n"
+        target.write_bytes(original)
+        result = self.cli("instructions", "--check")
+        # The fake claude cannot do the model check, so the exit code is 1
+        # either way; the report itself shows the command really ran.
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("Kind: duplicate", result.stdout, result.stderr)
+        self.assertIn("Applied 0 edit(s).", result.stdout)
+        self.assertEqual(target.read_bytes(), original)
+
     def test_wizard_offers_instruction_check_and_yes_skips_it(self):
         sys.path.insert(0, str(ROOT / "bin"))
         import importlib.machinery
