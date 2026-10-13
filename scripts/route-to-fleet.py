@@ -221,7 +221,9 @@ def record(reason, prompt, lane=None):
 
 prompt = (payload.get("prompt") or "").strip()
 preference_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
-work_style = "fleet"
+# The default style, also used when the preferences cannot be read: it adds no
+# routing line and keeps no prompt text.
+work_style = "balanced"
 if provider_catalog is not None:
     try:
         work_style = provider_catalog.load_preferences(preference_home)["workStyle"]

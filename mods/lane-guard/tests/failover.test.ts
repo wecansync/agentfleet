@@ -134,6 +134,13 @@ test("a project's pinned lane uses its own models, not the global map's", async 
   expect((await spawn(other.hooks, other._$, { subagentType: 'fleet-implement' })).model).toBe('claude-haiku-5.5[1m]');
 });
 
+test('a pin of only the model keeps the lane\'s global fallbacks, as the generated agent file does', async () => {
+  const pin = JSON.stringify({ version: 'delegate-fleet.local.v1', lanes: { implement: { model: 'pinned-a' } } });
+  const pinDown = outages({ 'pinned-a': { status: 503, until: '2026-10-13T10:15:00Z' } });
+  const switched = setup({ ...files(pinDown), '/work/app/.claude/fleet.local.json': pin });
+  expect((await spawn(switched.hooks, switched._$, { subagentType: 'fleet-implement' })).model).toBe('claude-haiku-5.5[1m]');
+});
+
 test('pure helpers: lane names, model lists, outage parsing and the Claude directory', () => {
   expect(laneName('fleet-implement-fast')).toBe('implement-fast');
   expect(laneName('fleet-')).toBe(null);

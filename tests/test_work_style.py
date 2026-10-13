@@ -145,6 +145,26 @@ class WorkStyleTests(unittest.TestCase):
         invalid = self.cli("config", "work-style", "bogus")
         self.assertEqual(invalid.returncode, 2)
 
+    def test_config_keeps_a_managed_policy_with_user_edits(self):
+        store = self.claude / "agentfleet"
+        store.mkdir(parents=True)
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        (store / "policy-template.md").write_text(template, encoding="utf-8")
+        self.assertEqual(self.cli("config", "work-style", "balanced").returncode, 0)
+        target = self.claude / "rules" / "agentfleet.md"
+        edited = target.read_text(encoding="utf-8") + "\nMY OWN RULE\n"
+        target.write_text(edited, encoding="utf-8")
+        for args in (("ask-first", "off"), ("work-style", "direct")):
+            result = self.cli("config", *args)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("has your own edits", result.stderr)
+            self.assertNotIn("Restart Claude Code", result.stdout)
+            self.assertEqual(target.read_text(encoding="utf-8"), edited)
+        # Removing the edit lets the next run re-render with the saved choices.
+        target.write_text(provider_catalog.render_policy(template, "balanced", True), encoding="utf-8")
+        self.assertEqual(self.cli("config", "work-style", "direct").returncode, 0)
+        self.assertEqual(target.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "direct", False))
+
     def test_policy_renders_ask_first_section_per_preference(self):
         template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
         for style in provider_catalog.WORK_STYLES:

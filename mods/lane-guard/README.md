@@ -79,7 +79,9 @@ Each lane in `~/.claude/fleet.json` has a model and a list of `fallbacks`. When 
 
 While a lane's own model is down, `lane-guard` starts each new run of that lane on the first of its fallbacks that is not down, and adds `(failover: <model>)` to the task's description so you can see it. The prompt hook tells Claude to re-dispatch the failed task to the same lane. Only when every model of a lane is down does it name another lane instead.
 
-It leaves a run alone when the caller chose a model, for forks and workflow agents, and for lanes without fallbacks. It reads only `fleet.json` and `agentfleet/outages.json`.
+It leaves a run alone when the caller chose a model, for forks and workflow agents, and for lanes without fallbacks. A run on a model the caller chose is not counted against the lane's own models, whether it fails or succeeds. A project pin (`<project>/.claude/fleet.local.json`, written by `agentfleet project pin`) is laid over the lane's global row, so a pin of only the model keeps the global fallbacks.
+
+It reads only `fleet.json`, the project's `fleet.local.json` and `agentfleet/outages.json`. It skips any of these files whose path goes through a symlink, so if your Claude folder or project is reached through one, failover (or the pin) may be skipped and runs start on their own model as before.
 
 ## Main Conversation Is Never Blocked
 

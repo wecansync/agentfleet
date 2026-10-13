@@ -27,6 +27,7 @@ file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 ### Fixed
 
 - `token-weather` no longer replaces the bands other mods draw above the prompt (such as the fleet-status notice); it draws its forecast below them.
+- `agentfleet config work-style` (and the new `ask-first`) no longer overwrite `~/.claude/rules/agentfleet.md` when you have edited it. They keep the file, say so, and exit 1; move your own rules to another file in `~/.claude/rules/`.
 
 ## [2.4.3] - 2026-10-13
 

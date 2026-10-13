@@ -46,14 +46,15 @@ export function laneName(subagentType: string): string | null {
 
 // A lane's row: the project's pin (`agentfleet project pin` writes
 // <project>/.claude/fleet.local.json) over the global fleet map.
+// A project pin is laid over the global row, as the agent generator merges
+// them, so a pin of only `model` keeps the lane's global fallbacks.
 function laneRow(fleetSource: string | null, localSource: string | null, lane: string): Record<string, unknown> | null {
-  const local = parse(localSource)
-  if (local?.version === 'delegate-fleet.local.v1') {
-    const pinned = record(record(local.lanes)?.[lane])
-    if (pinned) return pinned
-  }
   const lanes = record(parse(fleetSource)?.lanes)
-  return lanes ? record(lanes[lane]) : null
+  const global = lanes ? record(lanes[lane]) : null
+  const local = parse(localSource)
+  const pinned = local?.version === 'delegate-fleet.local.v1' ? record(record(local.lanes)?.[lane]) : null
+  if (pinned) return { ...(global ?? {}), ...pinned }
+  return global
 }
 
 // A lane's own model, then its fallbacks, in order and without repeats.

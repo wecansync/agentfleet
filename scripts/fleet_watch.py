@@ -115,6 +115,10 @@ QUOTA_OUTAGE_MINUTES = 60
 # The lane-guard mod marks a lane it switched to another model this way; keep
 # the format in step with mods/lane-guard/hooks/failover.ts.
 FAILOVER_SUFFIX = re.compile(r"\s*\(failover: ([^()\s]{1,100})\)\s*$")
+# The lane-guard mod's pattern for a model id. Ids are matched exactly, so they
+# are checked against this rather than passed through the secret redaction,
+# which can rewrite part of an id ("claude-risk-…") and stop it matching.
+MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+\[\]-]{0,99}")
 LANE_GUARD_PLUGIN = "lane-guard@agentfleet"
 # A transcript idle this long ended without a final message (killed, turn limit).
 IDLE_DONE_SECONDS = 30 * 60
@@ -1112,6 +1116,7 @@ def _new_agent_state(agent_id: str, lane: str, description: str) -> dict:
         "lastAt": None,
         "model": "",
         "failoverModel": "",
+        "explicitModel": False,
         "lastAssistantHasToolUse": False,
         "lastAssistantSeen": False,
         "done": False,
@@ -1215,9 +1220,20 @@ def _as_int(value: object) -> int:
         return 0
 
 
-def _load_meta(path: Path) -> tuple[str, str, str] | None:
-    """Return the lane, the shown description, and the model lane-guard
-    switched the lane to (empty when it runs on its own model)."""
+def _model_key(value: object) -> str:
+    """A model id as fleet.json and the outages file spell it, or "" when the
+    value is not one."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    return value if MODEL_ID.fullmatch(value) else ""
+
+
+def _load_meta(path: Path) -> tuple[str, str, str, bool] | None:
+    """Return the lane, the shown description, the model lane-guard switched
+    the lane to (empty when it runs on its own model), and whether the caller
+    chose the model itself (the Agent tool's model override), in which case
+    the run says nothing about the lane's own models."""
     value = _load_json(path, None)
     if not isinstance(value, dict):
         return None
@@ -1230,9 +1246,11 @@ def _load_meta(path: Path) -> tuple[str, str, str] | None:
     raw = value.get("description", "")
     # Read the marker before truncating, which could cut it off.
     match = FAILOVER_SUFFIX.search(raw) if isinstance(raw, str) else None
-    failover = _clean_text(match.group(1), 100) if match else ""
+    failover = _model_key(match.group(1)) if match else ""
     description = _clean_text(raw, 80)
-    return lane, description, failover
+    chosen = value.get("model")
+    explicit = not failover and isinstance(chosen, str) and bool(chosen.strip())
+    return lane, description, failover, explicit
 
 
 def _model_id(value: object) -> str:
@@ -1273,8 +1291,9 @@ def effective_model(row: object, model_outages: dict) -> str | None:
 
 def _lane_rows(home: Path, cwd: object) -> dict[str, dict]:
     """The fleet map's lanes, with this project's pins (`agentfleet project
-    pin` writes <project>/.claude/fleet.local.json) replacing their rows; the
-    lane-guard mod reads the same files."""
+    pin` writes <project>/.claude/fleet.local.json) laid over their rows the
+    way the agent generator merges them; the lane-guard mod reads the same
+    files."""
     config = _load_json(home / ".claude" / "fleet.json", {})
     rows = config.get("lanes") if isinstance(config, dict) else None
     lanes = {name: row for name, row in rows.items()
@@ -1283,8 +1302,9 @@ def _lane_rows(home: Path, cwd: object) -> dict[str, dict]:
         local = _load_json(Path(cwd) / ".claude" / "fleet.local.json", {})
         pinned = local.get("lanes") if isinstance(local, dict) and local.get("version") == "delegate-fleet.local.v1" else None
         if isinstance(pinned, dict):
-            lanes.update({name: row for name, row in pinned.items()
-                          if isinstance(name, str) and isinstance(row, dict)})
+            for name, row in pinned.items():
+                if isinstance(name, str) and isinstance(row, dict):
+                    lanes[name] = {**lanes.get(name, {}), **row}
     return lanes
 
 
@@ -1388,7 +1408,7 @@ def current_outages(home: Path) -> dict:
     return {
         "format": OUTAGE_FORMAT,
         "lanes": _current_rows(value.get("lanes"), _clean_lane),
-        "models": _current_rows(value.get("models"), lambda name: _clean_text(name, 100)),
+        "models": _current_rows(value.get("models"), _model_key),
     }
 
 
@@ -1720,7 +1740,7 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         meta = _load_meta(meta_path)
         if not meta:
             continue
-        lane, description, failover_model = meta
+        lane, description, failover_model, explicit_model = meta
         agent_id = file_path.name[len("agent-"):-len(".jsonl")]
         agent_id = _clean_text(agent_id, 80)
         if not agent_id:
@@ -1735,6 +1755,7 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
             agent["lane"] = lane
             agent["description"] = description
         agent["failoverModel"] = failover_model
+        agent["explicitModel"] = explicit_model
         try:
             current_size = file_path.stat().st_size
         except OSError:
@@ -1745,6 +1766,7 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
             offset = 0
             agent.update(_new_agent_state(agent_id, lane, description))
             agent["failoverModel"] = failover_model
+            agent["explicitModel"] = explicit_model
         try:
             idle_seconds = time.time() - file_path.stat().st_mtime
         except OSError:
@@ -1781,10 +1803,14 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
                 # lane-guard switched it to, else the lane's own. The API's
                 # name for it (row["model"]) can differ from fleet.json's.
                 lane_row = lane_rows.get(lane_name)
-                model = (_clean_text(agent.get("failoverModel"), 100)
+                model = (_model_key(agent.get("failoverModel"))
                          or (_model_id(lane_row.get("model")) if isinstance(lane_row, dict) else "")
                          or row["model"])
-                if isinstance(error, int) and _is_outage_status(error):
+                if agent.get("explicitModel"):
+                    # The caller picked the model, so neither a failure nor a
+                    # success tells us anything about the lane's own models.
+                    pass
+                elif isinstance(error, int) and _is_outage_status(error):
                     until = ended + _outage_window(error)
                     entry = {
                         "model": model,

@@ -882,24 +882,36 @@ def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
 
 def render_rules_file(paths: Paths, changes: dict) -> int:
     """Save ``changes`` to the preferences and re-render ~/.claude/rules/agentfleet.md
-    for them, under the shared lock. A rules file without AgentFleet's marker is
-    the user's own and is left alone."""
+    for them, under the shared lock. Only a file AgentFleet itself rendered is
+    rewritten: one without the marker is the user's own, and one with the
+    marker that matches no rendering carries the user's edits."""
     fd, lock = with_lock(paths)
     try:
         preferences = provider_catalog.write_preferences(paths.home, changes)
-        template = paths.claude / "agentfleet" / "policy-template.md"
+        template_path = paths.claude / "agentfleet" / "policy-template.md"
         target = paths.claude / "rules" / "agentfleet.md"
-        if not template.is_file():
+        if not template_path.is_file():
             print("Policy template is missing; run agentfleet update", file=sys.stderr)
             return 1
+        template = template_path.read_text(encoding="utf-8")
         should_render = not target.exists()
         if target.exists():
             try:
-                should_render = "claude-agents-config:managed" in target.read_text(encoding="utf-8")
+                current = target.read_text(encoding="utf-8")
             except (OSError, UnicodeError):
+                current = ""
+            if "claude-agents-config:managed" not in current:
                 should_render = False
+            elif current in provider_catalog.policy_renderings(template):
+                should_render = True
+            else:
+                print(f"{target} has your own edits, so it was not rewritten and the new setting "
+                      "is not in effect yet. Move your own rules to another file in that folder "
+                      "(AgentFleet updates replace this one), then run this command again.",
+                      file=sys.stderr)
+                return 1
         if should_render:
-            rendered = provider_catalog.render_policy_for(template.read_text(encoding="utf-8"), preferences)
+            rendered = provider_catalog.render_policy_for(template, preferences)
             atomic_write(target, rendered.encode("utf-8"), 0o644)
     finally:
         provider_catalog.release_lock(fd, lock)

@@ -228,6 +228,13 @@ def render_policy(template: str, style: str, ask_first: bool = True) -> str:
     return POLICY_BLOCK.sub(lambda match: match.group(2) if match.group(1) == style else "", template)
 
 
+def policy_renderings(template: str) -> set[str]:
+    """Every rendering of ``template`` AgentFleet can write: each work style
+    with and without the ask-first section. A rules file equal to none of them
+    carries the user's own edits."""
+    return {render_policy(template, style, ask_first) for style in WORK_STYLES for ask_first in (True, False)}
+
+
 def render_policy_for(template: str, preferences: dict) -> str:
     """Render the policy for the user's effective preferences."""
     return render_policy(template, preferences.get("workStyle", PREFERENCE_DEFAULTS["workStyle"]),

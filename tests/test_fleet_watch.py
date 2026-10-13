@@ -190,9 +190,9 @@ class FleetWatchTests(unittest.TestCase):
         self.assertNotEqual(outages["review-alt"].get("alternative"), "review")
         self.assertFalse(any("fleet-review-alt (" in line and "dispatch fleet-review instead" in line for line in lines), lines)
 
-    def _failed_run(self, agent_id, lane, description, status, when):
+    def _failed_run(self, agent_id, lane, description, status, when, **meta):
         (self.agent_dir / f"agent-{agent_id}.meta.json").write_text(
-            json.dumps({"agentType": f"fleet-{lane}", "description": description}), encoding="utf-8")
+            json.dumps({"agentType": f"fleet-{lane}", "description": description, **meta}), encoding="utf-8")
         failure = rec("assistant", {"id": "api", "role": "assistant", "model": "<synthetic>",
             "content": [{"type": "text", "text": f"API Error: {status} gateway says no"}], "usage": {}},
             timestamp=when.isoformat().replace("+00:00", "Z"))
@@ -273,6 +273,55 @@ class FleetWatchTests(unittest.TestCase):
         models = fleet_watch.current_outages(self.home)["models"]
         self.assertEqual(sorted(models), ["pinned-a"])
         self.assertTrue(any("model pinned-a failed" in line and "runs on pinned-b instead" in line for line in lines), lines)
+
+    def test_a_pin_of_only_the_model_keeps_the_global_fallbacks(self):
+        self._fleet({"implement": {"model": "luna", "fallbacks": ["haiku"]}})
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"enabledPlugins": {"lane-guard@agentfleet": True}}), encoding="utf-8")
+        (self.project / ".claude").mkdir()
+        (self.project / ".claude" / "fleet.local.json").write_text(json.dumps({
+            "version": "delegate-fleet.local.v1",
+            "lanes": {"implement": {"model": "pinned-a"}},
+        }), encoding="utf-8")
+        self._failed_run("p1", "implement", "Build it", 503, datetime.now(timezone.utc))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("model pinned-a failed" in line and "runs on haiku instead" in line for line in lines), lines)
+
+    def test_a_run_on_a_caller_chosen_model_neither_opens_nor_clears_outages(self):
+        self._fleet({"implement": {"model": "luna", "fallbacks": ["haiku"]}})
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"enabledPlugins": {"lane-guard@agentfleet": True}}), encoding="utf-8")
+        now = datetime.now(timezone.utc)
+        # The Agent tool's model override fails: the lane's own model is not blamed.
+        self._failed_run("e1", "implement", "Build it", 503, now, model="sonnet")
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertEqual(fleet_watch.current_outages(self.home), {"format": fleet_watch.OUTAGE_FORMAT, "lanes": {}, "models": {}})
+        self.assertTrue(any("fleet-implement" in line for line in lines), lines)
+        # Its own model really fails, then a caller-chosen run succeeds: that proves nothing about luna.
+        self._failed_run("e2", "implement", "Build it", 503, now + timedelta(seconds=5))
+        fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertIn("luna", fleet_watch.current_outages(self.home)["models"])
+        (self.agent_dir / "agent-e3.meta.json").write_text(
+            json.dumps({"agentType": "fleet-implement", "description": "Build it", "model": "sonnet"}), encoding="utf-8")
+        success = {**assistant("ok", []), "timestamp": (now + timedelta(seconds=20)).isoformat().replace("+00:00", "Z")}
+        self.write_records(self.agent_dir / "agent-e3.jsonl", [success])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertIn("luna", fleet_watch.current_outages(self.home)["models"])
+
+    def test_model_ids_are_kept_exactly_and_odd_names_are_dropped(self):
+        # A model id the secret redaction would rewrite; split so the bundle's
+        # own secret scan does not see a key-shaped literal.
+        risky = "claude-ri" + "sk-" + "assessment-x[1m]"
+        self.assertEqual(fleet_watch._model_key(risky), risky)
+        self.assertEqual(fleet_watch._model_key("bad id\x1b[2J"), "")
+        self._fleet({"implement": {"model": risky, "fallbacks": ["haiku"]}})
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"enabledPlugins": {"lane-guard@agentfleet": True}}), encoding="utf-8")
+        self._failed_run("r1", "implement", "Build it", 503, datetime.now(timezone.utc))
+        fleet_watch.on_prompt(self.payload(), self.home)
+        models = fleet_watch.current_outages(self.home)["models"]
+        self.assertEqual(sorted(models), [risky])
+        self.assertEqual(fleet_watch.effective_model({"model": risky, "fallbacks": ["haiku"]}, models), "haiku")
 
     def test_incremental_offsets_partial_trailing_line_and_system_envelope(self):
         complete = json.dumps(assistant("finished", [tool("Edit", {"file_path": str(self.project / "a.py")})])) + "\n"
