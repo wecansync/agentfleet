@@ -204,7 +204,21 @@ COMPACT_WINDOW_MAX = 1_000_000
 # model's own limit then wins, which never compacts earlier than asked.
 NATIVE_CONTEXT_BASIS = 1_000_000
 REVIEWER_ACCESS = ("full", "run", "read-only")
-PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True}
+# direct: Claude works itself; balanced: lanes only for large, parallel, broad,
+# or risky work; fleet: delegate by default (the behaviour before 2.4.0).
+WORK_STYLES = ("direct", "balanced", "fleet")
+# agentBrain None means "wire agent-brain when its CLI is on PATH", the
+# behaviour before 2.4.0; True or False is the user's explicit choice.
+PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
+                       "workStyle": "balanced", "agentBrain": None}
+POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
+
+
+def render_policy(template: str, style: str) -> str:
+    """Keep the template's block for ``style`` and drop the other styles'
+    blocks and every block marker. An unknown style renders as balanced."""
+    style = style if style in WORK_STYLES else PREFERENCE_DEFAULTS["workStyle"]
+    return POLICY_BLOCK.sub(lambda match: match.group(2) if match.group(1) == style else "", template)
 
 
 def preferences_path(home: Path) -> Path:
@@ -232,6 +246,10 @@ def load_preferences(home: Path) -> dict:
         preferences["reviewerAccess"] = raw["reviewerAccess"]
     if isinstance(raw.get("learn"), bool):
         preferences["learn"] = raw["learn"]
+    if raw.get("workStyle") in WORK_STYLES:
+        preferences["workStyle"] = raw["workStyle"]
+    if isinstance(raw.get("agentBrain"), bool):
+        preferences["agentBrain"] = raw["agentBrain"]
     return preferences
 
 
@@ -245,6 +263,10 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError(f"reviewerAccess must be one of {', '.join(REVIEWER_ACCESS)}")
         if key == "learn" and not isinstance(value, bool):
             raise ValueError("learn must be true or false")
+        if key == "workStyle" and value not in WORK_STYLES:
+            raise ValueError(f"workStyle must be one of {', '.join(WORK_STYLES)}")
+        if key == "agentBrain" and not isinstance(value, bool):
+            raise ValueError("agentBrain must be true or false")
         if key not in PREFERENCE_DEFAULTS:
             raise ValueError(f"unknown preference: {key}")
     path = preferences_path(home)
