@@ -12,7 +12,8 @@ Everything outside `site/`, `packaging/`, `dist/`, `.github/` and `.claude/` is 
 ## Tests
 
 - Run Python tests one module per process, in parallel, inside a clean environment. The serial `unittest discover` is slow:
-  `ls tests/test_*.py | sed 's#tests/##;s#\.py$##' | xargs -P 8 -I{} sh -c 'H=$(mktemp -d); env -i PATH="$PATH" HOME="$H" LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest tests.{} >/tmp/af-{}.log 2>&1 || echo "FAIL {}"; rm -rf "$H"'`
+  `mkdir -p /tmp/af-gate-homes && ls tests/test_*.py | sed 's#tests/##;s#\.py$##' | xargs -P 8 -I{} sh -c 'H=$(mktemp -d -p /tmp/af-gate-homes); env -i PATH="$PATH" HOME="$H" LANG=C.UTF-8 PYTHONDONTWRITEBYTECODE=1 python3 -B -m unittest tests.{} >/tmp/af-{}.log 2>&1 || echo "FAIL {}"'; rm -rf /tmp/af-gate-homes`
+- The scratch homes go under one fixed folder that is removed by its literal path: Claude Code's safety check blocks `rm -rf "$H"` inside an `sh -c` script, because it cannot inspect the variable.
 - Why the clean environment: a Claude Code session exports the user's provider URL and token. An install run without `--provider` detects them and copies them into the scratch home.
 - Any test that can start the `claude` CLI must put a fake `claude` first on `PATH` and pass an explicit environment to the subprocess.
 - Mods: `cd mods/<name> && claude plugin test && claude plugin validate`.
