@@ -621,6 +621,8 @@ services:
         (self.claude_dir / "fleet.json").write_text(json.dumps({"lanes": {"implement": {"model": "haiku"}}}))
         settings = self.claude_dir / "settings.json"
         settings.write_text(json.dumps({"enabledPlugins": {"fleet-status@agentfleet": True}}))
+        (self.claude_dir / "agentfleet").mkdir(parents=True, exist_ok=True)
+        (self.claude_dir / "agentfleet" / "config.json").write_text(json.dumps({"format": "agentfleet.config.v1", "workStyle": "fleet"}))
         def route():
             result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "route-to-fleet.py")],
                                     input=json.dumps({"cwd": str(proj), "prompt": "implement a new API endpoint for users"}),

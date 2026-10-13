@@ -247,7 +247,7 @@ def source_bundle(bundle: Path, errors: list[str]) -> dict | None:
     if route.is_file():
         try:
             route_text = route.read_text(encoding="utf-8")
-            for needle in ("0o600", "PROMPT_RETENTION_DAYS = 14", "ENTRY_RETENTION_DAYS = 90", "LOG_MAX_BYTES = 2_000_000", 'reason == "no-match"'):
+            for needle in ("0o600", "PROMPT_RETENTION_DAYS = 14", "ENTRY_RETENTION_DAYS = 90", "LOG_MAX_BYTES = 2_000_000", 'reason in ("no-match", "small-task")'):
                 if needle not in route_text:
                     fail(errors, f"routing privacy policy missing {needle}: {route}")
         except (OSError, UnicodeError) as exc:
@@ -452,8 +452,11 @@ def check_installed_records(home: Path, config_root: Path, bin_dir: Path, errors
         # users may edit settings or run claude-fleet-setup to approve families,
         # and the discovery hook may refresh the model picker at SessionStart.
         # Their schema and invariants are checked below instead of treating
-        # expected user configuration changes as tampering.
-        if ident not in {"home:.claude/settings.json", "config:provider-policy.json"} and digest != sha256(path):
+        # expected user configuration changes as tampering. The rendered
+        # policy changes with `agentfleet config work-style`; it is checked
+        # against the template and the chosen style instead.
+        mutable = {"home:.claude/settings.json", "config:provider-policy.json", "home:.claude/rules/agentfleet.md"}
+        if ident not in mutable and digest != sha256(path):
             fail(errors, f"installed managed checksum mismatch: {path}")
         if os.name != "nt":
             expected_mode = {"0o755": 0o755, "0o644": 0o644, "0o600": 0o600}.get(mode)
@@ -462,9 +465,52 @@ def check_installed_records(home: Path, config_root: Path, bin_dir: Path, errors
                 fail(errors, f"installed mode mismatch: {path} expected {mode}, found {oct(actual_mode)}")
 
 
+def load_provider_catalog(home: Path):
+    """Load provider_catalog from the installed copy, or from the bundle when
+    the doctor runs from a checkout."""
+    import importlib.util
+    for candidate in (home / ".claude" / "provider_catalog.py",
+                      Path(__file__).resolve().parent.parent / "scripts" / "provider_catalog.py"):
+        if candidate.is_file() and not candidate.is_symlink():
+            spec = importlib.util.spec_from_file_location("agentfleet_doctor_provider_catalog", candidate)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    return None
+
+
+def validate_policy_files(home: Path, errors: list[str]) -> None:
+    provider_catalog = load_provider_catalog(home)
+    if provider_catalog is None:
+        fail(errors, "provider catalog helpers are unavailable; cannot validate AgentFleet policy files")
+        return
+    template_path = home / ".claude" / "agentfleet" / "policy-template.md"
+    rendered_path = home / ".claude" / "rules" / "agentfleet.md"
+    try:
+        template = template_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        fail(errors, f"cannot read installed policy template ({template_path}): {exc}")
+        return
+    try:
+        preferences = provider_catalog.load_preferences(home)
+        expected = provider_catalog.render_policy(template, preferences["workStyle"])
+        actual = rendered_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        fail(errors, f"cannot validate rendered policy ({rendered_path}): {exc}")
+        return
+    if actual != expected:
+        fail(errors, f"rendered policy does not match workStyle={preferences['workStyle']}: {rendered_path}")
+    for path in (template_path, rendered_path):
+        if path.is_symlink():
+            fail(errors, f"installed policy file is a symlink: {path}")
+        elif os.name != "nt" and stat.S_IMODE(path.stat().st_mode) != 0o644:
+            fail(errors, f"installed policy mode mismatch: {path} expected 0o644, found {oct(stat.S_IMODE(path.stat().st_mode))}")
+
+
 def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str], profile: str | None) -> None:
     manifest = installed_manifest(home, errors)
     check_installed_records(home, config_root, bin_dir, errors, manifest)
+    validate_policy_files(home, errors)
     settings_path = home / ".claude" / "settings.json"
     claude_fleet = home / ".claude" / "fleet.json"
     legacy_fleet = config_root / "delegate-skills" / "config.json"
@@ -561,6 +607,8 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
             if policy.get("version") != "provider-policy.v1" or not isinstance(provider, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", provider) or not isinstance(policy.get("families"), list):
                 fail(errors, f"installed provider policy is invalid: {policy_path}")
     expected = [
+        home / ".claude" / "rules" / "agentfleet.md",
+        home / ".claude" / "agentfleet" / "policy-template.md",
         home / ".claude" / "route-to-fleet.py",
         home / ".claude" / "subagent-statusline.py",
         home / ".claude" / "sync-provider-models.mjs",
@@ -573,6 +621,7 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
         home / ".claude" / "fleet_watch.py",
         home / ".claude" / "fleet_suggest.py",
         home / ".claude" / "fleet_configure.py",
+        home / ".claude" / "fleet_instructions.py",
         home / ".claude" / "fleet-suggestions.json",
         config_root / "delegate-skills" / "provider-policy.json",
         config_root / "delegate-skills" / "generate-claude-agents.mjs",
@@ -580,7 +629,7 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
     for path in expected:
         if not path.is_file():
             fail(errors, f"missing installed runtime file: {path}")
-    for path in [home / ".claude" / "CLAUDE.md", *expected, home / ".claude" / "provider_catalog.py", home / ".claude" / "fleet-reconcile.py", config_root / "delegate-skills" / "provider-policy.json", fleet_path, *sorted((home / ".claude" / "agents").glob("fleet-*.md"))]:
+    for path in [*expected, home / ".claude" / "provider_catalog.py", home / ".claude" / "fleet-reconcile.py", config_root / "delegate-skills" / "provider-policy.json", fleet_path, *sorted((home / ".claude" / "agents").glob("fleet-*.md"))]:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")

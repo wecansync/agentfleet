@@ -22,7 +22,7 @@
       "implementer": "claude",
       "model": "sonnet",
       "tier": "balanced",
-      "effort": "xhigh",
+      "effort": "high",
       "timeout": "2h"
     },
     "implement-alt": {
@@ -62,14 +62,14 @@
       "implementer": "claude",
       "model": "opus",
       "tier": "deep",
-      "effort": "xhigh",
+      "effort": "high",
       "readOnly": true
     },
     "review-alt": {
       "implementer": "claude",
       "model": "sonnet",
       "tier": "deep",
-      "effort": "xhigh",
+      "effort": "high",
       "readOnly": true,
       "altOf": "review",
       "description": "Independent second reviewer on a different model. Use for risky changes that deserve two reviews, or when the primary review lane must be avoided."
@@ -87,7 +87,7 @@
       "implementer": "claude",
       "model": "sonnet",
       "tier": "balanced",
-      "effort": "high",
+      "effort": "medium",
       "timeout": "2h"
     },
     "ui": {
@@ -108,14 +108,14 @@
       "implementer": "claude",
       "model": "opus",
       "tier": "deep",
-      "effort": "xhigh",
+      "effort": "high",
       "readOnly": true
     },
     "diagnose-static": {
       "implementer": "claude",
       "model": "opus",
       "tier": "deep",
-      "effort": "xhigh",
+      "effort": "high",
       "readOnly": true
     },
     "explore-narrow": {
@@ -129,14 +129,14 @@
       "implementer": "claude",
       "model": "haiku",
       "tier": "fast",
-      "effort": "high",
+      "effort": "medium",
       "readOnly": true
     },
     "research-codebase": {
       "implementer": "claude",
       "model": "sonnet",
       "tier": "balanced",
-      "effort": "high",
+      "effort": "medium",
       "readOnly": true,
       "longContext": true
     },
@@ -144,7 +144,7 @@
       "implementer": "claude",
       "model": "sonnet",
       "tier": "balanced",
-      "effort": "high",
+      "effort": "medium",
       "readOnly": true
     }
   }

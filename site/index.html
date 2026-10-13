@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.3.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 12, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.4.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -238,8 +238,8 @@ How should Claude Code reach its models?
         <p>At startup, every live model is matched against each lane's required capability tier, with the next-best models kept as fallbacks.</p>
       </div>
       <div class="step">
-        <h3>Claude Code delegates</h3>
-        <p>The main agent routes each task to the matching lane by role. Restart after a provider switch and the same lane names still apply.</p>
+        <h3>Claude Code uses lanes for large work</h3>
+        <p>By default Claude works directly and routes large tasks to the matching lane by role. <code class="il">agentfleet config work-style direct|balanced|fleet</code> changes how readily it delegates. Restart after a provider switch and the same lane names still apply.</p>
       </div>
     </div>
 
@@ -409,7 +409,7 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
       </details>
       <details class="faq-item">
         <summary>Where do my own Claude Code instructions go?</summary>
-        <p>In <code class="il">~/.claude/rules/*.md</code>. Claude Code loads those every session and AgentFleet never touches them, because AgentFleet manages and rewrites <code class="il">~/.claude/CLAUDE.md</code> itself.</p>
+        <p>In <code class="il">~/.claude/CLAUDE.md</code> or your own files under <code class="il">~/.claude/rules/</code>. AgentFleet keeps its policy in <code class="il">~/.claude/rules/agentfleet.md</code> and never edits your <code class="il">CLAUDE.md</code>. <code class="il">agentfleet instructions</code> checks your instruction files for stale lane names, duplicates, and contradictions, and applies an edit only when you say yes.</p>
       </details>
       <details class="faq-item">
         <summary>Does updating re-run the setup wizard?</summary>
@@ -431,21 +431,31 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.3.1</span>
-        <span class="release-date" data-latest-date>October 12, 2026</span>
+        <span class="release-version" data-latest-version>v2.4.0</span>
+        <span class="release-date" data-latest-date>October 13, 2026</span>
       </div>
-      <p>Tested on real Windows: installs, updates, rollbacks and the command wrappers now work there end to end.</p>
+      <p>Claude works directly by default and uses lanes for large work. AgentFleet's policy no longer lives in your <code class="il">CLAUDE.md</code>.</p>
       <ul class="release-list">
-        <li><code class="il">agentfleet update</code>, <code class="il">rollback</code> and <code class="il">uninstall</code> no longer fail with "The batch file cannot be found" when they replace the <code class="il">agentfleet.cmd</code> wrapper they run from.</li>
-        <li>Wrappers keep non-ASCII paths such as <code class="il">C:\Users\José</code> intact and restore the console's code page afterwards.</li>
-        <li>A crashed run's lock no longer blocks the model catalog, agent generator or suggestions on Windows, and a live lock is never taken over.</li>
-        <li>Rollback restores over read-only files, and <code class="il">claude-fleet-setup</code> creates agent files for new lanes on Windows.</li>
-        <li>On every platform, rerunning or updating a 2.3.0 install keeps learning on; only installs older than 2.3.0 start with it off.</li>
+        <li>Work style: <code class="il">agentfleet config work-style direct|balanced|fleet</code>. The default, balanced, suggests a lane only for large prompts; direct uses lanes only when you ask; fleet is the 2.3 behavior. Restart Claude Code after changing it.</li>
+        <li>AgentFleet's rules moved to <code class="il">~/.claude/rules/agentfleet.md</code> and shrank from about 1,400 to about 350 words. Your <code class="il">~/.claude/CLAUDE.md</code> is no longer touched, so a first install over a personal one works. Upgrades restore an original that an earlier install replaced.</li>
+        <li><code class="il">agentfleet instructions [--project DIR] [--check]</code> finds stale lane names, duplicates, and contradictions in your instruction files. Each edit needs your approval and gets a backup. It sends those files' text to your model provider; <code class="il">--check</code> only reports.</li>
+        <li>Lighter lanes: effort is high or medium instead of xhigh, except plan and the -deep lanes. Lanes now stop and report what is done and what remains instead of running out of turns silently.</li>
+        <li><code class="il">agentfleet config agent-brain off</code> removes the agent-brain memory step after every reply and lane run. The wizard asks about work style, agent-brain, and the instruction check; <code class="il">fleet-status</code> 1.3.0 shows your work style.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.3.1</span><span class="release-date">October 12, 2026</span><span class="version-summary">Tested on real Windows: installs, updates, rollbacks and the command wrappers now work there end to end.</span></summary>
+        <ul class="release-list">
+          <li><code class="il">agentfleet update</code>, <code class="il">rollback</code> and <code class="il">uninstall</code> no longer fail with "The batch file cannot be found" when they replace the <code class="il">agentfleet.cmd</code> wrapper they run from.</li>
+          <li>Wrappers keep non-ASCII paths such as <code class="il">C:\Users\José</code> intact and restore the console's code page afterwards.</li>
+          <li>A crashed run's lock no longer blocks the model catalog, agent generator or suggestions on Windows, and a live lock is never taken over.</li>
+          <li>Rollback restores over read-only files, and <code class="il">claude-fleet-setup</code> creates agent files for new lanes on Windows.</li>
+          <li>On every platform, rerunning or updating a 2.3.0 install keeps learning on; only installs older than 2.3.0 start with it off.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.3.0</span><span class="release-date">October 12, 2026</span><span class="version-summary">One command installs and updates, a wizard configures every feature, and team presets share settings without secrets.</span></summary>
       <ul class="release-list">

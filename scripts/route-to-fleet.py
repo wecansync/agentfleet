@@ -25,6 +25,10 @@ try:
     import fleet_suggest
 except ImportError:
     fleet_suggest = None
+try:
+    import provider_catalog
+except ImportError:
+    provider_catalog = None
 
 # Ordered: the first lane whose pattern matches wins. Specific before general.
 LANES = [
@@ -41,6 +45,29 @@ LANES = [
     ("fleet-triage-static",   r"\b(triage|prioriti[sz]|who owns|scope (?:of|this)|next step|what should we do about)\w*"),
     ("fleet-implement",       r"\b(implement|build|add|create|write|fix|refactor|migrate|rename|extract|wire up|hook up|support for|make it|change the)\w*"),
 ]
+
+BROAD_SCOPE = re.compile(
+    r"\b(?:across the codebase|all files|entire|end to end|migrate|whole repo|every module)\b",
+    re.IGNORECASE,
+)
+LIST_ITEM = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", re.MULTILINE)
+SECURITY_REVIEW = re.compile(r"\bsecurity\s+(?:review|audit)\b", re.IGNORECASE)
+BRANCH_REVIEW = re.compile(r"\b(?:review|audit)\b.{0,100}\b(?:branch|pr|pull request|diff)\b|"
+                           r"\b(?:branch|pr|pull request|diff)\b.{0,100}\b(?:review|audit)\b", re.IGNORECASE)
+CODEBASE_RESEARCH = re.compile(r"\b(?:web|codebase)\s+research\b", re.IGNORECASE)
+
+
+def large_prompt(prompt):
+    """Return true only for the explicitly defined balanced-mode large shapes."""
+    return (
+        len(prompt) >= 400
+        or len(LIST_ITEM.findall(prompt)) >= 3
+        or BROAD_SCOPE.search(prompt) is not None
+        or SECURITY_REVIEW.search(prompt) is not None
+        or BRANCH_REVIEW.search(prompt) is not None
+        or CODEBASE_RESEARCH.search(prompt) is not None
+    )
+
 
 SKIP = re.compile(
     r"^(y|n|yes|no|ok|okay|sure|thanks|thank you|go|go ahead|do it|continue|resume|stop|wait|"
@@ -190,7 +217,7 @@ def record(reason, prompt, lane=None):
         # Only the silent prompts are the tuning surface, so only they keep text.
         # Redact the complete excerpt before truncation so a secret crossing the
         # boundary cannot leave a partially preserved token in the log.
-        if reason == "no-match":
+        if reason in ("no-match", "small-task"):
             entry["prompt"] = SECRETS.sub("[redacted]", prompt)[:PROMPT_EXCERPT]
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
         fd = os.open(LOG_PATH, flags, 0o600)
@@ -213,6 +240,13 @@ def record(reason, prompt, lane=None):
         pass
 
 prompt = (payload.get("prompt") or "").strip()
+preference_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
+work_style = "fleet"
+if provider_catalog is not None:
+    try:
+        work_style = provider_catalog.load_preferences(preference_home)["workStyle"]
+    except Exception:
+        pass
 watcher_lines = []
 if fleet_watch is not None:
     try:
@@ -311,7 +345,8 @@ else:
             hits.append((match.start(), index, name))
     if not hits:
         leave("no-match", prompt)
-    lane = min(hits)[2]
+    else:
+        lane = min(hits)[2]
 original_lane = lane
 outage = None
 alternative = None
@@ -328,7 +363,35 @@ if fleet_watch is not None:
         outage = None
         alternative = None
 
+if work_style == "direct":
+    record("direct", prompt, original_lane)
+    emit_context(watcher_lines)
+    sys.exit(0)
+if work_style == "balanced" and not large_prompt(prompt):
+    leave("small-task", prompt, original_lane)
+
 shape = original_lane.replace("fleet-", "")
+if work_style == "balanced":
+    if outage:
+        status = outage.get("status", "unknown")
+        try:
+            failed_at = datetime.fromisoformat(outage.get("at", "").replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M UTC")
+        except (AttributeError, TypeError, ValueError):
+            failed_at = "unknown time"
+        dispatch_lane = alternative
+        outage_note = f" The requested `{original_lane}` lane is failing ({status} since {failed_at}); use `{alternative}` instead." if alternative else f" The requested `{original_lane}` lane is failing ({status} since {failed_at}) and has no configured alternative."
+        lane = alternative or lane
+    else:
+        dispatch_lane = lane
+        outage_note = ""
+    context = (
+        f"Routing: this looks like large {shape} work. If it splits into independent parts, consider dispatching "
+        f"`{dispatch_lane}`{outage_note}; otherwise do it yourself."
+    )
+    record("routed", prompt, original_lane)
+    emit_context(watcher_lines + [context])
+    sys.exit(0)
+
 if outage:
     status = outage.get("status", "unknown")
     try:

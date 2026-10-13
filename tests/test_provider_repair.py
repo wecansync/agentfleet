@@ -2116,7 +2116,10 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(upgraded.get("outputStyle"), "explanatory")
             template = json.loads((ROOT / "config/settings.template.json").read_text(encoding="utf-8"))
             self.assertFalse({"effortLevel", "outputStyle", "tui", "agentPushNotifEnabled"} & set(template))
-            self.assertNotIn("Co-Authored-By", (home / ".claude/CLAUDE.md").read_text(encoding="utf-8"))
+            # The policy moved to rules/agentfleet.md and the old managed
+            # CLAUDE.md is retired; neither carries maintainer-personal rules.
+            self.assertNotIn("Co-Authored-By", (home / ".claude/rules/agentfleet.md").read_text(encoding="utf-8"))
+            self.assertFalse((home / ".claude/CLAUDE.md").exists())
             doctor = subprocess.run([installed(home, "claude-agents-doctor"), "--check", "--home", str(home), "--config-home", str(config)], env=env, text=True, capture_output=True)
             self.assertEqual(doctor.returncode, 0, doctor.stdout + doctor.stderr)
             sync = subprocess.run([installed(home, "claude-fleet-sync"), "--check"], env=env, text=True, capture_output=True)
@@ -2348,7 +2351,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             install = subprocess.run([PYTHON, str(bundle / "bin/install.py"), "--provider", "native", "--home", str(home), "--config-home", str(config)], cwd=bundle, env=env, text=True, capture_output=True)
             self.assertEqual(install.returncode, 0, install.stderr + install.stdout)
             if os.name == "posix":
-                self.assertEqual(stat_mode(home / ".claude/CLAUDE.md"), 0o644, "installed files still get exact modes")
+                self.assertEqual(stat_mode(home / ".claude/rules/agentfleet.md"), 0o644, "installed files still get exact modes")
                 (bundle / "README.md").chmod(0o666)
                 refused = subprocess.run([PYTHON, str(bundle / "bin/install.py"), "--dry-run", "--home", str(home), "--config-home", str(config)], cwd=bundle, env=env, text=True, capture_output=True)
                 self.assertNotEqual(refused.returncode, 0)

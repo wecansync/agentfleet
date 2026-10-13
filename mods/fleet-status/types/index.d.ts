@@ -16,6 +16,7 @@ export type Snapshot = {
   compactPercent: number | 'off'
   reviewerAccess: 'full' | 'run' | 'read-only'
   learn: boolean
+  workStyle: 'direct' | 'balanced' | 'fleet'
   outages: Outage[]
   suggestion: Suggestion | null
   jev: JevStats | null

@@ -15,9 +15,9 @@ invalid alternatives (including older files without this field) recommend retryi
 after the outage expires.
 
 `/fleet-status` prints a fresh version, profile, auto-update, model-proposal,
-auto-compaction, reviewer-access, suggestions-learning and outage summary. Missing
+auto-compaction, reviewer-access, work-style, suggestions-learning and outage summary. Missing
 profile markers show **not recorded**; auto-update defaults to **enabled**.
-Configuration defaults are 70% compaction, full reviewer access, and learning on.
+Configuration defaults are 70% compaction, full reviewer access, balanced work style, and learning on.
 Compaction accepts 20–95% of each model's context, or `off`. The summary includes
 strictly validated JEV compaction totals, last time, and before/after tokens when known.
 Suggestions are matched to the session project root, not another project or a
@@ -42,7 +42,7 @@ The mod derives the Claude directory only from its known installed location
 - `agentfleet/suggestions.json`
 - `agentfleet/suggestions-hidden.json`
 - `agentfleet/jev-stats.json`
-- `agentfleet/wizard.json` — on AgentFleet 2.3.0+, unreviewed options prompt `agentfleet configure` in a terminal and appear in `/fleet-status`.
+- `agentfleet/wizard.json` — on AgentFleet 2.3.0+, unreviewed options prompt `agentfleet configure` in a terminal and appear in `/fleet-status`; AgentFleet 2.4.0 adds the work-style and agent-brain questions (the instruction check is offered by the wizard but not counted).
 - `agentfleet/lane-reports.jsonl`
 
 It uses filesystem stat to check size and resolved paths before reading; links

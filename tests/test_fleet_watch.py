@@ -217,12 +217,16 @@ class FleetWatchTests(unittest.TestCase):
 
     def test_route_substitutes_outage_with_alternative(self):
         self._fleet({"docs": {"model": "sonnet"}, "ui": {"model": "opus"}, "implement": {"model": "haiku"}})
+        config = self.home / ".claude" / "agentfleet" / "config.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps({"format": "agentfleet.config.v1", "workStyle": "fleet"}), encoding="utf-8")
         store = self.home / ".claude" / "agentfleet"
         store.mkdir(parents=True, exist_ok=True)
         now = datetime.now(timezone.utc)
         (store / "outages.json").write_text(json.dumps({"format": "agentfleet.outages.v1", "lanes": {
             "docs": {"model": "sonnet", "status": 503, "message": "down", "at": now.isoformat().replace("+00:00", "Z"), "until": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")},
         }}), encoding="utf-8")
+        (store / "config.json").write_text(json.dumps({"format": "agentfleet.config.v1", "workStyle": "fleet"}), encoding="utf-8")
         env = {**os.environ, "CLAUDE_FLEET_HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
         result = subprocess.run([sys.executable, str(ROUTE)], input=json.dumps(self.payload("Update the README for this feature")), text=True, capture_output=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)

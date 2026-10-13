@@ -98,15 +98,24 @@ export function parseJev(source: string | null | undefined): JevStats | null {
     after: latest ? latest.tokensAfter as number | null : null }
 }
 
-const optionKeys = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+// The instruction check is an action offered by the wizard, not a new option.
+const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
 
-export function parseNewOptions(source: string | null | undefined): number {
+export function parseNewOptions(source: string | null | undefined, version: string | null): number {
+  const optionKeys = isVersion24(version) ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
       !data.asked.every(key => typeof key === 'string')) return optionKeys.length
   // Unknown string keys belong to newer bundles and do not count as reviewed options here.
   const asked = data.asked
   return optionKeys.filter(key => !asked.includes(key)).length
+}
+
+function isVersion24(version: string | null): boolean {
+  if (!version || !versionPattern.test(version) || /-/.test(version)) return false
+  const [major, minor] = version.split(/[.+-]/).slice(0, 2).map(Number)
+  return major > 2 || (major === 2 && minor >= 4)
 }
 
 export function hasWizardOptions(version: string | null): boolean {
@@ -121,6 +130,7 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
     try { return record(JSON.parse(source ?? 'null')) } catch { return null }
   }
   const manifest = json(sources[0])
+  const manifestVersion = text(manifest?.version, versionPattern)
   const profile = sources[1]
   const auto = json(sources[2])
   const proposal = json(sources[3])
@@ -132,12 +142,13 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
     compactPercent: percent === 'off' ? 'off' : typeof percent === 'number' && Number.isInteger(percent) && percent >= 20 && percent <= 95 ? percent : 70,
     reviewerAccess: config?.reviewerAccess === 'run' || config?.reviewerAccess === 'read-only' ? config.reviewerAccess : 'full',
     learn: typeof config?.learn === 'boolean' ? config.learn : true,
+    workStyle: config?.workStyle === 'direct' || config?.workStyle === 'fleet' ? config.workStyle : 'balanced',
     outages: parseOutages(sources[5], now),
     suggestion: parseSuggestion(sources[6], project),
     jev: parseJev(sources[7]),
-    newOptions: parseNewOptions(sources[8]),
+    newOptions: parseNewOptions(sources[8], manifestVersion),
     claudeDir,
-    version: text(manifest?.version, versionPattern),
+    version: manifestVersion,
     profile: text(profile, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
     enabled: typeof auto?.enabled === 'boolean' ? auto.enabled : null,
     lastCheck: text(auto?.lastCheck, /^[0-9T:.Z+-]{1,40}$/),
@@ -190,6 +201,7 @@ export function summary(snapshot: Snapshot, versionAtStart: string | null): stri
     `Auto-update: ${snapshot.enabled === null ? 'enabled (default)' : snapshot.enabled ? 'enabled' : 'disabled'}`,
     `Auto-compact: ${snapshot.compactPercent === 'off' ? 'off (AgentFleet leaves the window alone)' : `${snapshot.compactPercent}% of each model's context`}`,
     `Reviewer access: ${snapshot.reviewerAccess}`,
+    `Work style: ${snapshot.workStyle}`,
     snapshot.jev ? `JEV: ${snapshot.jev.compactions} compactions (${snapshot.jev.jev} verbatim, ${snapshot.jev.fallbacks} fallbacks)${snapshot.jev.at ? `, last at ${utcTime(snapshot.jev.at)}` : ''}${snapshot.jev.before !== null && snapshot.jev.after !== null ? `; ${snapshot.jev.before} → ${snapshot.jev.after} tokens` : ''}` : 'JEV: no compactions recorded',
     `Suggestions learning: ${snapshot.learn ? 'on' : 'off'}`,
     `Lane outages: ${snapshot.outages.length ? snapshot.outages.map(item => `fleet-${item.lane} ${item.status} until ${utcTime(item.until)}`).join('; ') : 'none'}`,
