@@ -111,6 +111,8 @@ BUNDLE_CONTEXT_DIRS = {".ai", ".claude", ".commandcode", ".kilo", ".github", "si
 PROVIDER_POLICY_PATH = "config/provider-policy.json"
 PROVIDER_CATALOG_MODULE = "scripts/provider_catalog.py"
 RECONCILE_SCRIPT = "scripts/fleet-reconcile.py"
+INSTRUCTIONS_SCRIPT = "scripts/fleet_instructions.py"
+RETIRED_POLICY_PATH = ".claude/CLAUDE.md"
 
 
 class InstallerError(RuntimeError):
@@ -667,7 +669,7 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
     if not fleet["lanes"]:
         fail("bundle fleet must contain at least one lane")
     for rel in (
-        PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT,
+        PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT, INSTRUCTIONS_SCRIPT,
         "scripts/fleet_watch.py", "scripts/fleet_suggest.py", "scripts/fleet_configure.py",
         "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
     ):
@@ -1340,7 +1342,7 @@ def agent_brain_command(action: str) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts)
 
 
-def platform_hook_template(home: Path, config_root: Path, template: dict, enable_discovery: bool) -> dict:
+def platform_hook_template(home: Path, config_root: Path, template: dict, enable_discovery: bool, enable_agent_brain: bool | None = None) -> dict:
     value = copy.deepcopy(template)
     hooks = value.get("hooks") if isinstance(value.get("hooks"), dict) else {}
     desired: dict[str, list[dict]] = {}
@@ -1359,7 +1361,7 @@ def platform_hook_template(home: Path, config_root: Path, template: dict, enable
                 if not marker:
                     continue
                 kind = marker.group(1)
-                if kind == "agent-brain" and not optional_agent_brain_available():
+                if kind == "agent-brain" and (enable_agent_brain is False or not optional_agent_brain_available()):
                     continue
                 if kind == "route":
                     command = hook_command_for("route", home / ".claude") + hook_marker("route")
@@ -1533,6 +1535,7 @@ def clean_hook_groups(
     notices: list[str],
     home: Path,
     previous_managed: dict[str, dict],
+    remove_agent_brain: bool = False,
 ) -> dict:
     result = copy.deepcopy(existing)
     prior_commands = {
@@ -1541,6 +1544,29 @@ def clean_hook_groups(
         if isinstance(entry, dict) and entry.get("kind") == "hook" and isinstance(entry.get("installed"), str)
     }
     incoming_kinds = incoming_kinds_by_event(incoming)
+    if remove_agent_brain:
+        for event in list(result):
+            entries = result.get(event)
+            if not isinstance(entries, list):
+                continue
+            filtered_entries = []
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+                    filtered_entries.append(entry)
+                    continue
+                kept = [hook for hook in entry["hooks"]
+                        if not (isinstance(hook, dict) and isinstance(hook.get("command"), str)
+                                and "claude-agents-config:agent-brain" in hook["command"])]
+                if kept:
+                    filtered_entries.append({**entry, "hooks": kept})
+            if filtered_entries:
+                result[event] = filtered_entries
+            else:
+                result.pop(event, None)
+        for identity, item in list(journal.items()):
+            if (identity.startswith("hook:") and isinstance(item, dict)
+                    and hook_suffix(item.get("command")) == "agent-brain"):
+                journal.pop(identity, None)
     incoming_commands: dict[str, str] = {}
     for event, entries in incoming.items():
         for group in entries if isinstance(entries, list) else []:
@@ -1943,6 +1969,7 @@ def merge_settings(
     previous_managed: dict[str, dict] | None = None,
     catalog_rows: list[dict] | None = None,
     compact_percent: object = None,
+    agent_brain: bool | None = None,
 ) -> tuple[dict, list[dict], str | None, bool, list[str], list[str]]:
     desired = copy.deepcopy(existing)
     prior = previous_journal_map(previous)
@@ -2169,10 +2196,13 @@ def merge_settings(
             prior,
         )
         env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = discovery_value
-    template_with_hooks = platform_hook_template(home, config_root, template, discovery_enabled)
+    template_with_hooks = platform_hook_template(home, config_root, template, discovery_enabled, agent_brain)
     incoming_hooks = template_with_hooks.get("hooks") if isinstance(template_with_hooks.get("hooks"), dict) else {}
     existing_hooks = desired.get("hooks") if isinstance(desired.get("hooks"), dict) else {}
-    desired["hooks"] = clean_hook_groups(existing_hooks, incoming_hooks, journal, prior, notices, home, previous_managed or {})
+    desired["hooks"] = clean_hook_groups(
+        existing_hooks, incoming_hooks, journal, prior, notices, home, previous_managed or {},
+        remove_agent_brain=agent_brain is False,
+    )
 
     status = template_with_hooks.get("subagentStatusLine")
     if isinstance(status, dict):
@@ -2339,22 +2369,98 @@ def still_recognisably_ours(path: Path, item: dict, home: Path) -> bool:
     return (is_agent and GENERATED_MARKER.encode() in data) or (not is_agent and MARKER.encode() in data) or bytes_sha256(data) == item.get("sha256")
 
 
+def backup_policy_original(home: Path) -> tuple[bytes, int] | None:
+    """Find the personal CLAUDE.md captured before the first managed install.
+
+    An initial apply snapshot has no pre-existing install metadata, but may
+    have an existing CLAUDE.md. Later update snapshots contain AgentFleet's
+    policy and metadata; those are deliberately not mistaken for the original.
+    """
+    root = home / ".claude" / "backups" / "claude-agents-config"
+    if not root.is_dir() or root.is_symlink():
+        return None
+    metadata_path = home / ".claude" / ".claude-agents-config-install.json"
+    policy_path = home / RETIRED_POLICY_PATH
+    for backup in sorted((path for path in root.iterdir() if path.is_dir() and not path.is_symlink()), key=lambda path: path.name):
+        manifest_path = backup / "backup.json"
+        if not manifest_path.is_file() or manifest_path.is_symlink():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if (not isinstance(manifest, dict) or manifest.get("marker") != MARKER
+                or manifest.get("format") != "claude-agents-config.backup.v2" or manifest.get("label") != "apply"):
+            continue
+        records = manifest.get("records")
+        if not isinstance(records, list):
+            continue
+        by_path = {item.get("path"): item for item in records if isinstance(item, dict) and isinstance(item.get("path"), str)}
+        prior_metadata = by_path.get(str(metadata_path))
+        original_policy = by_path.get(str(policy_path))
+        if not (isinstance(prior_metadata, dict) and prior_metadata.get("existed") is False
+                and isinstance(original_policy, dict) and original_policy.get("existed") is True):
+            continue
+        relative = original_policy.get("backup")
+        digest = original_policy.get("sha256")
+        mode = original_policy.get("mode")
+        if (not isinstance(relative, str) or not isinstance(digest, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or not isinstance(mode, int) or isinstance(mode, bool)
+                or stat.S_IMODE(mode) != mode or not 0 <= mode <= 0o777):
+            continue
+        relative_path = Path(relative)
+        if relative_path.is_absolute() or ".." in relative_path.parts or relative_path.parts[:1] != ("files",):
+            continue
+        payload = backup / relative_path
+        try:
+            if payload.is_symlink() or not payload.is_file() or backup.resolve() not in payload.resolve().parents:
+                continue
+            data = payload.read_bytes()
+        except OSError:
+            continue
+        if bytes_sha256(data) == digest:
+            return data, mode
+    return None
+
+
+def unedited_managed_policy(path: Path, item: dict) -> bool:
+    if not path.is_file() or path.is_symlink():
+        return False
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False
+    return MARKER.encode() in data and bytes_sha256(data) == item.get("sha256")
+
+
 def obsolete_paths(previous: dict, specs: dict, home: Path, bin_dir: Path, config_root: Path) -> list[Path]:
     """Files an earlier install created that this one no longer writes.
 
-    Covers generated agents for retired lanes and managed scripts that were
-    renamed. A previously owned file is retired only while it is still
+    Covers generated agents for retired lanes, renamed scripts, and the retired
+    global CLAUDE.md. A previously owned file is retired only while it is still
     recognisably ours (still_recognisably_ours); any generated fleet agent
     without a lane in the new map goes too, which is exactly what
     claude-fleet-sync would prune.
     """
     found: dict[str, Path] = {}
     owned = {Path(item["path"]): item for item in (metadata_records(previous, home, bin_dir, config_root) if previous else [])}
+    retired_policy = home / RETIRED_POLICY_PATH
     for path, item in owned.items():
-        if path in specs:
+        if path in specs or path == retired_policy:
             continue
         if still_recognisably_ours(path, item, home):
             found[str(path)] = path
+    # A personal CLAUDE.md is never claimed on a fresh install. Retire it only
+    # when this install's own metadata explicitly records ownership of that
+    # exact legacy target and its bytes still match the old managed copy.
+    retired_policy_item = owned.get(retired_policy)
+    if retired_policy not in specs and retired_policy_item and retired_policy.is_file() and not retired_policy.is_symlink():
+        if not unedited_managed_policy(retired_policy, retired_policy_item):
+            print(f"  preserve user-edited managed file: {retired_policy}")
+            print("  This file still contains the old AgentFleet policy; run agentfleet instructions to clean it up.")
+        else:
+            found[str(retired_policy)] = retired_policy
     agents = home / ".claude" / "agents"
     if agents.is_dir():
         for path in agents.glob("fleet-*.md"):
@@ -2757,7 +2863,12 @@ def managed_specs(
         specs[path] = (data, mode, ident)
 
     add(claude / "settings.json", settings_bytes, 0o600, "home:.claude/settings.json")
-    add(claude / "CLAUDE.md", source_bytes(bundle, "config/CLAUDE.md"), 0o644, "home:.claude/CLAUDE.md")
+    policy_template = source_bytes(bundle, "config/agentfleet.md")
+    policy = provider_catalog.render_policy(
+        policy_template.decode("utf-8"), provider_catalog.load_preferences(home)["workStyle"],
+    ).encode("utf-8")
+    add(claude / "rules" / "agentfleet.md", policy, 0o644, "home:.claude/rules/agentfleet.md")
+    add(claude / "agentfleet" / "policy-template.md", policy_template, 0o644, "home:.claude/agentfleet/policy-template.md")
     add(claude / "route-to-fleet.py", source_bytes(bundle, "scripts/route-to-fleet.py"), 0o755, "home:.claude/route-to-fleet.py")
     add(claude / "subagent-statusline.py", source_bytes(bundle, "scripts/subagent-statusline.py"), 0o755, "home:.claude/subagent-statusline.py")
     add(claude / "sync-provider-models.mjs", source_bytes(bundle, "scripts/sync-provider-models.mjs"), 0o755, "home:.claude/sync-provider-models.mjs")
@@ -2768,6 +2879,7 @@ def managed_specs(
     add(claude / "fleet_watch.py", source_bytes(bundle, "scripts/fleet_watch.py"), 0o755, "home:.claude/fleet_watch.py")
     add(claude / "fleet_suggest.py", source_bytes(bundle, "scripts/fleet_suggest.py"), 0o755, "home:.claude/fleet_suggest.py")
     add(claude / "fleet_configure.py", source_bytes(bundle, "scripts/fleet_configure.py"), 0o755, "home:.claude/fleet_configure.py")
+    add(claude / "fleet_instructions.py", source_bytes(bundle, INSTRUCTIONS_SCRIPT), 0o755, "home:.claude/fleet_instructions.py")
     add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")
     add(claude / "skills" / "fleet-suggest" / "SKILL.md", source_bytes(bundle, "skills/fleet-suggest/SKILL.md"), 0o644, "home:.claude/skills/fleet-suggest/SKILL.md")
@@ -3198,6 +3310,7 @@ def profile_data(
     drop_shipped_pins: bool = False,
     carry_from: dict | None = None,
     catalog_out: dict | None = None,
+    agent_brain_preference: bool | None = None,
 ) -> tuple[str, bytes, dict, dict, str]:
     """Return (profile, fleet bytes, fleet, settings template, catalog note).
 
@@ -3206,7 +3319,9 @@ def profile_data(
     """
     template = load_json(bundle / "config/settings.template.json", "settings template")
     fleet_source = load_json(bundle / "config/delegate-fleet.json", "fleet configuration")
-    fleet_source.setdefault("integrations", {})["agentBrain"] = optional_agent_brain_available()
+    fleet_source.setdefault("integrations", {})["agentBrain"] = (
+        agent_brain_preference is not False and optional_agent_brain_available()
+    )
     note = ""
     installed = carry_from if carry_from is not None else existing_fleet_map(home, config_root)
     if gateway_mode:
@@ -3499,6 +3614,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             # One-time migration of 1.0.0's shipped pins. A fresh install
             # also qualifies, harmlessly: it has no fleet to carry.
             drop_shipped_pins=version_key(previous.get("version")) < (2, 0, 1),
+            agent_brain_preference=provider_catalog.load_preferences(home)["agentBrain"],
         )
         if catalog_note:
             print(catalog_note)
@@ -3518,6 +3634,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     desired, journal, _, gateway_owned, permission_owned, hook_notices = merge_settings(
         existing, template, home, config_root, args, not dry, previous, gateway_mode, gateway_token, required_models,
         previous_managed=previous_managed, catalog_rows=catalog.get("rows"), compact_percent=compact_percent,
+        agent_brain=provider_catalog.load_preferences(home)["agentBrain"],
     )
     settings_bytes = json_bytes(desired)
     fleet_hash = bytes_sha256(fleet_bytes)[:16]
@@ -3564,9 +3681,14 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     meta = old_metadata(home)
     conflicts = check_parent_conflicts(specs, meta, bundle, args.force_owned)
     retired = obsolete_paths(meta, specs, home, bin_dir, config_root)
+    # AgentFleet's policy moved to rules/agentfleet.md. Where an earlier
+    # install replaced the user's own CLAUDE.md, that original comes back;
+    # it is written outside the managed specs so it is never recorded as ours.
+    policy_path = home / RETIRED_POLICY_PATH
+    restored_policy = backup_policy_original(home) if policy_path in retired else None
     print_plan(specs, conflicts, gateway_state, dry)
     for path in retired:
-        print(f"  remove: {path}")
+        print(f"  {'restore your original' if path == policy_path and restored_policy else 'remove'}: {path}")
     for notice in hook_notices:
         print(notice)
     if conflicts:
@@ -3599,6 +3721,10 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         ensure_private_mod_store(home)
         stage_and_commit(specs, backup)
         for path in retired:
+            if path == policy_path and restored_policy:
+                atomic_write(path, *restored_policy)
+                print(f"Restored your original {path}; AgentFleet's policy is now in {home / '.claude' / 'rules' / 'agentfleet.md'}")
+                continue
             path.unlink()
             fsync_dir(path.parent)
         if retired:

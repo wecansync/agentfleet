@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 
 import provider_catalog
@@ -34,6 +35,10 @@ def mods_registered(paths):
 _plugin_cache: list | None = None
 
 
+def agent_brain_available():
+    return shutil.which("agent-brain") is not None
+
+
 def plugins(paths):
     global _plugin_cache
     if _plugin_cache is not None:
@@ -51,9 +56,14 @@ def plugins(paths):
 
 
 def current(api, paths, key):
-    pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn"}
+    pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn", "workStyle": "workStyle"}
     if key in pref:
         return provider_catalog.load_preferences(paths.home)[pref[key]]
+    if key == "agentBrain":
+        value = provider_catalog.load_preferences(paths.home)["agentBrain"]
+        return agent_brain_available() if value is None else value
+    if key == "instructions":
+        return False
     if key == "autoUpdate":
         return api._read_auto_update_state(paths).get("enabled", True)
     if not mods_registered(paths):
@@ -62,9 +72,12 @@ def current(api, paths, key):
 
 
 def apply(api, paths, key, value):
-    if key in ("compact", "reviewerAccess", "learn"):
-        setting = {"compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn"}[key]
-        text = ("on" if value else "off") if key == "learn" else str(value)
+    if key in ("compact", "reviewerAccess", "learn", "workStyle", "agentBrain"):
+        setting = {
+            "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
+            "workStyle": "work-style", "agentBrain": "agent-brain",
+        }[key]
+        text = ("on" if value else "off") if key in ("learn", "agentBrain") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -87,6 +100,8 @@ class Feature:
             return provider_catalog.valid_compact_percent(value)
         if self.key == "reviewerAccess":
             return isinstance(value, str) and value in provider_catalog.REVIEWER_ACCESS
+        if self.key == "workStyle":
+            return isinstance(value, str) and value in provider_catalog.WORK_STYLES
         return isinstance(value, bool)
 
     def read(self, api, paths):
@@ -109,6 +124,9 @@ FEATURES = (
     Feature("statusBand", "2.3.0", "Show the AgentFleet status band (updates, outages, suggestions, JEV) above the prompt? (Y/n)", "yes/no"),
     Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
     Feature("autoUpdate", "2.3.0", "Install AgentFleet updates automatically in the background? (Y/n)", "yes/no"),
+    Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
+    Feature("agentBrain", "2.4.0", "Connect agent-brain memory hooks? They add a memory-saving step to every reply and lane run. (Y/n)", "yes/no"),
+    Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
 
 
@@ -120,7 +138,8 @@ def validate_preset(data):
             raise ValueError("presets must not contain secrets")
     if data.get("format") != "agentfleet.preset.v1":
         raise ValueError("unsupported preset format")
-    known = {f.key: f for f in FEATURES}
+    # The instruction check is an action, so presets cannot carry it.
+    known = {f.key: f for f in FEATURES if f.key != "instructions"}
     for key, value in data.items():
         if key == "format":
             continue
@@ -202,11 +221,17 @@ def run(api, paths, args):
     asked = state.get("asked", []) if state.get("format") == "agentfleet.wizard.v1" else []
     asked = [k for k in asked if isinstance(k, str)] if isinstance(asked, list) else []
     registered = mods_registered(paths)
+    # Without the agent-brain CLI there is nothing to ask; it is recorded as
+    # asked on the first successful run so the status band does not count it.
+    brain = agent_brain_available()
     unasked = [f for f in FEATURES if f.key not in asked]
-    applicable = [f for f in unasked if registered or f.key not in PLUGIN_IDS]
+    applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS) and (brain or f.key != "agentBrain")]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
     if args.after_install and not tty:
-        if applicable:
+        if not brain and "agentBrain" not in asked:
+            asked = save_state(api, paths, state_path, [*asked, "agentBrain"])
+        # The instruction check is offered interactively but is not a new option.
+        if any(f.key != "instructions" for f in applicable):
             print("New AgentFleet options are available: run agentfleet configure")
         return 0
     interactive = not (args.yes or args.preset or args.export)
@@ -222,17 +247,44 @@ def run(api, paths, args):
                 print(f"agentfleet configure: {exc}", file=sys.stderr)
                 return 2
         if args.export:
-            values = {f.key: f.read(api, paths) for f in FEATURES}
+            values = {f.key: f.read(api, paths) for f in FEATURES if f.key != "instructions"}
             api.atomic_write(Path(args.export).expanduser(), api.json_bytes({"format": "agentfleet.preset.v1", **values}), 0o644)
             return 0
-        selected = [f for f in FEATURES if f.key in values] if args.preset else (applicable if args.after_install else (unasked if args.yes else FEATURES))
+        if args.preset:
+            selected = [f for f in FEATURES if f.key in values]
+        elif args.after_install:
+            selected = applicable
+        elif args.yes:
+            # --yes keeps values and never runs the instruction check.
+            selected = [f for f in unasked if f.key != "instructions"]
+        else:
+            selected = list(FEATURES)
+        # Recorded only once the run succeeds, so a failed apply writes nothing.
+        pending_brain = not brain and "agentBrain" not in asked
+        if not brain:
+            selected = [f for f in selected if f.key != "agentBrain"]
         if args.after_install and not selected:
+            if pending_brain:
+                save_state(api, paths, state_path, [*asked, "agentBrain"])
             return 0
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
         for feature in selected:
             key = feature.key
             if key in PLUGIN_IDS and not registered:
+                continue
+            if key == "instructions":
+                # An action, not a setting: its output must stay visible and a
+                # failed check never fails the wizard.
+                if interactive and prompt(feature, True):
+                    try:
+                        module = api.instructions_module()
+                    except ImportError:
+                        print("instruction check is not installed; run agentfleet update")
+                    else:
+                        if module.run(paths.home, project=None, interactive=True):
+                            print("The instruction check did not finish; run agentfleet instructions later.")
+                asked = save_state(api, paths, state_path, [*asked, key])
                 continue
             value = values[key] if key in values else feature.read(api, paths)
             if interactive:
@@ -250,7 +302,11 @@ def run(api, paths, args):
             if key not in asked:
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
+        if pending_brain:
+            asked = save_state(api, paths, state_path, [*asked, "agentBrain"])
         for feature in FEATURES:
+            if feature.key == "instructions":
+                continue
             value = values[feature.key] if feature.key in values else feature.read(api, paths)
             print(f"{feature.key}: {display(value)}")
         print("Restart Claude Code to apply.")

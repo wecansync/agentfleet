@@ -155,6 +155,17 @@ def context_sync_module(paths: Paths):
     return module
 
 
+def instructions_module():
+    candidates = [SCRIPTS / "fleet_instructions.py", _HERE / "fleet_instructions.py", Path(__file__).resolve().parent / "fleet_instructions.py"]
+    script = next((path for path in candidates if path.is_file()), None)
+    if script is None:
+        raise ImportError("fleet_instructions is not installed")
+    spec = importlib.util.spec_from_file_location("agentfleet_instructions", script)
+    module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    return module
+
+
 def valid_name(name: str) -> str:
     if not PROFILE_NAME_RE.fullmatch(name) or name in RESERVED_NAMES:
         die("profile names use lowercase letters, digits, and dashes (max 40 characters) and cannot be a device name such as con or nul")
@@ -858,6 +869,10 @@ def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
         explicit.add("reviewerAccess")
     if isinstance(raw.get("learn"), bool):
         explicit.add("learn")
+    if raw.get("workStyle") in provider_catalog.WORK_STYLES:
+        explicit.add("workStyle")
+    if isinstance(raw.get("agentBrain"), bool):
+        explicit.add("agentBrain")
     return preferences, explicit
 
 
@@ -870,10 +885,14 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         compact_text = "off" if compact == "off" else f"{compact}% of each model's context"
         reviewer = preferences["reviewerAccess"]
         learn = "on" if preferences["learn"] else "off"
+        work_style = preferences["workStyle"]
+        agent_brain = "on" if preferences["agentBrain"] is True else ("off" if preferences["agentBrain"] is False else "auto")
         for key, display in (
             ("compactPercent", f"compact: {compact_text}"),
             ("reviewerAccess", f"reviewer-access: {reviewer}"),
             ("learn", f"learn: {learn}"),
+            ("workStyle", f"work-style: {work_style}"),
+            ("agentBrain", f"agent-brain: {agent_brain}"),
         ):
             suffix = " (default)" if key not in explicit else ""
             print(display + suffix)
@@ -959,6 +978,53 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             return code
         print(f"Reviewer access set to {value}. Restart Claude Code to apply.")
         return 0
+
+    if setting == "work-style":
+        if value not in provider_catalog.WORK_STYLES:
+            print(f"agentfleet: work-style must be one of {', '.join(provider_catalog.WORK_STYLES)}", file=sys.stderr)
+            return 2
+        fd, lock = with_lock(paths)
+        try:
+            provider_catalog.write_preferences(paths.home, {"workStyle": value})
+            template = paths.claude / "agentfleet" / "policy-template.md"
+            target = paths.claude / "rules" / "agentfleet.md"
+            if not template.is_file():
+                print("Policy template is missing; run agentfleet update", file=sys.stderr)
+                return 1
+            should_render = not target.exists()
+            if target.exists():
+                try:
+                    should_render = "claude-agents-config:managed" in target.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    should_render = False
+            if should_render:
+                rendered = provider_catalog.render_policy(template.read_text(encoding="utf-8"), value).encode("utf-8")
+                atomic_write(target, rendered, 0o644)
+        finally:
+            provider_catalog.release_lock(fd, lock)
+        print(f"Work style set to {value}. Restart Claude Code to apply.")
+        return 0
+
+    if setting == "agent-brain":
+        if value not in {"on", "off"}:
+            print("agentfleet: agent-brain must be on or off", file=sys.stderr)
+            return 2
+        enabled = value == "on"
+        try:
+            provider_catalog.write_preferences(paths.home, {"agentBrain": enabled})
+        except ValueError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 2
+        if enabled and shutil.which("agent-brain") is None:
+            print("agent-brain is not on PATH; choice saved but hooks were not applied.")
+            return 0
+        release = current_release(paths)
+        if release is None:
+            print("No downloaded release found; run agentfleet update to apply agent-brain hooks.", file=sys.stderr)
+            return 1
+        command = [sys.executable, str(release / "bin" / "install.py"), "--apply", "--no-configure", "--no-wizard",
+                   "--home", str(paths.home), "--config-home", str(paths.config)]
+        return subprocess.run(command).returncode
 
     if setting == "learn":
         learn = value == "on"
@@ -1075,6 +1141,20 @@ def cmd_report(paths: Paths, args: argparse.Namespace) -> int:
         return 0
     print(fleet_watch.format_report(data))
     return 0
+
+
+def cmd_instructions(paths: Paths, args: argparse.Namespace) -> int:
+    try:
+        module = instructions_module()
+    except ImportError:
+        print("instruction check is not installed; run agentfleet update", file=sys.stderr)
+        return 1
+    forwarded = []
+    if args.project:
+        forwarded.extend(["--project", args.project])
+    if args.check:
+        forwarded.append("--check")
+    return module.main(forwarded, paths.home)
 
 
 def cmd_suggest(paths: Paths, args: argparse.Namespace) -> int:
@@ -1689,8 +1769,11 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "agent-brain"))
     config.add_argument("value", nargs="?")
+    instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
+    instructions.add_argument("--project", metavar="DIR")
+    instructions.add_argument("--check", action="store_true")
     configure = sub.add_parser("configure", help="configure all AgentFleet features")
     modes = configure.add_mutually_exclusive_group()
     modes.add_argument("--after-install", action="store_true")
@@ -1748,7 +1831,7 @@ def main() -> int:
         "doctor": cmd_doctor, "sync": cmd_sync, "config": cmd_config, "configure": cmd_configure, "jev": cmd_jev,
         "update": cmd_update, "uninstall": cmd_uninstall, "rollback": cmd_rollback,
         "version": cmd_version, "auto-update": cmd_auto_update, "add": cmd_add, "remove": cmd_remove,
-        "report": cmd_report, "suggest": cmd_suggest, "project": cmd_project,
+        "report": cmd_report, "suggest": cmd_suggest, "project": cmd_project, "instructions": cmd_instructions,
     }
     return handlers[args.command](paths, args)
 

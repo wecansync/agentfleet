@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate"]
+KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "agentBrain", "instructions"]
 
 
 class ConfigureTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class ConfigureTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.home = Path(self.tmp.name)
-        self.paths = api.Paths(argparse.Namespace(home=str(self.home), config_home=None, prefix=None))
+        self.paths = api.Paths(argparse.Namespace(home=str(self.home), config_home=str(self.home / "config"), prefix=None))
         self.paths.claude.mkdir()
         self.paths.settings.write_text('{"env":{"KEEP":"value"}}')
         (self.paths.claude / ".claude-agents-config-install.json").write_text(json.dumps({"version": "2.3.0", "modsMarketplace": True}))
@@ -43,7 +43,7 @@ class ConfigureTests(unittest.TestCase):
         if os.name == "nt":
             # PATH lookup on Windows finds claude.CMD, not the extensionless script.
             (bindir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
-        self.env = {**os.environ, "HOME": str(self.home), "PATH": str(bindir) + os.pathsep + os.environ['PATH'], "FAKE_STATE": str(self.home / "plugins.json"), "FAKE_LOG": str(self.home / "commands.log")}
+        self.env = {**os.environ, "HOME": str(self.home), "PATH": str(bindir), "FAKE_STATE": str(self.home / "plugins.json"), "FAKE_LOG": str(self.home / "commands.log")}
         self.env.pop("TYPESAFE_API_KEY", None)
         self.env_patch = patch.dict(os.environ, self.env, clear=True)
         self.env_patch.start()
@@ -138,22 +138,24 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "New AgentFleet options are available: run agentfleet configure")
         self.assertEqual(self.cli('--yes').returncode, 0)
         asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
-        self.assertEqual(asked, ['compact', 'reviewerAccess', 'learn', 'autoUpdate'])
+        self.assertTrue({'compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'agentBrain'}.issubset(asked))
+        self.assertNotIn('instructions', asked)
         (self.paths.claude / ".claude-agents-config-install.json").write_text(json.dumps({"version": "2.3.0", "modsMarketplace": True}))
         self.assertIn("New AgentFleet options are available", self.cli('--after-install').stdout)
 
     def test_no_hint_without_mods_when_only_plugin_features_remain(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
         self.paths.store.mkdir(parents=True, exist_ok=True)
-        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate'], "version": "2.3.0"}))
+        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'agentBrain', 'instructions'], "version": "2.3.0"}))
         self.assertEqual(self.cli('--after-install').stdout, "")
 
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
-        self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES))
+        self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
+        self.assertTrue(all(f.introduced == "2.4.0" for f in wizard.FEATURES[7:]))
 
     def test_validation(self):
-        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}):
+        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}):
             with self.subTest(data=data):
                 result = self.cli("--preset", str(self.preset(data)))
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -195,10 +197,10 @@ class ConfigureTests(unittest.TestCase):
         result = self.cli("--export", str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(path.read_text())
-        self.assertEqual(list(data), ["format"] + KEYS)
+        self.assertEqual(list(data), ["format"] + [key for key in KEYS if key != "instructions"])
         if os.name == "posix":
             self.assertEqual(path.stat().st_mode & 0o777, 0o644)
-        self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS})
+        self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS if k != "instructions"})
         self.assertEqual(self.cli("--preset", str(path)).returncode, 0)
 
     def test_yes_and_after_install(self):
@@ -208,7 +210,9 @@ class ConfigureTests(unittest.TestCase):
         result = self.cli("--yes")
         self.assertEqual(result.returncode, 0, result.stderr)
         state_path = self.paths.store / "wizard.json"
-        self.assertEqual(json.loads(state_path.read_text()), {"format": "agentfleet.wizard.v1", "asked": KEYS, "version": "2.3.0"})
+        self.assertEqual(set(json.loads(state_path.read_text())['asked']), set(KEYS) - {'instructions'})
+        self.assertEqual(json.loads(state_path.read_text())['format'], 'agentfleet.wizard.v1')
+        self.assertEqual(json.loads(state_path.read_text())['version'], '2.3.0')
         if os.name == "posix":
             self.assertEqual(state_path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.cli("--after-install").stdout, "")
@@ -245,7 +249,9 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count(wizard.MODS_MESSAGE), 1)
         self.assertFalse((self.home / 'commands.log').exists())
-        self.assertEqual(json.loads((self.paths.store / 'wizard.json').read_text())['asked'], ['compact', 'reviewerAccess', 'learn', 'autoUpdate'])
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertTrue({'compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'agentBrain'}.issubset(asked))
+        self.assertNotIn('instructions', asked)
 
     def test_apply_failure(self):
         args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(self.preset({'learn': False})))
@@ -264,6 +270,9 @@ class ConfigureTests(unittest.TestCase):
             os.execve(sys.executable, self.command(), self.env)
         output = b''
         index = 0
+        # agent-brain is not on this PATH, so its question is skipped; the
+        # instruction check is declined so no headless Claude run starts.
+        questions = [f for f in wizard.FEATURES if f.key != 'agentBrain']
         deadline = time.monotonic() + 20
         reaped = False
         try:
@@ -278,8 +287,8 @@ class ConfigureTests(unittest.TestCase):
                         break
                     output += chunk
                     text = output.decode('utf-8', errors='replace')
-                    if index < len(wizard.FEATURES) and wizard.FEATURES[index].question in text:
-                        os.write(fd, b'\n')
+                    if index < len(questions) and questions[index].question in text:
+                        os.write(fd, b'n\n' if questions[index].key == 'instructions' else b'\n')
                         index += 1
                 waited, status = os.waitpid(pid, os.WNOHANG)
                 if waited:
@@ -292,7 +301,7 @@ class ConfigureTests(unittest.TestCase):
                     reaped = True
                     self.assertEqual(os.waitstatus_to_exitcode(status), 0, output.decode(errors='replace'))
             self.assertTrue(reaped, 'interactive wizard exceeded deadline')
-            self.assertEqual(index, 7)
+            self.assertEqual(index, len(questions))
         finally:
             if not reaped:
                 os.kill(pid, signal.SIGKILL)

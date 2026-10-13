@@ -25,6 +25,7 @@ Delegate substantive work to the matching lane: plan when the approach is open, 
 ## Dispatching a lane
 
 - A lane starts without this file and without the conversation, so the brief is all it knows: the goal, the files in scope, constraints, the check to run, and what to report.
+- Give each lane one concern it can finish well inside its turn limit. Split bigger work into separate lanes rather than one long brief.
 - Lanes that write in parallel need disjoint files.
 - Review lanes run checks and tests; they edit only in FIX MODE, with the brief listing the files they may change. `agentfleet config reviewer-access` can restrict them.
 - When a lane reports, read its diff and rerun the check it names. Redo its investigation only when the diff or the check disagrees with its report.

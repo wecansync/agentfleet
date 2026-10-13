@@ -207,7 +207,8 @@ test('malformed versions and timestamps are absent and never request restart', a
   expect(notices(snapshot, '2.1.0')).toEqual([])
 })
 
-const wizardKeys = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+const wizardKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
+const wizardKeys24 = [...wizardKeys23, 'workStyle', 'agentBrain']
 const wizardSource = (asked: unknown) => JSON.stringify({ format: 'agentfleet.wizard.v1', asked, version: '2.3.0' })
 const optionsNotice = 'New AgentFleet options are available: run agentfleet configure in a terminal.'
 function optionsSnapshot(source: string | null, version = '2.3.0') {
@@ -216,12 +217,12 @@ function optionsSnapshot(source: string | null, version = '2.3.0') {
 for (const [label, source, count] of [
   ['missing', null, 7],
   ['partial', wizardSource(['compact', 'jev', 'compact', 'future']), 5],
-  ['full', wizardSource(wizardKeys), 0],
-  ['full with unknown key', wizardSource([...wizardKeys, 'future']), 0],
+  ['full', wizardSource(wizardKeys23), 0],
+  ['full with unknown key', wizardSource([...wizardKeys23, 'future']), 0],
   ['invalid JSON', '{bad', 7],
   ['invalid format', '{"format":"bad","asked":[]}', 7],
   ['invalid asked', wizardSource('compact'), 7],
-  ['invalid entry', wizardSource([...wizardKeys, 7]), 7],
+  ['invalid entry', wizardSource([...wizardKeys23, 7]), 7],
 ] as const) {
   test(`wizard options ${label} and summary`, () => {
     const snapshot = optionsSnapshot(source)
@@ -242,6 +243,13 @@ for (const version of ['2.3.0+build.1', '2.3.1', '2.4.0', '3.0.0']) {
     expect(notices(optionsSnapshot(null, version), version)).toEqual([optionsNotice])
   })
 }
+test('2.4.0 counts new wizard questions while 2.3.x keeps the legacy seven', () => {
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.3.1' }), null, null, null, null, null, null, null, null]).newOptions).toBe(7)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.3.1' }), null, null, null, null, null, null, null, wizardSource(wizardKeys23)]).newOptions).toBe(0)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.4.0' }), null, null, null, null, null, null, null, null]).newOptions).toBe(9)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.4.0' }), null, null, null, null, null, null, null, wizardSource(wizardKeys24)]).newOptions).toBe(0)
+})
+
 test('wizard notice uses guarded read and stays hidden after refresh', async ($, on) => {
   const files: Record<string, string> = healthy()
   files['.claude-agents-config-manifest.json'] = '{"version":"2.3.0"}'
@@ -253,7 +261,7 @@ test('wizard notice uses guarded read and stays hidden after refresh', async ($,
   await ui.press({ key: 'hide' })
   await clock.advance(60_000)
   expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
-  files['agentfleet/wizard.json'] = wizardSource(wizardKeys)
+  files['agentfleet/wizard.json'] = wizardSource(wizardKeys23)
   await clock.advance(60_000)
   expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
 })
@@ -266,7 +274,7 @@ const suggestionsSource = (item: unknown) => JSON.stringify({ format: 'agentflee
 
 test('missing sources use AgentFleet defaults', () => {
   const result = summary(snapshotFromSources(null, []), null)
-  for (const line of ['Profile: not recorded', 'Auto-update: enabled (default)', "Auto-compact: 70% of each model's context", 'Reviewer access: full', 'Suggestions learning: on', 'Lane outages: none']) expect(result).toContain(line)
+  for (const line of ['Profile: not recorded', 'Auto-update: enabled (default)', "Auto-compact: 70% of each model's context", 'Reviewer access: full', 'Work style: balanced', 'Suggestions learning: on', 'Lane outages: none']) expect(result).toContain(line)
   expect(summary(snapshotFromSources(null, [null, null, '{"enabled":"yes"}']), null)).toContain('enabled (default)')
 })
 for (const percent of [20, 40, 70, 95, 'off', 19, 96, 70.5, '70', null]) {
