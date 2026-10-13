@@ -102,7 +102,7 @@ class FleetSuggestTests(unittest.TestCase):
         entries = catalog.get("entries", [])
         self.assertGreaterEqual(len(entries), 30)
 
-        valid_kinds = {"plugin", "mod", "hook", "create-skill", "claude-md"}
+        valid_kinds = {"plugin", "mod", "hook", "create-skill", "claude-md", "project-rule", "tool"}
         seen_ids = set()
 
         for e in entries:
@@ -121,6 +121,12 @@ class FleetSuggestTests(unittest.TestCase):
                 self.assertIsInstance(e["install"], dict, f"Install must be dict for {eid}")
                 self.assertIn("plugin", e["install"])
                 self.assertIn("@", e["install"]["plugin"])
+            elif kind == "tool":
+                self.assertIsInstance(e["install"], dict, f"Install must be dict for {eid}")
+                self.assertIsInstance(e["install"].get("command"), str)
+            elif kind == "project-rule":
+                self.assertIsNone(e["install"])
+                self.assertTrue(e["template"].startswith(e["marker"] + "\n"), f"Template must start with its marker in {eid}")
             else:
                 self.assertIsNone(e["install"], f"Install must be None for create kind {eid}")
                 self.assertIn("template", e, f"Missing template for {eid}")
@@ -263,6 +269,65 @@ services:
         suggs_dismissed = fleet_suggest.suggest(self.home, proj)
         self.assertNotIn("init-claude-md", {s["id"] for s in suggs_dismissed})
 
+    def git_repo(self, proj: Path, url: str) -> None:
+        (proj / ".git").mkdir(parents=True)
+        (proj / ".git" / "config").write_text(
+            '[core]\n\tbare = false\n[remote "origin"]\n\turl = ' + url + "\n", encoding="utf-8")
+
+    def test_pr_workflow_rule_for_github_remotes_until_claude_md_has_it(self):
+        proj = self.root / "gh_repo"
+        proj.mkdir()
+        self.git_repo(proj, "git@github.com:example/app.git")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, proj)}
+        self.assertIn("pr-workflow", suggs)
+        self.assertEqual(suggs["pr-workflow"]["kind"], "project-rule")
+        self.assertTrue(suggs["pr-workflow"]["template"].startswith("## Git workflow"))
+        (proj / "CLAUDE.md").write_text("# App\n\n## Git workflow\n\n- Ship via PRs.\n", encoding="utf-8")
+        self.assertNotIn("pr-workflow", {s["id"] for s in fleet_suggest.suggest(self.home, proj)})
+
+    def test_pr_workflow_rule_not_offered_for_other_hosts_or_no_git(self):
+        other = self.root / "gl_repo"
+        other.mkdir()
+        self.git_repo(other, "https://gitlab.com/example/app.git")
+        self.assertNotIn("pr-workflow", {s["id"] for s in fleet_suggest.suggest(self.home, other)})
+        plain = self.root / "plain"
+        plain.mkdir()
+        self.assertNotIn("pr-workflow", {s["id"] for s in fleet_suggest.suggest(self.home, plain)})
+
+    def test_git_remote_hosts_keep_host_names_only_and_follow_worktrees(self):
+        main = self.root / "main_repo"
+        main.mkdir()
+        token = "ghp_" + "x" * 20
+        self.git_repo(main, f"https://user:{token}@github.com/example/private-name.git")
+        self.assertEqual(fleet_suggest.git_remote_hosts(main), {"github.com"})
+        # A linked worktree: .git is a file pointing into the main repository.
+        worktree_dir = main / ".git" / "worktrees" / "wt"
+        worktree_dir.mkdir(parents=True)
+        (worktree_dir / "commondir").write_text("../..\n", encoding="utf-8")
+        tree = self.root / "wt"
+        tree.mkdir()
+        (tree / ".git").write_text(f"gitdir: {worktree_dir}\n", encoding="utf-8")
+        self.assertEqual(fleet_suggest.git_remote_hosts(tree), {"github.com"})
+        # A subdirectory of a repository uses the repository's remotes.
+        sub = main / "packages" / "web"
+        sub.mkdir(parents=True)
+        self.assertEqual(fleet_suggest.git_remote_hosts(sub), {"github.com"})
+
+    def test_spec_kit_offered_for_new_projects_only(self):
+        new = self.root / "new_proj"
+        new.mkdir()
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, new)}
+        self.assertIn("spec-kit", suggs)
+        self.assertIn("specify init --here --integration claude", suggs["spec-kit"]["install"])
+        big = self.root / "big_proj"
+        big.mkdir()
+        for index in range(30):
+            (big / f"module_{index}.py").write_text("x = 1\n", encoding="utf-8")
+        self.assertNotIn("spec-kit", {s["id"] for s in fleet_suggest.suggest(self.home, big)})
+        (new / ".specify" / "memory").mkdir(parents=True)
+        (new / ".specify" / "memory" / "constitution.md").write_text("# Principles\n", encoding="utf-8")
+        self.assertNotIn("spec-kit", {s["id"] for s in fleet_suggest.suggest(self.home, new)})
+
     def test_ranking_strength_and_kind_order(self):
         proj = self.root / "ranked_proj"
         proj.mkdir()
@@ -298,7 +363,7 @@ services:
         p_rec = store["projects"][str(proj.resolve())]
         self.assertEqual(p_rec["name"], proj.name)
         self.assertGreater(p_rec["pending"], 0)
-        self.assertEqual(p_rec["notified"], "2026.10.1")
+        self.assertEqual(p_rec["notified"], fleet_suggest.load_catalog()["version"])
         self.assertIsNone(p_rec["seen"])
         self.assertTrue(p_rec["updated"])
 
@@ -368,7 +433,7 @@ services:
         store_file = self.home / ".claude" / "agentfleet" / "suggestions.json"
         store = json.loads(store_file.read_text(encoding="utf-8"))
         p_rec = store["projects"][str(proj.resolve())]
-        self.assertEqual(p_rec["seen"], "2026.10.1")
+        self.assertEqual(p_rec["seen"], fleet_suggest.load_catalog()["version"])
         self.assertEqual(p_rec["pending"], 0)
         self.assertEqual(p_rec["new"], [])
         self.assertTrue(p_rec["shown"])
@@ -377,7 +442,7 @@ services:
         with io.StringIO() as buf, contextlib.redirect_stdout(buf):
             fleet_suggest.main(["--home", str(self.home), "--project", str(proj), "--seen"])
         store = json.loads(store_file.read_text(encoding="utf-8"))
-        self.assertEqual(store["projects"][str(proj.resolve())]["seen"], "2026.10.1")
+        self.assertEqual(store["projects"][str(proj.resolve())]["seen"], fleet_suggest.load_catalog()["version"])
 
         # Run --dismiss
         with io.StringIO() as buf, contextlib.redirect_stdout(buf):
@@ -577,7 +642,7 @@ services:
         self.assertTrue(store_file.exists())
         store = json.loads(store_file.read_text(encoding="utf-8"))
         p_rec = store["projects"][str(proj.resolve())]
-        self.assertEqual(p_rec["notified"], "2026.10.1")
+        self.assertEqual(p_rec["notified"], fleet_suggest.load_catalog()["version"])
 
         # 4. subsequent pending_notice and notice both return None
         self.assertIsNone(fleet_suggest.pending_notice(str(proj), self.home))

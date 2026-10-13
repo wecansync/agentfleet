@@ -23,6 +23,7 @@ import shutil
 import sys
 import time
 import unicodedata
+import urllib.parse
 
 _ANSI_ESCAPE_RE = re.compile(
     r"""
@@ -108,7 +109,10 @@ KIND_ORDER = {
     "create-skill": 2,
     "mod": 3,
     "claude-md": 4,
+    "project-rule": 5,
+    "tool": 6,
 }
+GIT_URL_RE = re.compile(r"^\s*url\s*=\s*(\S+)", re.MULTILINE)
 
 
 def resolve_home(home_arg: str | None = None) -> Path:
@@ -141,6 +145,81 @@ def load_catalog(script_dir: Path | None = None) -> dict:
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
     return {"format": CATALOG_FORMAT, "version": "unknown", "entries": []}
+
+
+def _git_config(project: Path) -> Path | None:
+    """The git config of the repository containing project, if any.
+
+    Follows a `.git` file (worktrees and submodules) to its git directory and,
+    for worktrees, to the shared config in the common directory.
+    """
+    for folder in [project, *list(project.parents)[:6]]:
+        dot_git = folder / ".git"
+        try:
+            if dot_git.is_dir():
+                return dot_git / "config"
+            if dot_git.is_file():
+                text = dot_git.read_text(encoding="utf-8")[:4096].strip()
+                if not text.startswith("gitdir:"):
+                    return None
+                git_dir = Path(text[len("gitdir:"):].strip())
+                if not git_dir.is_absolute():
+                    git_dir = folder / git_dir
+                common = git_dir / "commondir"
+                if common.is_file():
+                    git_dir = git_dir / common.read_text(encoding="utf-8").strip()
+                return git_dir / "config"
+        except (OSError, UnicodeError):
+            return None
+    return None
+
+
+def git_remote_hosts(project: Path) -> set[str]:
+    """Host names of the project's git remotes, such as "github.com".
+
+    Only host names are kept: remote paths name private repositories.
+    """
+    config = _git_config(project)
+    try:
+        if config is None or not config.is_file() or config.stat().st_size > MAX_FILE_BYTES:
+            return set()
+        text = config.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    hosts: set[str] = set()
+    for url in GIT_URL_RE.findall(text):
+        if "://" in url:
+            host = urllib.parse.urlsplit(url).hostname or ""
+        elif ":" in url:
+            # scp-like syntax: git@github.com:org/repo.git
+            host = url.split(":", 1)[0].rsplit("@", 1)[-1]
+        else:
+            continue
+        host = host.lower()
+        if re.fullmatch(r"[a-z0-9.-]+", host):
+            hosts.add(host)
+    return hosts
+
+
+def project_text(project: Path, name: str = "CLAUDE.md") -> str:
+    """The project's CLAUDE.md text (or .claude/CLAUDE.md), bounded and never raising."""
+    for candidate in (project / name, project / ".claude" / name):
+        try:
+            if candidate.is_file() and not candidate.is_symlink() and candidate.stat().st_size <= MAX_FILE_BYTES:
+                return candidate.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    return ""
+
+
+def _files_match(files: set[str], patterns: list) -> str | None:
+    for p in patterns:
+        if not isinstance(p, str):
+            continue
+        for f in files:
+            if fnmatch.fnmatch(f, p) or fnmatch.fnmatch(os.path.basename(f), p) or f.startswith(p.rstrip("/*")):
+                return f
+    return None
 
 
 def scan(project: Path) -> dict:
@@ -384,6 +463,7 @@ def scan(project: Path) -> dict:
         "env_keys": env_keys,
         "has_env": has_env,
         "formatters": formatters,
+        "git_hosts": git_remote_hosts(project),
     }
 
 
@@ -678,6 +758,17 @@ def suggest(home: Path, project: Path) -> list[dict]:
             if "CLAUDE.md" in signals["files"] or (project / "CLAUDE.md").exists():
                 continue
 
+        # A project rule is offered until CLAUDE.md already has its section.
+        elif kind == "project-rule":
+            marker = entry.get("marker")
+            if not isinstance(marker, str) or not marker or marker in project_text(project):
+                continue
+
+        # A tool is offered until the project already uses it.
+        elif kind == "tool":
+            if _files_match(signals["files"], entry.get("skipIfFiles") or []):
+                continue
+
         # Match evaluation
         match_spec = entry.get("match", {})
         matched = False
@@ -857,10 +948,29 @@ def suggest(home: Path, project: Path) -> list[dict]:
                     matched_signal = f"Project has {len(signals['deps'])} dependencies"
                     strength = 1
 
+            # 10. A git remote on a given host (e.g. github.com)
+            if not matched and "gitRemote" in match_spec:
+                for host in match_spec["gitRemote"]:
+                    if isinstance(host, str) and any(h == host or h.endswith("." + host) for h in signals.get("git_hosts", ())):
+                        matched = True
+                        matched_signal = f"Git remote on {host}"
+                        strength = 3
+                        break
+
+            # 11. A new or very small project
+            if not matched and "maxFiles" in match_spec:
+                limit = match_spec["maxFiles"]
+                if isinstance(limit, int) and not isinstance(limit, bool) and len(signals["files"]) <= limit:
+                    matched = True
+                    matched_signal = f"New project ({len(signals['files'])} files)"
+                    strength = 1
+
         if matched:
             install_cmd = "AgentFleet drafts this for you"
             if entry.get("install") and isinstance(entry["install"], dict) and "plugin" in entry["install"]:
                 install_cmd = f"claude plugin install {entry['install']['plugin']}"
+            elif entry.get("install") and isinstance(entry["install"], dict) and isinstance(entry["install"].get("command"), str):
+                install_cmd = entry["install"]["command"]
 
             why_text = f"{matched_signal}: {entry['why']}" if matched_signal else entry["why"]
 
@@ -873,7 +983,7 @@ def suggest(home: Path, project: Path) -> list[dict]:
                 "access": entry.get("access", ""),
                 "_strength": strength,
             }
-            if kind in ("hook", "create-skill", "claude-md") or "template" in entry:
+            if kind in ("hook", "create-skill", "claude-md", "project-rule") or "template" in entry:
                 res_item["template"] = entry.get("template")
 
             results.append(res_item)
@@ -1132,9 +1242,11 @@ def main(argv: list[str] | None = None) -> int:
         "create-skill": "Frequent Command Skills",
         "mod": "AgentFleet Mods",
         "claude-md": "Project Guide",
+        "project-rule": "Project Rules",
+        "tool": "Workflow Tools",
     }
 
-    for k in ("plugin", "hook", "create-skill", "mod", "claude-md"):
+    for k in ("plugin", "hook", "create-skill", "mod", "claude-md", "project-rule", "tool"):
         items = grouped.get(k, [])
         if not items:
             continue

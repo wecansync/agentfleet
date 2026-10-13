@@ -50,6 +50,13 @@ For every item the user selects:
   - Ask confirmation and write the file.
 - **Project Guide (`kind: claude-md`):**
   - Suggest running `/init` in Claude Code to generate a tailored CLAUDE.md file.
+- **Project Rules (`kind: project-rule`):**
+  - Fill the template's `<placeholders>` from the repository: the default branch from `git symbolic-ref refs/remotes/origin/HEAD` (or ask), and the real test command from the project's scripts, Makefile or CI config. Ask when unsure; never invent a command.
+  - Show the finished section and where it goes: appended to the project's `CLAUDE.md`, which is created with just this section if it does not exist.
+  - Write it only after the user confirms. Never reword the user's existing CLAUDE.md content.
+- **Workflow Tools (`kind: tool`):**
+  - Show the item's access line and the exact install command, then ask before running it. If a required program is missing (for example `uv`), stop and tell the user how to install it rather than installing it yourself.
+  - After it succeeds, show the template's usage note.
 
 ## Phase 3: Dismiss & Finalize
 1. If unpicked suggestions remain, offer to dismiss them:

@@ -1,6 +1,6 @@
 {
   "format": "agentfleet.suggestions-catalog.v1",
-  "version": "2026.10.1",
+  "version": "2026.10.2",
   "entries": [
     {
       "id": "init-claude-md",
@@ -1098,6 +1098,41 @@
       },
       "source": "claude-plugins-official",
       "access": "Instruments Python and FastAPI applications with Logfire tracing"
+    },
+    {
+      "id": "pr-workflow",
+      "kind": "project-rule",
+      "title": "Git workflow rule: a branch and pull request per feature",
+      "why": "Claude follows the project's CLAUDE.md; without a rule it may commit straight to the main branch",
+      "match": {
+        "gitRemote": [
+          "github.com"
+        ]
+      },
+      "marker": "## Git workflow",
+      "install": null,
+      "source": "agentfleet",
+      "access": "Adds a short section to this project's CLAUDE.md after you approve the draft",
+      "template": "## Git workflow\n\n- Work on a branch for each feature or fix, named after it; never commit straight to `<main branch>`.\n- Open a pull request for each feature, and merge it only after the checks pass.\n- Before opening the pull request, run: `<test command>`.\n- Commit, push, open pull requests, merge and deploy only when the user's request covers it."
+    },
+    {
+      "id": "spec-kit",
+      "kind": "tool",
+      "title": "Spec Kit (spec-driven development)",
+      "why": "Writes a spec, a plan and a task list before code: worth it for a new project or a large feature, too slow for small changes",
+      "match": {
+        "maxFiles": 25
+      },
+      "skipIfFiles": [
+        ".specify",
+        ".specify/**"
+      ],
+      "install": {
+        "command": "uv tool install specify-cli && specify init --here --integration claude --integration-options=\"--no-model-invocation\""
+      },
+      "source": "github/spec-kit",
+      "access": "Installs the specify CLI with uv (needs Python 3.11+ and uv) and adds /speckit-* skills under .claude/skills that run only when you invoke them",
+      "template": "Start with /speckit-constitution once, then for each large feature: /speckit-specify, /speckit-plan, /speckit-tasks, /speckit-implement, /speckit-converge. Use it for big features only; small changes don't need it."
     }
   ]
 }

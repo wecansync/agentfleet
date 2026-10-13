@@ -15,7 +15,7 @@ required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 By default Claude works on your task directly and uses a lane only for large
 work. See [Work style](#work-style).
 
-Version: **2.4.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.4.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -389,7 +389,8 @@ Restart Claude Code after changing the work style.
 If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which save
 memory after every reply and after every lane run. To remove that step, run
 `agentfleet config agent-brain off` or answer no in the wizard, which asks only
-when `agent-brain` is installed.
+when `agent-brain` is installed. Without the CLI, `agentfleet config` shows
+`agent-brain: not installed` and nothing is connected.
 
 ### Instruction check
 
@@ -739,7 +740,9 @@ When a provider gateway responds to a lane model with a 5xx gateway error:
 
 The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current repository to recommend relevant capabilities:
 - **Local repository inspection**: Scans project files and configuration locally without network requests and never reads `.env` files or secret values.
-- **Curated catalog**: Evaluates a 57-entry catalog (`config/suggestions.json`) including official-marketplace plugins (language servers, MCP server integrations), AgentFleet optional mods, pre-drafted hooks (`format-after-edit`, `protect-secrets`), project skill generators for repeated tasks, and `/init` if `CLAUDE.md` is absent.
+- **Curated catalog**: Evaluates a 59-entry catalog (`config/suggestions.json`) including official-marketplace plugins (language servers, MCP server integrations), AgentFleet optional mods, pre-drafted hooks (`format-after-edit`, `protect-secrets`), project skill generators for repeated tasks, and `/init` if `CLAUDE.md` is absent.
+- **Project workflow**: For a repository with a GitHub remote, it offers a drafted "Git workflow" section for the project's `CLAUDE.md`: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It fills in your main branch and test command, shows the draft, and writes it only after you approve. It is not offered once the section exists.
+- **Spec Kit**: For a new or small project, it offers [Spec Kit](https://github.com/github/spec-kit), which writes a spec, a plan and a task list before code. It suits new projects and large features; small changes don't need it. Installing it runs `uv tool install specify-cli` and `specify init --here --integration claude`, after you approve.
 - **Local availability**: Recommends only plugins available in your local marketplaces that are not yet installed.
 - **Controlled presentation**: The status band shows one new suggestion at a time ("AgentFleet suggests …"). Opening `/fleet-suggest` marks suggestions seen and clears the band; installed items drop out on the next prompt. Hide remembers the suggestion. The model-facing notice is skipped when the band is enabled, and nothing is installed without explicit selection.
 - **Usage learning**: On by default for new installs; existing installs keep their setting and are asked once by the configuration wizard. AgentFleet tallies command names, tool names, documentation sites, and slash commands per project, never prompt text, under `~/.claude/agentfleet/usage/`. Turn it off with `agentfleet config learn off`; run `agentfleet suggest --forget` to erase recorded usage and suggestion history.
