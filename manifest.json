@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "ff51d065df56e91587dd716bb792d4a996346a90277654485836d754bfdb5794",
+      "sha256": "f0b95ce41c534fcc3e43371b6a94cabc4f766f17676fcabd51e33a1f4be7868d",
       "mode": "0o644"
     },
     {
@@ -29,12 +29,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "ab4f97e087cf5ab7e29f36157fc3c55fcf0bec71ce8361701de125e03448e365",
+      "sha256": "32a9389459e4c8cea9ff6ea896efba1b07f46f8ab20453cfd27532243f32db45",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "ad8650bc9057d9dfd809961b69dbad640c288d809fa44437d44d83d3b118c821",
+      "sha256": "2ad7b0c3f0ede58c3165b7a8a5479e890a758d39bfe8683eaef50ce6afad7232",
       "mode": "0o644"
     },
     {

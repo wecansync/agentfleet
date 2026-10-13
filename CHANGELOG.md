@@ -3,6 +3,35 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.4.0] - 2026-10-13
+
+Claude works directly by default and uses lanes for large work, AgentFleet's
+policy moves out of your `CLAUDE.md`, lanes use less effort, and a new check
+finds stale or conflicting instructions.
+
+### Added
+
+- Work style: `agentfleet config work-style direct|balanced|fleet`, or the setup wizard. Restart Claude Code after changing it.
+  - `balanced` (the default, for new and existing installs): Claude works directly. The prompt hook suggests a lane only for large prompts: 400 or more characters, three or more list items, broad wording such as "across the codebase", a branch or PR review, a security review, or codebase or web research.
+  - `direct`: lanes only when you ask.
+  - `fleet`: the 2.3 behavior, delegate by default.
+- `agentfleet instructions [--project DIR] [--check]`, also offered by the setup wizard (`agentfleet configure`). Basic checks find lane names that no longer exist, a leftover old AgentFleet policy, duplicated lines, and a total size over 3,000 words. Then one locked-down Claude Code run (no tools, no hooks, no MCP servers) proposes line edits for contradictions, duplicates, and unclear rules. Each edit is applied only when you say yes, with a backup in `~/.claude/agentfleet/instruction-backups/`. The check sends the text of your instruction files to your model provider, as Claude Code already does each session. `--check` reports without editing. Background auto-updates never run it.
+- `agentfleet config agent-brain on|off`, and a wizard question that appears only when `agent-brain` is installed. Off removes its memory step after every reply and lane run.
+- The setup wizard asks about work style, agent-brain, and the instruction check. Team presets accept `workStyle` and `agentBrain`, never the instruction check. `agentfleet config` shows work-style and agent-brain.
+- `fleet-status` 1.3.0 shows "Work style: …" in `/fleet-status` and counts the new options.
+
+### Changed
+
+- AgentFleet's rules moved from `~/.claude/CLAUDE.md` to `~/.claude/rules/agentfleet.md`, which Claude Code loads automatically. AgentFleet no longer touches your `~/.claude/CLAUDE.md`.
+- On upgrade, if an earlier install replaced your own `CLAUDE.md`, the original is restored from the backup. An unedited old AgentFleet copy is removed. An edited one is kept with a note.
+- The policy is shorter: about 350 words, down from about 1,400.
+- Lanes use less effort. `implement`, `review`, `review-alt`, `security-review`, and `diagnose-static` are now `high`. `tests`, `triage-static`, `research-codebase`, and `research-web` are now `medium`. `plan` and the `-deep` lanes stay `xhigh`. Updates apply the new values automatically.
+- Lanes now stop and report what is done and what remains, instead of running out of turns without a report.
+
+### Fixed
+
+- A first install over a personal `~/.claude/CLAUDE.md` no longer fails with "Conflicts requiring --force-owned".
+
 ## [2.3.1] - 2026-10-12
 
 Windows fixes found by running AgentFleet end to end on a real Windows machine,
@@ -226,6 +255,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.4.0]: TBD
 [2.3.1]: https://github.com/wecansync/claude-agents-config/pull/27
 [2.3.0]: https://github.com/wecansync/claude-agents-config/pull/25
 [2.2.0]: https://github.com/wecansync/claude-agents-config/pull/24

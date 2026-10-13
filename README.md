@@ -6,12 +6,16 @@ provider offers: a Claude subscription, an Anthropic API key, or any
 Anthropic-compatible gateway whose models are discovered from `GET /v1/models`.
 
 It also installs a routing hook, a model-sync startup hook, a context-budget
-hook, a privacy-safe status line, a global `CLAUDE.md`, the `/fleet-setup` and
-`/fleet-suggest` skills, and a local Claude Code mods catalog with `fleet-status`
-and `lane-guard` on by default. Everything lives under your home directory; no
-root or admin access is required.
+hook, a privacy-safe status line, a short delegation policy in
+`~/.claude/rules/agentfleet.md`, the `/fleet-setup` and `/fleet-suggest` skills,
+and a local Claude Code mods catalog with `fleet-status` and `lane-guard` on by
+default. Everything lives under your home directory; no root or admin access is
+required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 
-Version: **2.3.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+By default Claude works on your task directly and uses a lane only for large
+work. See [Work style](#work-style).
+
+Version: **2.4.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -77,9 +81,11 @@ its models?":
 
 Updates keep the installed profile; `--wizard` explicitly reopens the provider
 wizard. The separate configuration wizard runs after terminal installs and
-updates, covering auto-compact, JEV, reviewer access, learning, the status band,
-lane-guard, and automatic updates. Run `agentfleet configure` to revisit every
-question.
+updates, covering work style, auto-compact, JEV, reviewer access, learning, the
+status band, lane-guard, automatic updates, and, only when the `agent-brain` CLI
+is installed, whether its hooks stay on. It then offers the
+[instruction check](#instruction-check). Run `agentfleet configure` to revisit
+every question.
 
 ### Automatic updates
 
@@ -174,12 +180,44 @@ $env:AGENTFLEET_PRESET="team.json"; agentfleet update; Remove-Item Env:AGENTFLEE
 ```
 
 From 2.3.0, `agentfleet configure --preset team.json` also applies a preset. A preset does not supply credentials.
+From 2.4.0, a preset can also set `workStyle` and `agentBrain`. It can never run the instruction check.
 The wizard can save your TypeSafe key with hidden input into `~/.claude/settings.json`
 (env `TYPESAFE_API_KEY`), where commands Claude runs can read it. For private storage,
 leave it empty and use `/plugin` → fast-jev-compaction → Configure. Never paste keys in chat.
 
 Verify with `agentfleet config`, `/fleet-status`, and `/jev` (when JEV is enabled).
 Roll back an install or update with `agentfleet rollback`.
+
+---
+
+## Work style
+
+The work style decides how readily Claude hands work to a lane. Set it with
+`agentfleet config work-style direct|balanced|fleet` or in the configuration
+wizard, then restart Claude Code. The default is `balanced`, for new and
+existing installs.
+
+| Style | Behavior |
+|---|---|
+| `balanced` (default) | Claude works directly. The prompt hook suggests a lane only for large prompts: 400 or more characters, three or more list items, broad wording such as "across the codebase", a branch or PR review, a security review, or codebase or web research. |
+| `direct` | Claude uses a lane only when you ask for one. |
+| `fleet` | The 2.3 behavior: Claude delegates by default. |
+
+```bash
+agentfleet config work-style balanced
+```
+
+AgentFleet writes the policy for your chosen style to
+`~/.claude/rules/agentfleet.md`, which Claude Code loads automatically.
+
+### Lane effort and stopping
+
+Lanes use less reasoning effort than in 2.3. `implement`, `review`,
+`review-alt`, `security-review`, and `diagnose-static` run at `high`. `tests`,
+`triage-static`, `research-codebase`, and `research-web` run at `medium`. `plan`
+and the `-deep` lanes stay at `xhigh`. An update applies the new values
+automatically. A lane that is running out of turns now stops and reports what
+is done and what remains, instead of ending without a report.
 
 ---
 
@@ -305,9 +343,11 @@ differs from auto-ranking.
 
 ## Preferences and configuration
 
-Run `agentfleet configure` in a terminal to ask every question: auto-compact
-percentage, JEV, reviewer access, learning, fleet-status, lane-guard, and automatic
-updates. Enter keeps the current value. When enabling JEV without an available
+Run `agentfleet configure` in a terminal to ask every question: work style,
+auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard,
+automatic updates, and the `agent-brain` hooks (asked only when `agent-brain` is
+installed). It ends by offering the [instruction check](#instruction-check).
+Enter keeps the current value. When enabling JEV without an available
 key, the wizard offers hidden TypeSafe API key input and can store it as
 `TYPESAFE_API_KEY` in `~/.claude/settings.json`'s `env` (mode 0600), where
 commands Claude runs can read it. For private storage, leave the key empty and
@@ -324,18 +364,58 @@ invalid values, and any key containing "key", "token", or "secret" are rejected.
 Example `team.json`:
 
 ```json
-{"format":"agentfleet.preset.v1","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"autoUpdate":true}
+{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"autoUpdate":true,"agentBrain":true}
 ```
 
-`agentfleet config` shows every feature. The shared compact, reviewer, and learning
-preferences live in `~/.claude/agentfleet/config.json`:
+`workStyle` and `agentBrain` are accepted from 2.4.0. A preset never runs the
+instruction check.
+
+`agentfleet config` shows every feature, including work-style and agent-brain.
+The shared preferences live in `~/.claude/agentfleet/config.json`:
 
 ```bash
 agentfleet config                                    # view effective preferences
+agentfleet config work-style direct|balanced|fleet   # how readily Claude uses lanes (default: balanced)
 agentfleet config compact <20-95|off>                # set auto-compact percentage (default: 70)
 agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
 agentfleet config learn on|off                       # command usage learning (new installs: on)
+agentfleet config agent-brain on|off                 # agent-brain memory hooks (off removes them)
 ```
+
+Restart Claude Code after changing the work style.
+
+### agent-brain hooks
+
+If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which save
+memory after every reply and after every lane run. To remove that step, run
+`agentfleet config agent-brain off` or answer no in the wizard, which asks only
+when `agent-brain` is installed.
+
+### Instruction check
+
+Claude Code reads your instruction files every session, and contradictions and
+stale rules cost tokens and cause odd behavior. `agentfleet instructions`
+checks `~/.claude/CLAUDE.md`, `~/.claude/rules/`, and a project's instruction
+files:
+
+```bash
+agentfleet instructions                 # check, then offer edits
+agentfleet instructions --project DIR   # include a project's instruction files
+agentfleet instructions --check         # report only; edit nothing
+```
+
+The check has two parts:
+
+1. Basic checks: lane names that no longer exist, a leftover old AgentFleet
+   policy, duplicated lines, and a total size over 3,000 words.
+2. One locked-down Claude Code run (no tools, no hooks, no MCP servers) that
+   proposes line edits for contradictions, duplicates, and unclear rules.
+
+Each edit is applied only when you say yes, and the file is backed up first in
+`~/.claude/agentfleet/instruction-backups/`. The check sends the text of your
+instruction files to your model provider, as Claude Code already does every
+session. `--check` reports without editing. The configuration wizard offers the
+check, and background auto-updates never run it.
 
 ### Reviewer modes
 
@@ -452,7 +532,8 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet add <name> --gateway-url URL` | Add a gateway profile without reinstalling (`--token-env VAR`, `--use`, `--force`, `--allow-insecure-http`). |
 | `agentfleet remove <name> [--yes]` | Delete a saved profile and its token. The active profile and `native` cannot be removed. |
 | `agentfleet configure [--yes\|--preset FILE\|--export FILE]` | Revisit every feature; keep values and mark questions answered, apply a team preset, or export settings without secrets. |
-| `agentfleet config [setting] [value]` | View every feature or configure `compact`, `reviewer-access`, or `learn`. |
+| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
+| `agentfleet instructions [--project DIR] [--check]` | Check your Claude Code instruction files for stale lane names, duplicates, and contradictions; apply edits only with your approval. `--check` reports without editing. |
 | `agentfleet jev <on\|off\|status>` | Enable, disable, or inspect optional `fast-jev-compaction` plugin. |
 | `agentfleet report [--days N] [--json]` | Summarize subagent runs (files changed, blocked commands) and active provider outages. |
 | `agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]` | Propose plugins, MCP servers, mods, and hooks for the project (`--forget` clears usage history). |
@@ -487,12 +568,14 @@ install command (or an update) keeps the gateway you switched to.
 - `~/.claude/settings.json` — merged settings. Unrelated permissions, hooks,
   plugins, and environment values are preserved. Mode 0600 because it can
   contain a gateway token.
-- `~/.claude/agentfleet/config.json` — user preferences (`compactPercent`,
-  `reviewerAccess`, `learn`).
-- `~/.claude/CLAUDE.md` — the global delegation policy. AgentFleet manages this
-  file and rewrites it on update; keep your own instructions in
-  `~/.claude/rules/*.md`, which Claude Code loads in every session and
-  AgentFleet never touches.
+- `~/.claude/agentfleet/config.json` — user preferences (`workStyle`,
+  `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
+- `~/.claude/rules/agentfleet.md` — the delegation policy for your work style
+  (about 350 words). Claude Code loads it automatically. AgentFleet manages
+  this file and rewrites it on update. It does not touch your own
+  `~/.claude/CLAUDE.md`, so a first install over a personal `CLAUDE.md` works.
+  Keep your own instructions in `CLAUDE.md` or in other files under
+  `~/.claude/rules/`.
 - `~/.claude/route-to-fleet.py` — UserPromptSubmit routing hook.
 - `~/.claude/fleet_watch.py` — subagent reports, outage failover, and usage tracker.
 - `~/.claude/fleet_suggest.py` — project capability suggestions engine.
@@ -522,7 +605,13 @@ install command (or an update) keeps the gateway you switched to.
 Machine-local marketplace source paths are not copied (they cannot be
 portable). Remote marketplace entries, enabled plugin selections, permissions,
 and model picker descriptions are preserved. `agent-brain` hooks are guarded
-with `command -v` and are inert when that optional tool is absent.
+with `command -v` and are inert when that optional tool is absent. Switch them
+off with `agentfleet config agent-brain off`.
+
+AgentFleet 2.3 and earlier kept the policy in `~/.claude/CLAUDE.md`. On upgrade,
+if an earlier install replaced your own `CLAUDE.md`, AgentFleet restores your
+original from the backup. An unedited old AgentFleet copy is removed. If you
+edited it, AgentFleet keeps it and tells you.
 
 ---
 
@@ -537,15 +626,16 @@ your user permissions and are not sandboxed.
 
 ### Installed by default
 
-- **fleet-status** (v1.2.1): displays an advisory band above the prompt when
+- **fleet-status** (v1.3.0): displays an advisory band above the prompt when
   action is needed: restart after an update, inspect a failed update, review
   missing models or proposals with `/fleet-setup`, dispatch a fallback for a
   failing lane, or review suggestions with `/fleet-suggest`. The band has a
   Hide button. `/fleet-status` prints version, active profile ("not recorded"
-  if absent), auto-update state ("enabled (default)" if unconfigured), model
-  proposals, auto-compact percentage, reviewer access level, learning state,
+  if absent), `Work style: …`, auto-update state ("enabled (default)" if
+  unconfigured), model proposals, auto-compact percentage, reviewer access level, learning state,
   active outages, project suggestions, a JEV stats line, and `Options: all reviewed`
-  or `Options: N new (run agentfleet configure)`. New unanswered options trigger
+  or `Options: N new (run agentfleet configure)`; from 1.3.0 the count includes
+  the work style and agent-brain options. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
   closable pane showing active subagents, recent lane execution reports, and
@@ -664,6 +754,7 @@ The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current rep
 
 - **Routing log**: The routing hook writes to a mode-0600 JSONL log (`~/.claude/routing-log.jsonl`). Routed entries record only lane name, routing reason, timestamp, and character count — never prompt text. A `no-match` entry stores at most a 160-character snippet with credential-shaped tokens redacted. Excerpts purge after 14 days; entries purge after 90 days. Rotates at 2,000,000 bytes. Fail-open.
 - **Outages, reports, and suggestions**: Outage records (`outages.json`), subagent execution logs (`lane-reports.jsonl`), and suggestions metadata stay completely local to your machine.
+- **Instruction check**: `agentfleet instructions` sends the text of your instruction files to your model provider through one Claude Code run, as Claude Code already does each session. It runs only when you ask for it or accept it in the wizard.
 - **Usage learning**: On by default for new installs; existing settings are preserved. It records only sanitized command names, tool identifiers, documentation sites, and slash commands without prompt text in `~/.claude/agentfleet/usage/`. Disable with `agentfleet config learn off`; erase with `agentfleet suggest --forget`.
 - **Local mod safety**: `fleet-status` and `lane-guard` run locally, access no external network, and never read `settings.json`, profiles, or secrets.
 - **Optional JEV egress**: The opt-in `fast-jev-compaction` mod transmits main-conversation message text and tool inputs to `api.typesafe.ai` when compaction occurs, with tool results replaced by summary notes. API keys are loaded from `/plugin` or `TYPESAFE_API_KEY`; the configuration wizard can store that variable in the settings environment with hidden input. Preset exports and JEV stats never contain the key.
