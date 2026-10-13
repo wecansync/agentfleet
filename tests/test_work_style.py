@@ -170,6 +170,33 @@ class WorkStyleTests(unittest.TestCase):
         invalid = self.cli("configure", "--preset", str(preset))
         self.assertEqual(invalid.returncode, 2)
 
+    def test_preset_agent_brain_choice_is_saved_without_agent_brain_installed(self):
+        preset = self.root / "preset.json"
+        preset.write_text(json.dumps({"format": "agentfleet.preset.v1", "agentBrain": False}), encoding="utf-8")
+        applied = self.cli("configure", "--preset", str(preset))
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        # Saved explicitly, so installing agent-brain later keeps it off.
+        self.assertIs(provider_catalog.load_preferences(self.home)["agentBrain"], False)
+
+    def test_config_agent_brain_passes_the_install_prefix_to_the_installer(self):
+        releases = self.root / "releases"
+        release = releases / "releases" / "9.9.9" / "bin"
+        release.mkdir(parents=True)
+        (releases / "current").write_text("9.9.9\n", encoding="utf-8")
+        argv_file = self.root / "installer-argv.json"
+        (release / "install.py").write_text(
+            "import json, sys\n"
+            f"open({str(argv_file)!r}, 'w', encoding='utf-8').write(json.dumps(sys.argv[1:]))\n",
+            encoding="utf-8")
+        prefix = self.root / "custom prefix"
+        prefix.mkdir()
+        env = dict(self.env, AGENTFLEET_HOME=str(releases))
+        result = self.cli("--prefix", str(prefix), "config", "agent-brain", "off", env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        argv = json.loads(argv_file.read_text(encoding="utf-8"))
+        self.assertIn("--prefix", argv)
+        self.assertEqual(Path(argv[argv.index("--prefix") + 1]), prefix.resolve())
+
     def test_wizard_offers_instruction_check_and_yes_skips_it(self):
         sys.path.insert(0, str(ROOT / "bin"))
         import importlib.machinery

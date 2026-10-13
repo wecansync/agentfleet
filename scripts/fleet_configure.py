@@ -261,7 +261,7 @@ def run(api, paths, args):
             selected = list(FEATURES)
         # Recorded only once the run succeeds, so a failed apply writes nothing.
         pending_brain = not brain and "agentBrain" not in asked
-        if not brain:
+        if not brain and not args.preset:
             selected = [f for f in selected if f.key != "agentBrain"]
         if args.after_install and not selected:
             if pending_brain:
@@ -284,6 +284,13 @@ def run(api, paths, args):
                     else:
                         if module.run(paths.home, project=None, interactive=True):
                             print("The instruction check did not finish; run agentfleet instructions later.")
+                asked = save_state(api, paths, state_path, [*asked, key])
+                continue
+            if key == "agentBrain" and not brain:
+                # Only a preset gets here. Save its choice so installing
+                # agent-brain later does not switch the hooks on by default;
+                # the next update applies it.
+                provider_catalog.write_preferences(paths.home, {"agentBrain": values[key]})
                 asked = save_state(api, paths, state_path, [*asked, key])
                 continue
             value = values[key] if key in values else feature.read(api, paths)

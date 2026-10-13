@@ -40,6 +40,7 @@ class Install240Tests(unittest.TestCase):
         self.claude.mkdir(parents=True)
         self.fake_bin = Path(self.raw.name) / "fake-bin"
         self.fake_bin.mkdir()
+        self.simulated_snapshots: set[str] = set()
         self.env = {
             "PATH": os.environ.get("PATH", ""), "HOME": str(self.home), "XDG_CONFIG_HOME": str(self.config),
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTFLEET_MODS": "0", "AGENTFLEET_NONINTERACTIVE": "1",
@@ -101,13 +102,25 @@ class Install240Tests(unittest.TestCase):
         })
         self.metadata_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-    def first_install_snapshot(self, original: bytes):
+    def first_install_snapshot(self, original: bytes | None, name: str = "20260101T000000Z"):
         """The backup a first install over a personal CLAUDE.md took before
-        replacing it (pre-2.4.0 installs needed --force-owned for that)."""
-        self.policy.write_bytes(original)
-        root = self.claude / "backups" / "claude-agents-config" / "20260101T000000Z"
+        replacing it (pre-2.4.0 installs needed --force-owned for that).
+        None records an install that found no CLAUDE.md."""
+        if original is None:
+            self.policy.unlink(missing_ok=True)
+        else:
+            self.policy.write_bytes(original)
+        root = self.claude / "backups" / "claude-agents-config" / name
         root.parent.mkdir(parents=True, exist_ok=True)
         install.snapshot_paths([self.policy, self.metadata_path], root, "apply")
+        self.simulated_snapshots.add(name)
+
+    def keep_only_simulated_snapshots(self):
+        """The test's own 2.4.0 install stands in for a 2.3.x one, whose first
+        snapshot is the simulated one, so drop the snapshots it really took."""
+        for backup in (self.claude / "backups" / "claude-agents-config").iterdir():
+            if backup.name not in self.simulated_snapshots:
+                shutil.rmtree(backup)
 
     def agent_brain_on_path(self):
         script = self.fake_bin / ("agent-brain.cmd" if os.name == "nt" else "agent-brain")
@@ -150,6 +163,7 @@ class Install240Tests(unittest.TestCase):
         self.first_install_snapshot(original)
         self.policy.unlink()
         self.install_native()
+        self.keep_only_simulated_snapshots()
         self.as_231_with_managed_policy()
         result = self.update()
         self.assertEqual(self.policy.read_bytes(), original)
@@ -160,6 +174,29 @@ class Install240Tests(unittest.TestCase):
         # The restored file is the user's now: later updates leave it alone.
         self.update()
         self.assertEqual(self.policy.read_bytes(), original)
+
+    def test_upgrade_restores_the_original_of_the_current_install_only(self):
+        # An install over A, uninstalled, then a reinstall over B: B is the
+        # file the current install replaced.
+        self.first_install_snapshot(b"Instructions A\n", "20260101T000000Z")
+        self.first_install_snapshot(b"Instructions B\n", "20260201T000000Z")
+        self.policy.unlink()
+        self.install_native()
+        self.keep_only_simulated_snapshots()
+        self.as_231_with_managed_policy()
+        self.update()
+        self.assertEqual(self.policy.read_bytes(), b"Instructions B\n")
+
+    def test_upgrade_never_restores_an_original_from_an_earlier_install(self):
+        # The reinstall found no CLAUDE.md, so A from the earlier install must
+        # not come back.
+        self.first_install_snapshot(b"Instructions A\n", "20260101T000000Z")
+        self.first_install_snapshot(None, "20260201T000000Z")
+        self.install_native()
+        self.keep_only_simulated_snapshots()
+        self.as_231_with_managed_policy()
+        self.update()
+        self.assertFalse(self.policy.exists())
 
     def test_upgrade_removes_an_unedited_old_policy_without_an_original(self):
         self.install_native()
@@ -220,6 +257,25 @@ class Install240Tests(unittest.TestCase):
         self.assertFalse(self.rules.exists())
         self.assertFalse((self.claude / "agentfleet" / "policy-template.md").exists())
         self.assertEqual(self.policy.read_bytes(), original)
+
+
+    def test_uninstall_removes_the_rules_after_a_work_style_change(self):
+        self.install_native()
+        before = self.rules.read_bytes()
+        command = [PYTHON, "-B", str(ROOT / "bin" / "agentfleet"), "--home", str(self.home),
+                   "--prefix", str(self.home / ".local"), "config", "work-style", "direct"]
+        self.ok(subprocess.run(command, cwd=ROOT, env=self.env, text=True, capture_output=True))
+        self.assertNotEqual(self.rules.read_bytes(), before)
+        result = self.ok(self.run_installer("--uninstall", "--apply"))
+        self.assertFalse(self.rules.exists(), result.stdout)
+        self.assertFalse(self.metadata_path.exists(), result.stdout)
+
+    def test_uninstall_keeps_a_rules_file_the_user_edited(self):
+        self.install_native()
+        self.rules.write_text(self.rules.read_text(encoding="utf-8") + "\nMy own line.\n", encoding="utf-8")
+        self.ok(self.run_installer("--uninstall", "--apply"))
+        self.assertTrue(self.rules.is_file())
+        self.assertIn("My own line.", self.rules.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -1023,7 +1023,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print("No downloaded release found; run agentfleet update to apply agent-brain hooks.", file=sys.stderr)
             return 1
         command = [sys.executable, str(release / "bin" / "install.py"), "--apply", "--no-configure", "--no-wizard",
-                   "--home", str(paths.home), "--config-home", str(paths.config)]
+                   "--home", str(paths.home), "--prefix", str(paths.prefix), "--config-home", str(paths.config)]
         return subprocess.run(command).returncode
 
     if setting == "learn":

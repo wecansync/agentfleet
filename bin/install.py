@@ -2370,18 +2370,20 @@ def still_recognisably_ours(path: Path, item: dict, home: Path) -> bool:
 
 
 def backup_policy_original(home: Path) -> tuple[bytes, int] | None:
-    """Find the personal CLAUDE.md captured before the first managed install.
+    """Find the personal CLAUDE.md captured before the current install began.
 
     An initial apply snapshot has no pre-existing install metadata, but may
     have an existing CLAUDE.md. Later update snapshots contain AgentFleet's
     policy and metadata; those are deliberately not mistaken for the original.
+    After an uninstall and reinstall there are several initial snapshots; only
+    the newest belongs to the current install, so older ones are never used.
     """
     root = home / ".claude" / "backups" / "claude-agents-config"
     if not root.is_dir() or root.is_symlink():
         return None
     metadata_path = home / ".claude" / ".claude-agents-config-install.json"
     policy_path = home / RETIRED_POLICY_PATH
-    for backup in sorted((path for path in root.iterdir() if path.is_dir() and not path.is_symlink()), key=lambda path: path.name):
+    for backup in sorted((path for path in root.iterdir() if path.is_dir() and not path.is_symlink()), key=lambda path: path.name, reverse=True):
         manifest_path = backup / "backup.json"
         if not manifest_path.is_file() or manifest_path.is_symlink():
             continue
@@ -2398,9 +2400,12 @@ def backup_policy_original(home: Path) -> tuple[bytes, int] | None:
         by_path = {item.get("path"): item for item in records if isinstance(item, dict) and isinstance(item.get("path"), str)}
         prior_metadata = by_path.get(str(metadata_path))
         original_policy = by_path.get(str(policy_path))
-        if not (isinstance(prior_metadata, dict) and prior_metadata.get("existed") is False
-                and isinstance(original_policy, dict) and original_policy.get("existed") is True):
+        if not (isinstance(prior_metadata, dict) and prior_metadata.get("existed") is False):
             continue
+        # The newest initial snapshot decides: if that install had no personal
+        # CLAUDE.md, or its copy is unusable, nothing older is restored.
+        if not (isinstance(original_policy, dict) and original_policy.get("existed") is True):
+            return None
         relative = original_policy.get("backup")
         digest = original_policy.get("sha256")
         mode = original_policy.get("mode")
@@ -2408,19 +2413,18 @@ def backup_policy_original(home: Path) -> tuple[bytes, int] | None:
                 or not re.fullmatch(r"[0-9a-f]{64}", digest)
                 or not isinstance(mode, int) or isinstance(mode, bool)
                 or stat.S_IMODE(mode) != mode or not 0 <= mode <= 0o777):
-            continue
+            return None
         relative_path = Path(relative)
         if relative_path.is_absolute() or ".." in relative_path.parts or relative_path.parts[:1] != ("files",):
-            continue
+            return None
         payload = backup / relative_path
         try:
             if payload.is_symlink() or not payload.is_file() or backup.resolve() not in payload.resolve().parents:
-                continue
+                return None
             data = payload.read_bytes()
         except OSError:
-            continue
-        if bytes_sha256(data) == digest:
-            return data, mode
+            return None
+        return (data, mode) if bytes_sha256(data) == digest else None
     return None
 
 
@@ -3932,6 +3936,25 @@ def uninstall(args: argparse.Namespace, bundle: Path, dry: bool) -> int:
         return _uninstall_locked(args, bundle, dry, home)
 
 
+def rendered_policy_digests(template_path: Path) -> set[str]:
+    """Digests of every work-style rendering of the installed policy template.
+
+    `agentfleet config work-style` re-renders rules/agentfleet.md without
+    updating the install record, so uninstall accepts any of these renderings
+    as AgentFleet's own file rather than a user edit.
+    """
+    try:
+        if template_path.is_symlink() or not template_path.is_file():
+            return set()
+        template = template_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return set()
+    return {
+        hashlib.sha256(provider_catalog.render_policy(template, style).encode("utf-8")).hexdigest()
+        for style in provider_catalog.WORK_STYLES
+    }
+
+
 def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: Path) -> int:
     meta = old_metadata(home)
     mods_dir = mods_dir_for_home(home)
@@ -3951,6 +3974,8 @@ def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: P
     settings_changed = settings_changed or mod_settings_changed
     removable: list[Path] = []
     preserved = []
+    policy_path = home / ".claude" / "rules" / "agentfleet.md"
+    policy_digests = rendered_policy_digests(home / ".claude" / "agentfleet" / "policy-template.md")
     for item in records:
         path = Path(item["path"])
         if path == settings_path:
@@ -3960,7 +3985,9 @@ def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: P
         if not lexists(path) or path.is_dir():
             continue
         expected = item.get("sha256")
-        if isinstance(expected, str) and file_sha256(path) == expected:
+        digest = file_sha256(path) if isinstance(expected, str) else None
+        rerendered = path == policy_path and not path.is_symlink() and digest in policy_digests
+        if digest is not None and (digest == expected or rerendered):
             removable.append(path)
         else:
             preserved.append(path)
