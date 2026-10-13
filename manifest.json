@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "888af985bd1360b7d843648b18de22ec04cc599cc1126caef83342b202dad7db",
+      "sha256": "a1b53f7fe74006a5f9752ae6be747e3ae1c68e17dcad5704a8b9f66b68472a19",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "70976a1eb2341abfeca2bad3862bd3cd4959ad6a269b29b737ba8328aa3486e5",
+      "sha256": "23a0e7fb524995a211757b40d4583999a69fce4db73b52a9915ca5b0279ee148",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "7df73b8e407cc08ce7babfd544ab4ad92a7f62cf73a21468d2bfae85c0508c7c",
+      "sha256": "e4cf0f13257be2accc4bcb9613548624c13b7f1857229ed43e967fce34171b9a",
       "mode": "0o644"
     },
     {
@@ -434,12 +434,12 @@
     },
     {
       "path": "scripts/fleet_suggest.py",
-      "sha256": "9ec95942a3da8c9d1ca35953afed66597cdba0ae12c524e0c66ba10d128d3662",
+      "sha256": "56d2f29e60d7e3b7fa78b6d5a7cbc441a3931ee15acd03e9e5985d38149addb6",
       "mode": "0o755"
     },
     {
       "path": "scripts/fleet_watch.py",
-      "sha256": "8faa450a10266da943ecbc5447a41289434ce29fdc42926cc97eed414b06565c",
+      "sha256": "ff3b1f96bd34cee50724584c6021692b55ab49f4ca9fe88b6bb3538a9039a985",
       "mode": "0o644"
     },
     {
@@ -504,7 +504,7 @@
     },
     {
       "path": "tests/test_fleet_watch.py",
-      "sha256": "552ff6c775f93fb3d4968cabd08c098b00a2d51311d57ec516a43791a2a7996a",
+      "sha256": "8af87730532bfc03029682faadb11b77a856400d78f863ca36f27897b72ec546",
       "mode": "0o644"
     },
     {
@@ -564,7 +564,7 @@
     },
     {
       "path": "tests/test_suggest.py",
-      "sha256": "7670f756b6aec0fbe9b639ce93bd3d1caf66cf94a283da80b4b345f4ed3604c9",
+      "sha256": "af5f114c3e1e3d11e5bd7e5cc575e07b29f1ed187f1feda81fb9ebaea3949877",
       "mode": "0o644"
     },
     {

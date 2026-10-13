@@ -236,7 +236,7 @@ class FleetWatchTests(unittest.TestCase):
 
     def test_learning_opt_in_heads_tools_domains_commands_redaction_and_off(self):
         main = [
-            assistant("main-1", [tool("Bash", {"command": "npm run build && python3 -m pytest"}), tool("WebFetch", {"url": "https://Example.COM/path"})]),
+            assistant("main-1", [tool("Bash", {"command": "npm run build && python3 -m pytest && python3 -B -m unittest -q"}), tool("WebFetch", {"url": "https://Example.COM/path"})]),
             rec("user", {"role": "user", "content": "/fleet-report --json"}),
             assistant("secret", [tool("Bash", {"command": "echo token=" + FAKE_KEY})]),
         ]
@@ -253,6 +253,8 @@ class FleetWatchTests(unittest.TestCase):
         data = json.loads(paths[0].read_text(encoding="utf-8"))
         self.assertEqual(data["bash"]["npm run build"]["count"], 1)
         self.assertEqual(data["bash"]["python3 -m pytest"]["count"], 1)
+        # Options before -m do not change the key.
+        self.assertEqual(data["bash"]["python3 -m unittest"]["count"], 1)
         self.assertIn("webfetch", {key.lower() for key in data["tools"]})
         self.assertEqual(data["domains"]["example.com"]["count"], 1)
         self.assertIn("/fleet-report", data["commands"])

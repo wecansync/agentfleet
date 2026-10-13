@@ -3,6 +3,14 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.4.3] - 2026-10-13
+
+### Fixed
+
+- `/fleet-suggest` no longer lists the same learned skill twice. Commands that map to one skill name, such as `npm run deploy` and `make deploy`, give one suggestion, for the command you run most.
+- `/fleet-suggest` no longer suggests skills for general-purpose tools such as `git`, `head`, `tail` or `python3`. Many of these were only counted because they ended a pipe (`… | tail -3`).
+- Learning records `python3 -B -m pytest` as `python3 -m pytest`, so options before `-m` no longer hide the module. A module or script names its skill: `python3 -m pytest` suggests `pytest`, `node scripts/seed.js` suggests `seed`.
+
 ## [2.4.2] - 2026-10-13
 
 ### Added
@@ -276,6 +284,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.4.3]: https://github.com/wecansync/claude-agents-config/pull/32
 [2.4.2]: https://github.com/wecansync/claude-agents-config/pull/31
 [2.4.1]: https://github.com/wecansync/claude-agents-config/pull/30
 [2.4.0]: https://github.com/wecansync/claude-agents-config/pull/29
