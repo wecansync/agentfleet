@@ -897,6 +897,11 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             ("agentBrain", f"agent-brain: {agent_brain}"),
         ):
             suffix = " (default)" if key not in explicit else ""
+            if key == "agentBrain" and shutil.which("agent-brain") is None:
+                if preferences["agentBrain"] is None:
+                    display, suffix = "agent-brain: not installed", ""
+                elif preferences["agentBrain"] is True:
+                    suffix += ", not installed"
             print(display + suffix)
         state = "unknown"
         try:

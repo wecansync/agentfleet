@@ -3,6 +3,18 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.4.2] - 2026-10-13
+
+### Added
+
+- `/fleet-suggest` offers a "Git workflow" section for the project's `CLAUDE.md` when the repository has a GitHub remote: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. Claude fills in the main branch and test command, shows the draft, and writes it only after you approve. It is not offered once the section exists.
+- `/fleet-suggest` offers Spec Kit (spec-driven development) for new or small projects. It is installed only after you approve, with `uv tool install specify-cli` and `specify init --here --integration claude --integration-options="--no-model-invocation"`.
+- A `CLAUDE.md` for working on this repository.
+
+### Changed
+
+- `agentfleet config` shows `agent-brain: not installed` when the `agent-brain` CLI is missing and no choice was saved, instead of `auto (default), not installed`.
+
 ## [2.4.1] - 2026-10-13
 
 ### Fixed
@@ -264,6 +276,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.4.2]: https://github.com/wecansync/claude-agents-config/pull/31
 [2.4.1]: https://github.com/wecansync/claude-agents-config/pull/30
 [2.4.0]: https://github.com/wecansync/claude-agents-config/pull/29
 [2.3.1]: https://github.com/wecansync/claude-agents-config/pull/27

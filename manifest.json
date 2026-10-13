@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,12 +14,17 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "45d8af5b143d8378261b8354c177f62d69a99a3defea175d62f89a815665f174",
+      "sha256": "888af985bd1360b7d843648b18de22ec04cc599cc1126caef83342b202dad7db",
+      "mode": "0o644"
+    },
+    {
+      "path": "CLAUDE.md",
+      "sha256": "1111e52c82011e3511cf61182ebcec6df6e2038d7c34ccdf96fe3e09b80d2207",
       "mode": "0o644"
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "e2aba1f0d03537ac2d7076ad038197e01ba9f853cbe8749ba3c3c297a0c3b4bc",
+      "sha256": "6c8818ee16b5cde1fabcfda370c9e483fc51bf9121d28e03d2da59b1c99218e8",
       "mode": "0o644"
     },
     {
@@ -29,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "5cba5071cc2ff2d47feeace718389cfbd22c3705d1d9ea465ff7c18a2d8ee211",
+      "sha256": "70976a1eb2341abfeca2bad3862bd3cd4959ad6a269b29b737ba8328aa3486e5",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "6d850e3ac42d0dd06bfdcce9151c1e6b40f4cf5272778f63eececea27c78f0b6",
+      "sha256": "7df73b8e407cc08ce7babfd544ab4ad92a7f62cf73a21468d2bfae85c0508c7c",
       "mode": "0o644"
     },
     {
@@ -134,7 +139,7 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "6635e795c4b277e33c2f8f7e4fc5242d1ef47e3e0c34719172f7f3c551de3814",
+      "sha256": "2fcc997b2d4b855d74991c6fedc773582f85606f0ba073880561745c462864d4",
       "mode": "0o755"
     },
     {
@@ -179,7 +184,7 @@
     },
     {
       "path": "config/suggestions.json",
-      "sha256": "f973157790734126621281b8e823589dea2c70f8741770a8383950e3b30922f2",
+      "sha256": "c9f354bcd0af75d557a9f275bc1b4f7ddeface3a9bcfef012cdbcea31c5b5272",
       "mode": "0o644"
     },
     {
@@ -429,7 +434,7 @@
     },
     {
       "path": "scripts/fleet_suggest.py",
-      "sha256": "04fc12c3eb52fe3abb4ffd2cc143765e1a364868c7d0ede0330dcaac795574b6",
+      "sha256": "9ec95942a3da8c9d1ca35953afed66597cdba0ae12c524e0c66ba10d128d3662",
       "mode": "0o755"
     },
     {
@@ -474,7 +479,7 @@
     },
     {
       "path": "skills/fleet-suggest/SKILL.md",
-      "sha256": "0be38b5826d3a4c16a41903181f631ec30209e559ee3f61fc959344e52c46542",
+      "sha256": "d2f2ae8447f5369377b9f11d8f37082b40bb70f030dcba31cf460c9c198a8afb",
       "mode": "0o644"
     },
     {
@@ -559,7 +564,7 @@
     },
     {
       "path": "tests/test_suggest.py",
-      "sha256": "acb4f049c33447c09b087f3ada0217e6d74905f31455c5b97af9dfbf6d59b97b",
+      "sha256": "7670f756b6aec0fbe9b639ce93bd3d1caf66cf94a283da80b4b345f4ed3604c9",
       "mode": "0o644"
     },
     {
@@ -579,7 +584,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "3a3d4f4bbd16654168756e28a9d054c01d6afa6e161b9011dbcfde31acb79652",
+      "sha256": "0bafaf59645a4b914d04cdc4dcd3e5ee07e0392a8790b21977c63cb3ccd44903",
       "mode": "0o644"
     },
     {

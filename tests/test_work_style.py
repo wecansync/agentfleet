@@ -148,7 +148,7 @@ class WorkStyleTests(unittest.TestCase):
         shown = self.cli("config")
         self.assertEqual(shown.returncode, 0, shown.stderr)
         self.assertIn("work-style: balanced (default)", shown.stdout)
-        self.assertIn("agent-brain: auto (default)", shown.stdout)
+        self.assertIn("agent-brain: not installed", shown.stdout)
         preset = self.root / "preset.json"
         exported = self.cli("configure", "--export", str(preset))
         self.assertEqual(exported.returncode, 0, exported.stderr)
@@ -169,6 +169,26 @@ class WorkStyleTests(unittest.TestCase):
         preset.write_text(json.dumps(data), encoding="utf-8")
         invalid = self.cli("configure", "--preset", str(preset))
         self.assertEqual(invalid.returncode, 2)
+
+    def test_config_shows_agent_brain_state_by_install_and_choice(self):
+        def line(env=None):
+            shown = self.cli("config", env=env)
+            self.assertEqual(shown.returncode, 0, shown.stderr)
+            return next(text for text in shown.stdout.splitlines() if text.startswith("agent-brain:"))
+        self.assertEqual(line(), "agent-brain: not installed")
+        provider_catalog.write_preferences(self.home, {"agentBrain": True})
+        self.assertEqual(line(), "agent-brain: on, not installed")
+        provider_catalog.write_preferences(self.home, {"agentBrain": False})
+        self.assertEqual(line(), "agent-brain: off")
+        brain_bin = self.root / "brain-bin"
+        brain_bin.mkdir()
+        brain = brain_bin / ("agent-brain.cmd" if os.name == "nt" else "agent-brain")
+        brain.write_text("@exit /b 0\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        if os.name != "nt":
+            brain.chmod(0o755)
+        env = dict(self.env, PATH=str(brain_bin) + os.pathsep + self.env["PATH"])
+        provider_catalog.preferences_path(self.home).unlink(missing_ok=True)
+        self.assertEqual(line(env), "agent-brain: auto (default)")
 
     def test_preset_agent_brain_choice_is_saved_without_agent_brain_installed(self):
         preset = self.root / "preset.json"

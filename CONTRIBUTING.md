@@ -40,7 +40,7 @@ scripts/      provider_catalog.py, fleet-reconcile.py, fleet_watch.py,
               fleet_suggest.py, generate-claude-agents.mjs, hook scripts
 config/       delegate-fleet.json (fleet map), provider-policy.json,
               settings.template.json, suggestions.json,
-              CLAUDE.md (installed into ~/.claude/)
+              agentfleet.md (rendered to ~/.claude/rules/agentfleet.md)
 mods/         Claude Code mods catalog (fleet-status, lane-guard,
               fast-jev-compaction, token-weather)
 agents/       generated lane templates
@@ -55,6 +55,7 @@ install.*     one-command install wrappers (sh / ps1 / cmd)
 uninstall.*   uninstall wrappers
 update.*      update wrappers
 VERSION       current version string
+CLAUDE.md     instructions for Claude Code when working on this repo
 ```
 
 ---
@@ -105,7 +106,7 @@ that break them will not be merged.
 3. **Read-only lanes must never receive `Bash`, `Edit`, `Write`, or `Agent`
    tools.** The doctor enforces this and will flag violations.
 
-4. **Do not ship personal preferences in `config/CLAUDE.md` or
+4. **Do not ship personal preferences in `config/agentfleet.md` or
    `config/settings.template.json`.** Users keep their own instructions in
    `~/.claude/rules/`, which AgentFleet never touches.
 
