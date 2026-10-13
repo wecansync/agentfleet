@@ -190,6 +190,90 @@ class FleetWatchTests(unittest.TestCase):
         self.assertNotEqual(outages["review-alt"].get("alternative"), "review")
         self.assertFalse(any("fleet-review-alt (" in line and "dispatch fleet-review instead" in line for line in lines), lines)
 
+    def _failed_run(self, agent_id, lane, description, status, when):
+        (self.agent_dir / f"agent-{agent_id}.meta.json").write_text(
+            json.dumps({"agentType": f"fleet-{lane}", "description": description}), encoding="utf-8")
+        failure = rec("assistant", {"id": "api", "role": "assistant", "model": "<synthetic>",
+            "content": [{"type": "text", "text": f"API Error: {status} gateway says no"}], "usage": {}},
+            timestamp=when.isoformat().replace("+00:00", "Z"))
+        self.write_records(self.agent_dir / f"agent-{agent_id}.jsonl", [failure])
+
+    def test_same_lane_failover_walks_the_lanes_models_before_another_lane(self):
+        self._fleet({
+            "implement": {"model": "luna", "fallbacks": ["haiku", "gemini", "luna"]},
+            "implement-alt": {"model": "sonnet", "altOf": "implement"},
+        })
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"enabledPlugins": {"lane-guard@agentfleet": True}}), encoding="utf-8")
+        self.assertEqual(fleet_watch.lane_models({"model": "luna", "fallbacks": ["haiku", "luna", 3]}), ["luna", "haiku"])
+        now = datetime.now(timezone.utc)
+
+        # The lane's own model fails: the lane switches model and stays the lane to use.
+        self._failed_run("f1", "implement", "Build it", 503, now)
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("fleet-implement's model luna failed with 503" in line
+                            and "runs on haiku instead; re-dispatch the failed task to fleet-implement" in line
+                            for line in lines), lines)
+        outages = fleet_watch.current_outages(self.home)
+        self.assertEqual(outages["lanes"], {})
+        self.assertEqual(outages["models"]["luna"]["lane"], "implement")
+        self.assertEqual(outages["models"]["luna"]["switchedTo"], "haiku")
+
+        # The fallback lane-guard picked runs out of quota: a 429 counts, for an hour.
+        self._failed_run("f2", "implement", "Build it (failover: haiku)", 429, now + timedelta(seconds=5))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("model haiku failed with 429" in line and "runs on gemini instead" in line for line in lines), lines)
+        haiku = fleet_watch.current_outages(self.home)["models"]["haiku"]
+        window = datetime.fromisoformat(haiku["until"].replace("Z", "+00:00")) - datetime.fromisoformat(haiku["at"].replace("Z", "+00:00"))
+        self.assertEqual(window, timedelta(minutes=60))
+        report = json.loads((self.home / ".claude" / "agentfleet" / "lane-reports.jsonl").read_text().splitlines()[-1])
+        self.assertEqual(report["apiError"], 429)
+
+        # No model of the lane is left: only now does another lane take over.
+        self._failed_run("f3", "implement", "Build it (failover: gemini)", 503, now + timedelta(seconds=10))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("fleet-implement (gemini) failed with 503" in line and "dispatch fleet-implement-alt instead" in line
+                            for line in lines), lines)
+        lane = fleet_watch.current_outages(self.home)["lanes"]["implement"]
+        self.assertEqual((lane["model"], lane["alternative"]), ("gemini", "implement-alt"))
+
+        # A run on the lane's own model that ends after its failure clears that model.
+        (self.agent_dir / "agent-s1.meta.json").write_text(
+            json.dumps({"agentType": "fleet-implement", "description": "Build it"}), encoding="utf-8")
+        success = {**assistant("ok", []), "timestamp": (now + timedelta(seconds=20)).isoformat().replace("+00:00", "Z")}
+        self.write_records(self.agent_dir / "agent-s1.jsonl", [success])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        outages = fleet_watch.current_outages(self.home)
+        self.assertNotIn("luna", outages["models"])
+        self.assertNotIn("implement", outages["lanes"])
+        self.assertEqual(fleet_watch.effective_model({"model": "luna", "fallbacks": ["haiku"]}, outages["models"]), "luna")
+
+    def test_without_lane_guard_a_failed_model_sends_work_to_another_lane(self):
+        self._fleet({
+            "implement": {"model": "luna", "fallbacks": ["haiku"]},
+            "implement-alt": {"model": "sonnet", "altOf": "implement"},
+        })
+        self._failed_run("f1", "implement", "Build it", 503, datetime.now(timezone.utc))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("dispatch fleet-implement-alt instead" in line for line in lines), lines)
+        self.assertFalse(any("runs on haiku instead" in line for line in lines), lines)
+        self.assertIn("implement", fleet_watch.current_outages(self.home)["lanes"])
+
+    def test_a_project_pin_decides_which_model_failed_and_which_takes_over(self):
+        self._fleet({"implement": {"model": "luna", "fallbacks": ["haiku"]}})
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"enabledPlugins": {"lane-guard@agentfleet": True}}), encoding="utf-8")
+        (self.project / ".claude").mkdir()
+        (self.project / ".claude" / "fleet.local.json").write_text(json.dumps({
+            "version": "delegate-fleet.local.v1",
+            "lanes": {"implement": {"model": "pinned-a", "fallbacks": ["pinned-b"]}},
+        }), encoding="utf-8")
+        self._failed_run("p1", "implement", "Build it", 503, datetime.now(timezone.utc))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        models = fleet_watch.current_outages(self.home)["models"]
+        self.assertEqual(sorted(models), ["pinned-a"])
+        self.assertTrue(any("model pinned-a failed" in line and "runs on pinned-b instead" in line for line in lines), lines)
+
     def test_incremental_offsets_partial_trailing_line_and_system_envelope(self):
         complete = json.dumps(assistant("finished", [tool("Edit", {"file_path": str(self.project / "a.py")})])) + "\n"
         self.agent.write_text(complete + '{"type":"assistant","mess', encoding="utf-8", newline="\n")

@@ -306,6 +306,22 @@ test('outages expire and alternatives come only from the watcher file', () => {
   expect(notices(snapshot, null)[1]).toContain('Retry it after 09:13 UTC.')
   expect(summary(snapshot, null)).toContain('Lane outages: fleet-docs 503 until 09:13 UTC')
 })
+test('models down show which model each lane switched to, and expire', () => {
+  const source = JSON.stringify({ format: 'agentfleet.outages.v1', lanes: {}, models: {
+    'codex-luna[1m]': { lane: 'implement', switchedTo: 'claude-haiku-5.5[1m]', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+    'gemini-3.8-flash[1m]': { lane: 'implement', status: 429, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:58:00Z' },
+    'old-model': { lane: 'docs', switchedTo: 'x', status: 503, at: '2026-10-09T07:00:00Z', until: '2026-10-09T07:15:00Z' },
+    'bad model': { lane: 'docs', switchedTo: 'x', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+    'ok-model': { lane: '../docs', switchedTo: 'x', status: 503, at: '2026-10-09T08:58:00Z', until: '2026-10-09T09:13:00Z' },
+  } })
+  const snapshot = snapshotFromSources(null, [null, null, null, null, null, source], null, now)
+  expect(snapshot.failovers.map(item => item.model)).toEqual(['codex-luna[1m]', 'gemini-3.8-flash[1m]'])
+  expect(snapshot.outages).toEqual([])
+  expect(notices(snapshot, null)).toContain('fleet-implement runs on claude-haiku-5.5[1m] until 09:13 UTC: codex-luna[1m] failed with 503.')
+  expect(notices(snapshot, null).filter(line => line.includes('gemini')).length).toBe(0)
+  expect(summary(snapshot, null)).toContain('Models down: codex-luna[1m] 503 until 09:13 UTC (fleet-implement uses claude-haiku-5.5[1m]); gemini-3.8-flash[1m] 429 until 09:58 UTC')
+  expect(summary(snapshotFromSources(null, [], null, now), null)).toContain('Models down: none')
+})
 for (const alternative of [undefined, null, '', 'Bad', '../ui', 'ui\n', 'ui‮', 7]) {
   test(`missing or invalid alternative recommends retry: ${JSON.stringify(alternative)}`, () => {
     const snapshot = snapshotFromSources(null, [null, null, null, null, null, outagesSource({ docs: { ...outage, alternative } })], null, now)

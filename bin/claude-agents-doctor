@@ -247,7 +247,7 @@ def source_bundle(bundle: Path, errors: list[str]) -> dict | None:
     if route.is_file():
         try:
             route_text = route.read_text(encoding="utf-8")
-            for needle in ("0o600", "PROMPT_RETENTION_DAYS = 14", "ENTRY_RETENTION_DAYS = 90", "LOG_MAX_BYTES = 2_000_000", 'reason in ("no-match", "small-task")'):
+            for needle in ("0o600", "PROMPT_RETENTION_DAYS = 14", "ENTRY_RETENTION_DAYS = 90", "LOG_MAX_BYTES = 2_000_000", 'reason == "no-match" and work_style == "fleet"'):
                 if needle not in route_text:
                     fail(errors, f"routing privacy policy missing {needle}: {route}")
         except (OSError, UnicodeError) as exc:

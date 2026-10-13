@@ -36,7 +36,9 @@ POLICY_FORMAT = "provider-policy.v1"
 # never gates which endpoint may be used (endpoint/account scoping does that).
 PROVIDER_NAME = "gateway"
 DEFAULT_CACHE_TTL = 6 * 60 * 60
-MAX_FALLBACK_CANDIDATES = 3
+# A lane's model plus up to three fallbacks, the most Claude Code's
+# fallbackModel line takes and the chain lane-guard fails over along.
+MAX_FALLBACK_CANDIDATES = 4
 MAX_CATALOG_PAGES = 16
 MAX_CATALOG_BYTES = 4 * 1024 * 1024
 _SUFFIX = re.compile(r"\[\d+[kmKM]?\]\s*$")

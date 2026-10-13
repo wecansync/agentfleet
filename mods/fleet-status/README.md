@@ -12,10 +12,11 @@ The band refreshes every 60 seconds, on prompt submission, and on turn completio
 It composes its band alongside `await next(e)` in a layout-only Box, preserving other mods' bands. Fallback dispatches
 use the watcher's validated `alternative` lane in `outages.json`; missing, null or
 invalid alternatives (including older files without this field) recommend retrying
-after the outage expires.
+after the outage expires. When a lane's model is down and lane-guard switched the lane to
+one of its fallbacks, the band says which model the lane runs on and until when.
 
 `/fleet-status` prints a fresh version, profile, auto-update, model-proposal,
-auto-compaction, reviewer-access, work-style, suggestions-learning and outage summary. Missing
+auto-compaction, reviewer-access, work-style, suggestions-learning, lane-outage and models-down summary. Missing
 profile markers show **not recorded**; auto-update defaults to **enabled**.
 Configuration defaults are 70% compaction, full reviewer access, balanced work style, and learning on.
 Compaction accepts 20–95% of each model's context, or `off`. The summary includes

@@ -2297,8 +2297,8 @@ def merge_settings(
     return desired, journal_list, gateway_state, gateway_owned, sorted(permission_owned), notices
 
 
-MEMORY_TOOLS_SUFFIX = ", mcp__agent-brain-memory__memory_search, mcp__agent-brain-memory__memory_save, mcp__agent-brain-memory__session_summary"
-MEMORY_LIFECYCLE = " Project memory search may be unavailable in custom-agent sessions; use it when permitted and continue from the brief and repository evidence when it is not. Before stopping, save only durable project knowledge and write the local session summary required by the agent-brain lifecycle."
+MEMORY_TOOLS_SUFFIX = ", mcp__agent-brain-memory__memory_search"
+MEMORY_LIFECYCLE = " Search project memory when it helps; it may be unavailable, so continue from the brief and repository evidence. Do not save memory, even when a hook asks you to: put what you learned in your report, and the main agent records it."
 MEMORY_ANCHOR = "avoid delegated handoff writes."
 
 

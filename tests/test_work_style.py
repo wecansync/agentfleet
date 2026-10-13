@@ -63,19 +63,19 @@ class WorkStyleTests(unittest.TestCase):
         return subprocess.run([sys.executable, "-B", str(AGENTFLEET), "--home", str(self.home), *args],
                               text=True, capture_output=True, env=env or self.env, cwd=ROOT, timeout=20)
 
-    def test_balanced_small_and_large_list_routing(self):
-        small = self.route("fix the typo in the README title")
-        self.assertNotIn("Routing:", small)
-        large = self.route("Implement these independent changes:\n1. Add the first endpoint.\n2. Add the second endpoint.\n3. Add the third endpoint.")
-        self.assertIn("Routing:", large)
-        self.assertIn("consider dispatching", large)
-        self.assertIn("otherwise do it yourself", large)
-
-    def test_balanced_security_review_is_large_but_unmatched_large_text_is_silent(self):
-        review = self.route("security review of this branch")
-        self.assertIn("Routing:", review)
-        unmatched = self.route("Please summarize the current status for me. " + ("There are several details to consider. " * 12))
-        self.assertNotIn("Routing:", unmatched)
+    def test_balanced_never_routes_whatever_the_wording(self):
+        # The wording says nothing reliable about the size of the job, so
+        # balanced mode leaves the decision to Claude after it reads the code.
+        prompts = [
+            "fix the typo in the README title",
+            "Implement these independent changes:\n1. Add the first endpoint.\n2. Add the second endpoint.\n3. Add the third endpoint.",
+            "security review of this branch",
+            "Implement this large update across all files: " + ("Refactor each module carefully. " * 14),
+            "apply the fixes, build the binary and create the docs site",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt[:40]):
+                self.assertNotIn("Routing:", self.route(prompt))
 
     def test_direct_never_routes_and_fleet_preserves_existing_routing(self):
         direct = self.route("fix the typo in the README title", "direct")
@@ -87,7 +87,7 @@ class WorkStyleTests(unittest.TestCase):
         context = self.route("fix the typo in the README title", None)
         self.assertNotIn("Routing:", context)
 
-    def test_balanced_outage_uses_alternative_lane(self):
+    def test_balanced_stored_outage_adds_no_routing_line(self):
         self.set_style("balanced")
         (self.claude / "fleet.json").write_text(json.dumps({"lanes": {
             "implement": {"model": "sonnet"},
@@ -102,17 +102,18 @@ class WorkStyleTests(unittest.TestCase):
                           "at": now.isoformat().replace("+00:00", "Z"),
                           "until": (now + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")},
         }}), encoding="utf-8")
+        # The outage notice went out when the failure was seen; balanced mode
+        # does not repeat it as a routing line on later prompts.
         context = self.route("Implement this large update across all files: " + ("Refactor each module carefully. " * 14))
-        self.assertIn("Routing:", context)
-        self.assertIn("consider dispatching `fleet-implement-alt`", context)
-        self.assertIn("`fleet-implement` lane is failing", context)
-
-    def test_balanced_small_task_is_logged_with_small_task_reason(self):
-        self.set_style("balanced")
-        context = self.route("fix the typo in the README title")
         self.assertNotIn("Routing:", context)
+
+    def test_balanced_prompt_is_logged_without_its_text(self):
+        self.set_style("balanced")
+        self.route("fix the typo in the README title")
         entries = [json.loads(line) for line in (self.claude / "routing-log.jsonl").read_text().splitlines()]
-        self.assertTrue(any(item["reason"] == "small-task" for item in entries))
+        self.assertTrue(entries)
+        self.assertTrue(all(item["reason"] == "balanced" for item in entries))
+        self.assertTrue(all("prompt" not in item for item in entries))
 
     def test_config_work_style_renders_only_managed_policy(self):
         store = self.claude / "agentfleet"

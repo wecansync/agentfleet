@@ -169,6 +169,11 @@ def _main() -> int:
             sorted(unused.items()), lambda pair: f"{pair[0]} ({(pair[1].get('context_length') or 0) // 1000}K)"
         ))
 
+    if auto_approved:
+        # Applied without review, so Claude needs only what it cannot work
+        # around: lanes with no available model. The full lists stay in the
+        # proposal file for /fleet-setup.
+        parts = parts[:1] if missing else []
     notice_hash = notice_state.get("models_hash") if isinstance(notice_state, dict) else None
     should_notice = bool(parts) and notice_hash != models_hash
     if should_notice:

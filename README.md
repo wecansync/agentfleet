@@ -15,7 +15,7 @@ required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 By default Claude works on your task directly and uses a lane only for large
 work. See [Work style](#work-style).
 
-Version: **2.4.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.5.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -199,7 +199,7 @@ existing installs.
 
 | Style | Behavior |
 |---|---|
-| `balanced` (default) | Claude works directly. The prompt hook suggests a lane only for large prompts: 400 or more characters, three or more list items, broad wording such as "across the codebase", a branch or PR review, a security review, or codebase or web research. |
+| `balanced` (default) | Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, broad sweeps whose detail it won't need, and independent reviews of risky changes. The prompt hook adds no routing suggestion. |
 | `direct` | Claude uses a lane only when you ask for one. |
 | `fleet` | The 2.3 behavior: Claude delegates by default. |
 
@@ -386,8 +386,10 @@ Restart Claude Code after changing the work style.
 
 ### agent-brain hooks
 
-If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which save
-memory after every reply and after every lane run. To remove that step, run
+If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which ask
+Claude to save project memory as it works. Lanes can search that memory but never
+save to it: they report what they learned and the main conversation records it,
+which keeps each lane run to its task. To remove the hooks, run
 `agentfleet config agent-brain off` or answer no in the wizard, which asks only
 when `agent-brain` is installed. Without the CLI, `agentfleet config` shows
 `agent-brain: not installed` and nothing is connected.
@@ -649,7 +651,8 @@ your user permissions and are not sandboxed.
   - Migrations: `artisan migrate`, `rails db:migrate`, `prisma migrate`, `alembic`, `manage.py migrate`, etc.
   - Destructive SQL: `DROP`, `TRUNCATE`, `ALTER TABLE … DROP`, and unconstrained `DELETE`/`UPDATE` without a `WHERE` clause across DB CLI tools and MCP servers.
   - Dangerous file removal: `rm -rf` targeting root, home, parent directories, `.git`, or wildcard.
-  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`.
+  - Model failover: while a lane's own model is down (see [Outages and lane reports](#outages-and-lane-reports)), new runs of that lane start on the first of its fallback models that works, marked `(failover: <model>)` in the task description.
+  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover.
 
 ### Optional mods
 
@@ -728,9 +731,11 @@ claude-fleet-setup --compaction 300000   # absolute token override (disables per
 
 ## Outages and lane reports
 
-When a provider gateway responds to a lane model with a 5xx gateway error:
-- **Automatic outage tracking**: When a lane's model fails with a 5xx gateway error, that lane is marked as failing for 15 minutes from the failure in `~/.claude/agentfleet/outages.json`.
-- **Intelligent failover**: AgentFleet's routing hook alerts the main agent and suggests a configured non-outage alternative lane with a different model. While the outage lasts, a request routed to that lane is sent to the alternative instead.
+On a gateway profile, each lane in `~/.claude/fleet.json` has a model and up to three fallback models, ranked from your provider's live models. `/fleet-setup` can pin a lane to your own list instead, for example `fleet-implement` on `claude-haiku-5.5`, then `codex-luna`, then a Gemini model; the first is the lane's model and the rest are its fallbacks in that order. Native profiles have no fallbacks. When a lane run fails with an API error 429 (quota), 5xx or 529 (overloaded):
+- **Model outages**: AgentFleet records that model as down in `~/.claude/agentfleet/outages.json`: for 60 minutes after a 429, 15 minutes after other errors, or until a later run on it succeeds.
+- **Same-lane failover**: with the `lane-guard` mod on (the default), the lane keeps working. New runs start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane. In the example above, if `claude-haiku-5.5` runs out of quota, the next `fleet-implement` run uses `codex-luna`, and the Gemini model if `codex-luna` is down too.
+- **Another lane**: only when every model of a lane is down, or `lane-guard` is off, does the prompt hook name a lane with a working model instead. In the `fleet` work style a request routed to that lane is sent to the alternative while the outage lasts.
+- **Status**: the fleet-status band shows which model a lane switched to, and `/fleet-status` lists the models that are down.
 - **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), and API errors, allowing the main agent to verify lane actions before merging.
 - **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.
 

@@ -1,4 +1,5 @@
-import type { CoreEngineInterface, On, Register, ToolCallInput } from 'claude-code';
+import type { AgentSpawnInput, CoreEngineInterface, On, Register, ToolCallInput } from 'claude-code';
+import { claudeDirectory, failoverModel, laneName, markDescription, SOURCE_LIMIT_BYTES } from './failover.js';
 import { forbiddenReason, mcpForbidden, redactSecrets } from './rules.js';
 
 const agentTypeCache = new Map<string, string>();
@@ -92,7 +93,48 @@ async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny:
   };
 }
 
+async function readSource($: CoreEngineInterface, path: string): Promise<string | null> {
+  try {
+    const stat = await $.fs.stat(path, { resolve: true });
+    if (stat.kind !== 'file' || stat.realPath !== path || stat.size > SOURCE_LIMIT_BYTES) return null;
+    return await $.fs.read(path);
+  } catch {
+    return null;
+  }
+}
+
+// Start a fleet lane on another of its models while its own model is down.
+// Returns the rewrite, or null to leave the spawn as the caller made it.
+async function failover($: CoreEngineInterface, e: AgentSpawnInput): Promise<Partial<AgentSpawnInput> | null> {
+  // A fork inherits its parent's model, a workflow agent cannot be rewritten,
+  // and a caller that named a model chose it on purpose.
+  if (e.fork || e.workflow || e.isTeammate || e.model) return null;
+  const lane = laneName(e.subagentType);
+  const base = claudeDirectory($.plugin.root);
+  if (!lane || !base) return null;
+  const project = await $.session.root().catch(() => null);
+  const [fleet, outages, local] = await Promise.all([
+    readSource($, `${base}/fleet.json`),
+    readSource($, `${base}/agentfleet/outages.json`),
+    project ? readSource($, `${project.replace(/[\\/]+$/, '')}/.claude/fleet.local.json`) : Promise.resolve(null),
+  ]);
+  const model = failoverModel(fleet, outages, lane, await $.clock.now(), local);
+  if (!model) return null;
+  $.ui.log(`lane-guard: fleet-${lane}'s model is down; starting it on ${model}`);
+  return { model, description: markDescription(e.description, model) };
+}
+
 export const register: Register = (on: On) => {
+  on('agent.spawn', async ($, e, next) => {
+    // As for tool.call: decide in try, call next() once outside it.
+    let rewrite: Partial<AgentSpawnInput> | null = null;
+    try {
+      rewrite = await failover($, e);
+    } catch {
+      rewrite = null;
+    }
+    return next(rewrite ? { ...e, ...rewrite } : e);
+  });
   on('tool.call', async ($, e, next) => {
     // Decide inside try, but call next() exactly once outside it: retrying
     // next() from a catch would run the tool a second time if it threw.

@@ -620,7 +620,11 @@ class ProviderRepairTests(unittest.TestCase):
             malformed_status = subprocess.run([PYTHON, str(ROOT / "scripts/subagent-statusline.py")], input="[]", text=True, env=env, capture_output=True)
             self.assertEqual(malformed_status.returncode, 0)
             secret = "sk-" + "x" * 40
-            prompt = "ordinary words " + secret + " after secret crossing the excerpt boundary " + ("z" * 260)
+            # Only the fleet work style keeps a prompt excerpt (for tuning
+            # routing), so that is where redaction matters.
+            preferences = home / ".claude" / "agentfleet" / "config.json"
+            preferences.parent.mkdir(parents=True, exist_ok=True)
+            preferences.write_text(json.dumps({"workStyle": "fleet"}), encoding="utf-8")
             prompt = "opaque request " + secret + " and no recognizable routing keyword " + ("z" * 260)
             routed = subprocess.run([PYTHON, str(ROOT / "scripts/route-to-fleet.py")], input=json.dumps({"prompt": prompt}), text=True, env=env, capture_output=True)
             self.assertEqual(routed.returncode, 0)
@@ -1570,6 +1574,11 @@ class ProviderRepairTests(unittest.TestCase):
             proposal = json.loads((home / ".claude" / "fleet-model-proposal.json").read_text(encoding="utf-8"))
             self.assertEqual(proposal["decision"], "approved")
             self.assertTrue(proposal.get("auto_approved"))
+            # Applied without review: the session gets no list of unused
+            # models, which stays in the proposal file for /fleet-setup.
+            self.assertTrue(any(model.startswith("codex-sol") for model in proposal["available_models_unused_by_fleet"]))
+            self.assertNotIn("unused by any lane", proc.stdout)
+            self.assertEqual(proc.stdout.strip(), "")
 
 
 class FleetSetupComprehensiveTests(unittest.TestCase):
@@ -1894,6 +1903,20 @@ class AgentFleetTwoTests(unittest.TestCase):
         self.assertEqual(again["lanes"]["implement"].get("fallbacks"), implement.get("fallbacks"), "top-up converges")
         native = ns["native_fleet"]({**fleet, "excludedModels": ["opus"]})
         self.assertNotIn("opus", {c["model"] for c in native["lanes"].values()}, "native lanes avoid an excluded alias")
+
+    def test_lane_pinned_to_four_models_keeps_three_fallbacks_in_order(self):
+        # lane-guard fails a lane over along this list, so a user's own chain
+        # (model then three fallbacks) must survive reconciliation intact.
+        ns = self.reconcile()
+        rows = [{"id": model, "context_length": 400000} for model in ("claude-haiku-5-5", "codex-luna", "gemini-pro", "grok-5", "claude-opus-5")]
+        fleet = json.loads((ROOT / "config/delegate-fleet.json").read_text(encoding="utf-8"))
+        chain = ["claude-haiku-5-5", "codex-luna", "gemini-pro", "grok-5"]
+        fleet["lanes"]["implement"]["preferred"] = chain
+        resolved, *_ = ns["resolve_fleet"](fleet, {}, rows, GENERIC_POLICY)
+        implement = resolved["lanes"]["implement"]
+        self.assertEqual([implement["model"], *implement.get("fallbacks", [])], chain)
+        again, *_ = ns["resolve_fleet"](resolved, {}, rows, GENERIC_POLICY)
+        self.assertEqual(again["lanes"]["implement"].get("fallbacks"), chain[1:], "a second pass keeps the chain")
 
     def test_exclude_and_include_flags(self):
         with tempfile.TemporaryDirectory(prefix="agentfleet exclude ") as raw:
