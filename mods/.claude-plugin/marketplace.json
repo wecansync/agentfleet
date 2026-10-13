@@ -17,7 +17,7 @@
     {
       "name": "token-weather",
       "source": "./token-weather",
-      "description": "Optional: a live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
+      "description": "A live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
     },
     {
       "name": "fast-jev-compaction",

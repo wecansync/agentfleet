@@ -211,16 +211,27 @@ REVIEWER_ACCESS = ("full", "run", "read-only")
 WORK_STYLES = ("direct", "balanced", "fleet")
 # agentBrain None means "wire agent-brain when its CLI is on PATH", the
 # behaviour before 2.4.0; True or False is the user's explicit choice.
+# askFirst keeps the policy's "How to approach a task" section: investigate
+# and agree on the approach before large, unclear or risky work.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
-                       "workStyle": "balanced", "agentBrain": None}
+                       "workStyle": "balanced", "agentBrain": None, "askFirst": True}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
+ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 
 
-def render_policy(template: str, style: str) -> str:
+def render_policy(template: str, style: str, ask_first: bool = True) -> str:
     """Keep the template's block for ``style`` and drop the other styles'
-    blocks and every block marker. An unknown style renders as balanced."""
+    blocks and every block marker. An unknown style renders as balanced.
+    The ask-first section is kept only when ``ask_first`` is true."""
     style = style if style in WORK_STYLES else PREFERENCE_DEFAULTS["workStyle"]
+    template = ASK_FIRST_BLOCK.sub(lambda match: match.group(1) if ask_first else "", template)
     return POLICY_BLOCK.sub(lambda match: match.group(2) if match.group(1) == style else "", template)
+
+
+def render_policy_for(template: str, preferences: dict) -> str:
+    """Render the policy for the user's effective preferences."""
+    return render_policy(template, preferences.get("workStyle", PREFERENCE_DEFAULTS["workStyle"]),
+                         preferences.get("askFirst", PREFERENCE_DEFAULTS["askFirst"]) is not False)
 
 
 def preferences_path(home: Path) -> Path:
@@ -252,6 +263,8 @@ def load_preferences(home: Path) -> dict:
         preferences["workStyle"] = raw["workStyle"]
     if isinstance(raw.get("agentBrain"), bool):
         preferences["agentBrain"] = raw["agentBrain"]
+    if isinstance(raw.get("askFirst"), bool):
+        preferences["askFirst"] = raw["askFirst"]
     return preferences
 
 
@@ -269,6 +282,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError(f"workStyle must be one of {', '.join(WORK_STYLES)}")
         if key == "agentBrain" and not isinstance(value, bool):
             raise ValueError("agentBrain must be true or false")
+        if key == "askFirst" and not isinstance(value, bool):
+            raise ValueError("askFirst must be true or false")
         if key not in PREFERENCE_DEFAULTS:
             raise ValueError(f"unknown preference: {key}")
     path = preferences_path(home)

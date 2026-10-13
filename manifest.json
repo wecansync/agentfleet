@@ -139,12 +139,12 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "2fcc997b2d4b855d74991c6fedc773582f85606f0ba073880561745c462864d4",
+      "sha256": "c7918f7bb53f4de8c0af369e708a776cfbaaa3e763f12a6305d171a15fd398af",
       "mode": "0o755"
     },
     {
       "path": "bin/claude-agents-doctor",
-      "sha256": "1fbc1d3b69060c6e260dfc98f06b287fad7319919ce31896290a613715686eab",
+      "sha256": "6c297193a97ed548fab2123e57c77de8a1d1df00c5df686edf643ba6c61266af",
       "mode": "0o755"
     },
     {
@@ -159,12 +159,12 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "e37ead0de116a5519e8d3246ab474dc38254210b6d3913801f9dcc594ad11e9b",
+      "sha256": "db1135163cf521cdfaa6c98636341976b983085eb40467586abe0f3bebfa4073",
       "mode": "0o755"
     },
     {
       "path": "config/agentfleet.md",
-      "sha256": "4bb4ccbcb3d09ba73fb3638b936af71aaef8c53f426bf985ecc98d11ec3c0fe7",
+      "sha256": "7fc852da2f2f40a2718e78aac4bf84d02d91033ec1011ccfaeb58d0415c22fa5",
       "mode": "0o644"
     },
     {
@@ -204,7 +204,7 @@
     },
     {
       "path": "mods/.claude-plugin/marketplace.json",
-      "sha256": "5333f1c49b20f450ec91250bab95eecc1ac513ceafdfeac23e5a842199b5f57a",
+      "sha256": "c4eebc49000e6d2dc96aa83fe9f5f901d80d1126fb767d1b0c829e84d34cc658",
       "mode": "0o644"
     },
     {
@@ -314,7 +314,7 @@
     },
     {
       "path": "mods/fleet-status/hooks/status.ts",
-      "sha256": "93d863c86f184113f0eb6facbc23587d12ef35f1de3a787fd2840573a2346b61",
+      "sha256": "2833582a0aa6a56127a9841738d021c2b6e36cebd03bd3bf948a91291f52a229",
       "mode": "0o644"
     },
     {
@@ -324,7 +324,7 @@
     },
     {
       "path": "mods/fleet-status/tests/status.test.ts",
-      "sha256": "5393650b60ebfb3f386edb8179599e471b855fa1308d62183567483d8008286f",
+      "sha256": "471836028ea819bc53fbe1712b138cb290e05e6a36f56852546c60a6767ecdb3",
       "mode": "0o644"
     },
     {
@@ -394,7 +394,7 @@
     },
     {
       "path": "mods/token-weather/.claude-plugin/plugin.json",
-      "sha256": "fee0ce40e337e524da9f8fe51d7569f5a34615af63c0a95c429175e0cc771a96",
+      "sha256": "020b06dbaac10b1908c9f4c256d0bcbbe8206cd0aa5e98ced10bd87adde67486",
       "mode": "0o644"
     },
     {
@@ -409,7 +409,7 @@
     },
     {
       "path": "mods/token-weather/UPSTREAM.md",
-      "sha256": "07522b2fe7ce920d1d0c949874a984324962e58c89a992f9646d243af412906c",
+      "sha256": "d365ae790ef6f05c72342e531ad7db46677dc9eeb7edbf9200a095595eda3613",
       "mode": "0o644"
     },
     {
@@ -419,7 +419,12 @@
     },
     {
       "path": "mods/token-weather/hooks/token-weather.mjs",
-      "sha256": "547cadbeaa2f9a662ce27cf9935d7963fc7833c377a938d2b872afe9f7fba3af",
+      "sha256": "55bf802827eedc191cbecfbd8358be9c4671e063d2ba8872679b316d90fd78de",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/token-weather/tests/band.test.ts",
+      "sha256": "97087f876b71f8385fc9c250b5f262f146b3a1d242adfcb38b4ed41fb5bfe273",
       "mode": "0o644"
     },
     {
@@ -434,7 +439,7 @@
     },
     {
       "path": "scripts/fleet_configure.py",
-      "sha256": "9da473b62c7607a95d8865879649cc562146fe9e9453f7d6ede1ed093ad19b02",
+      "sha256": "f031ff16de6235c1a953b0087171bf5fd9eb2298ff1140c9e3886c151ddfe0da",
       "mode": "0o644"
     },
     {
@@ -459,7 +464,7 @@
     },
     {
       "path": "scripts/provider_catalog.py",
-      "sha256": "149b18147d45cff7f743c2e6d5bcc7c3eabbdd938f244f617f6e4608549058c0",
+      "sha256": "ccc46e63cfa487fbaa384b723a562ed4a665bcc85503049c3db35999a3dc3c33",
       "mode": "0o755"
     },
     {
@@ -509,7 +514,7 @@
     },
     {
       "path": "tests/test_configure.py",
-      "sha256": "c0bb7ae17781e1cc04d0bd02267c4d79ebc742264c4c0abadb8f0b0f606c1778",
+      "sha256": "f1ea2a1e0704d985761e9f8d1629b1b1bba9a3dc3f359d4997b4612923be055e",
       "mode": "0o644"
     },
     {
@@ -519,7 +524,7 @@
     },
     {
       "path": "tests/test_install_220.py",
-      "sha256": "56b7841cfe1b3afc316799e7bd679921398d36c52d7799a43d39fb495b021899",
+      "sha256": "a486afd94eb3f3098346ecc4c53080665533f748fdd40f03502f2044fc523c5e",
       "mode": "0o644"
     },
     {
@@ -549,7 +554,7 @@
     },
     {
       "path": "tests/test_mods.py",
-      "sha256": "91f495349f937441a11c201bccfb078aafcac22acc582fb8764e9192c26621c3",
+      "sha256": "1acf074f0522231a4c05ce695cc776fb8dd8938352095de19281d8833113ff18",
       "mode": "0o644"
     },
     {
@@ -594,7 +599,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "722902d99e9838e3cce9f24d1efe51f63813de4dac9224fb2556560a30af47a7",
+      "sha256": "b7e0a7cc083ae4c1fe779b986ff677a26765176af4d7789b542ed497d9ab5aeb",
       "mode": "0o644"
     },
     {

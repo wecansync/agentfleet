@@ -14,7 +14,8 @@ import sys
 import provider_catalog
 
 MODS_MESSAGE = "AgentFleet mods are not registered; run the installer with --mods to use this"
-PLUGIN_IDS = {"jev": "fast-jev-compaction@agentfleet", "statusBand": "fleet-status@agentfleet", "laneGuard": "lane-guard@agentfleet"}
+PLUGIN_IDS = {"jev": "fast-jev-compaction@agentfleet", "statusBand": "fleet-status@agentfleet", "laneGuard": "lane-guard@agentfleet",
+              "tokenWeather": "token-weather@agentfleet"}
 
 
 def read_json(path):
@@ -56,7 +57,8 @@ def plugins(paths):
 
 
 def current(api, paths, key):
-    pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn", "workStyle": "workStyle"}
+    pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn", "workStyle": "workStyle",
+            "askFirst": "askFirst"}
     if key in pref:
         return provider_catalog.load_preferences(paths.home)[pref[key]]
     if key == "agentBrain":
@@ -72,12 +74,12 @@ def current(api, paths, key):
 
 
 def apply(api, paths, key, value):
-    if key in ("compact", "reviewerAccess", "learn", "workStyle", "agentBrain"):
+    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain"):
         setting = {
             "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
-            "workStyle": "work-style", "agentBrain": "agent-brain",
+            "workStyle": "work-style", "askFirst": "ask-first", "agentBrain": "agent-brain",
         }[key]
-        text = ("on" if value else "off") if key in ("learn", "agentBrain") else str(value)
+        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -125,6 +127,8 @@ FEATURES = (
     Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
     Feature("autoUpdate", "2.3.0", "Install AgentFleet updates automatically in the background? (Y/n)", "yes/no"),
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
+    Feature("askFirst", "2.5.0", "Before large, unclear or risky tasks, should Claude check the docs, investigate, and agree on the approach with you (workflow, worktrees, new-project setup)? Small, clear tasks are done straight away. (Y/n)", "yes/no"),
+    Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
     Feature("agentBrain", "2.4.0", "Connect agent-brain memory hooks? They add a memory-saving step to every reply and lane run. (Y/n)", "yes/no"),
     Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
@@ -133,13 +137,13 @@ FEATURES = (
 def validate_preset(data):
     if not isinstance(data, dict):
         raise ValueError("preset must be an object")
+    # The instruction check is an action, so presets cannot carry it.
+    known = {f.key: f for f in FEATURES if f.key != "instructions"}
     for key in data:
-        if any(word in key.lower() for word in ("key", "token", "secret")):
+        if key not in known and any(word in key.lower() for word in ("key", "token", "secret")):
             raise ValueError("presets must not contain secrets")
     if data.get("format") != "agentfleet.preset.v1":
         raise ValueError("unsupported preset format")
-    # The instruction check is an action, so presets cannot carry it.
-    known = {f.key: f for f in FEATURES if f.key != "instructions"}
     for key, value in data.items():
         if key == "format":
             continue

@@ -493,13 +493,14 @@ def validate_policy_files(home: Path, errors: list[str]) -> None:
         return
     try:
         preferences = provider_catalog.load_preferences(home)
-        expected = provider_catalog.render_policy(template, preferences["workStyle"])
+        expected = provider_catalog.render_policy_for(template, preferences)
         actual = rendered_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         fail(errors, f"cannot validate rendered policy ({rendered_path}): {exc}")
         return
     if actual != expected:
-        fail(errors, f"rendered policy does not match workStyle={preferences['workStyle']}: {rendered_path}")
+        fail(errors, f"rendered policy does not match workStyle={preferences['workStyle']}, "
+                     f"askFirst={'on' if preferences['askFirst'] else 'off'}: {rendered_path}")
     for path in (template_path, rendered_path):
         if path.is_symlink():
             fail(errors, f"installed policy file is a symlink: {path}")

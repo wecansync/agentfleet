@@ -119,9 +119,11 @@ export function parseJev(source: string | null | undefined): JevStats | null {
 const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand', 'laneGuard', 'autoUpdate']
 // The instruction check is an action offered by the wizard, not a new option.
 const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
+const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
-  const optionKeys = isVersion24(version) ? optionKeys24 : optionKeys23
+  const minor = releaseMinor(version)
+  const optionKeys = minor >= 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
       !data.asked.every(key => typeof key === 'string')) return optionKeys.length
@@ -130,10 +132,12 @@ export function parseNewOptions(source: string | null | undefined, version: stri
   return optionKeys.filter(key => !asked.includes(key)).length
 }
 
-function isVersion24(version: string | null): boolean {
-  if (!version || !versionPattern.test(version) || /-/.test(version)) return false
+// The 2.x minor of a final release (a later major counts as the newest list);
+// prereleases and unknown versions count as 2.3, the first wizard release.
+function releaseMinor(version: string | null): number {
+  if (!version || !versionPattern.test(version) || /-/.test(version)) return 3
   const [major, minor] = version.split(/[.+-]/).slice(0, 2).map(Number)
-  return major > 2 || (major === 2 && minor >= 4)
+  return major > 2 ? Number.MAX_SAFE_INTEGER : major === 2 ? minor : 3
 }
 
 export function hasWizardOptions(version: string | null): boolean {

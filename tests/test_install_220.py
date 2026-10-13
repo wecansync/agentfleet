@@ -234,7 +234,7 @@ class Install220Tests(unittest.TestCase):
 
         meta = self.metadata(home)
         self.assertEqual(meta.get("modsState"), "registered")
-        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard"])
+        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
 
     def test_lane_guard_added_once_on_update_from_210_style_metadata(self):
         home = self.home_for()
@@ -262,13 +262,45 @@ class Install220Tests(unittest.TestCase):
         self.assertIn(["plugin", "install", "lane-guard@agentfleet"], [c["argv"] for c in self.calls()])
 
         meta_after = self.metadata(home)
-        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard"])
+        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
 
         # Second update: lane-guard must not be installed again
         self.log_path.write_text("")
         up2 = self.install(home)
         self.assertEqual(up2.returncode, 0, up2.stderr + up2.stdout)
         self.assertNotIn(["plugin", "install", "lane-guard@agentfleet"], [c["argv"] for c in self.calls()])
+
+    def test_token_weather_added_once_on_update_from_24x_and_never_readded(self):
+        home = self.home_for()
+        self.assertEqual(self.install(home).returncode, 0)
+        # A 2.4.x install: both earlier defaults recorded, token-weather never installed.
+        meta_path = home / ".claude" / ".claude-agents-config-install.json"
+        meta = json.loads(meta_path.read_text())
+        meta["modsInstalled"] = ["fleet-status", "lane-guard"]
+        meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+        state = json.loads(self.state_path.read_text())
+        state["plugins"] = [{"id": "fleet-status@agentfleet", "enabled": True},
+                            {"id": "lane-guard@agentfleet", "enabled": True}]
+        self.set_fake_state(state)
+        self.log_path.write_text("")
+
+        up = self.install(home)
+        self.assertEqual(up.returncode, 0, up.stderr + up.stdout)
+        self.assertIn("Added the token-weather mod", up.stdout)
+        calls = [c["argv"] for c in self.calls()]
+        self.assertIn(["plugin", "install", "token-weather@agentfleet"], calls)
+        self.assertNotIn(["plugin", "install", "lane-guard@agentfleet"], calls)
+        self.assertEqual(self.metadata(home).get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
+
+        # The user removes it: later updates leave it removed.
+        state = json.loads(self.state_path.read_text())
+        state["plugins"] = [p for p in state.get("plugins", []) if p.get("id") != "token-weather@agentfleet"]
+        self.set_fake_state(state)
+        self.log_path.write_text("")
+        again = self.install(home)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertNotIn(["plugin", "install", "token-weather@agentfleet"], [c["argv"] for c in self.calls()])
+        self.assertNotIn("Added the token-weather mod", again.stdout)
 
     def test_lane_guard_not_readded_when_modsinstalled_lists_it_but_cli_does_not(self):
         home = self.home_for()

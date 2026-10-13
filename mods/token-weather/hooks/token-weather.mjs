@@ -8,7 +8,8 @@
 // the last HISTORY readings.
 // session.start: take a first reading, so the band shows before any turn.
 // ui.render (AbovePrompt): one line: icon, forecast word, percent, tokens
-// used of the window, and a block-character chart of the recent turns.
+// used of the window, and a block-character chart of the recent turns, drawn
+// after whatever the other mods put in the band.
 //
 // The host reads on(...) and $.noun.method(...) from source, so they are
 // spelled literally, and helpers that take $ are top-level functions.
@@ -46,13 +47,29 @@ export function register(on) {
     return result;
   });
 
-  on("ui.render", { component: "AbovePrompt" }, ($, e, next) => {
-    if (e.hasSurvey || readings.length === 0) {
-      return next(e);
-    }
-    const { Box, Text } = $.ui.resolve(e);
-    return band(Box, Text, e.bodyColumns ?? 80);
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    // Other mods draw in this band too: always keep what they drew.
+    const others = await next(e);
+    return withBand($, e, others);
   });
+}
+
+// The band for one render: the other mods' part, then this forecast. The
+// wrapper has no width, because the engine rejects another mod's node under a
+// Box with a width.
+export function withBand($, e, others) {
+  const props = e.props ?? {};
+  if (props.hasSurvey || readings.length === 0) {
+    return others;
+  }
+  const { Box, Text } = $.ui.resolve(e);
+  const own = band(Box, Text, props.bodyColumns ?? 80);
+  return others ? Box({ flexDirection: "column", children: [others, own] }) : own;
+}
+
+// For tests: replace the readings the band draws.
+export function setReadings(next) {
+  readings = next;
 }
 
 async function takeReading($) {

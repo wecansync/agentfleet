@@ -4,6 +4,31 @@
 
 AgentFleet adds the `fleet-*` subagents, called lanes. Each lane runs on a model picked for its role, and its description says what it is for. `agentfleet config` shows the current settings.
 
+<!-- ask-first -->
+## How to approach a task
+
+Do small, clear tasks straight away. For larger, unclear or risky ones, investigate first and agree on the approach before changing code, unless the user has already said how to proceed.
+
+- **Docs first:** before changing an area or answering how something works, search the project's `docs/`, README and CLAUDE.md for it, then the code; search the web only for outside libraries and services. Check which version of a library the project uses before relying on its API.
+- **Unclear:** ask what is still open in one message, with your recommended answer to each question. Never ask what you can find out yourself.
+- **Risky or doubtful** (data loss, security, breaking changes, or a request that does not fit the code): say what worries you and recommend a safer way first.
+- **Large:** offer the ways to run it, with your recommendation:
+  - *Spec Kit* for a new feature whose requirements need pinning down. If the project lacks it, offer to install it (`uv tool install specify-cli`, then `specify init --here --integration claude --integration-options="--no-model-invocation"`) and to write its constitution with `/speckit-constitution`.
+<!-- work-style:direct -->
+  - *A plan to approve*, then build, test and fix it yourself.
+<!-- /work-style -->
+<!-- work-style:balanced -->
+  - *A plan to approve*, then lanes for the independent parts, then a review.
+<!-- /work-style -->
+<!-- work-style:fleet -->
+  - *A plan to approve*, then lanes for the independent parts, then a review.
+<!-- /work-style -->
+- **Several tasks:** ask whether to give each its own git worktree (parallel; best when they change different areas) or do them in turn in the current checkout (best when they share files).
+- **New project:** ask whether there is a base project or boilerplate to start from, then propose the structure, design pattern and, for a backend, the database schema before writing code.
+- **Stuck:** after two failed attempts at the same fix, stop and report what you tried.
+- **Remember:** follow a "Workflow" section in the project's CLAUDE.md instead of asking; once the user picks a workflow for a project, offer to record it there.
+
+<!-- /ask-first -->
 ## Work style
 
 <!-- work-style:balanced -->

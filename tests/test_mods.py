@@ -17,6 +17,7 @@ PYTHON = sys.executable
 INSTALLER = ROOT / "bin" / "install.py"
 MOD_ID = "fleet-status@agentfleet"
 GUARD_ID = "lane-guard@agentfleet"
+WEATHER_ID = "token-weather@agentfleet"
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
 import json
 import os
@@ -223,10 +224,11 @@ class ModInstallerTests(unittest.TestCase):
             ["plugin", "list", "--json"],
             ["plugin", "install", MOD_ID],
             ["plugin", "install", GUARD_ID],
+            ["plugin", "install", WEATHER_ID],
         ])
         self.assertTrue(all(call["HOME"] == str(home) for call in calls))
         self.assertEqual(json.loads(self.state_path.read_text())["plugins"],
-                         [{"id": MOD_ID, "enabled": True}, {"id": GUARD_ID, "enabled": True}])
+                         [{"id": MOD_ID, "enabled": True}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}])
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
 
@@ -251,9 +253,9 @@ class ModInstallerTests(unittest.TestCase):
         self.assertIn(["plugin", "list", "--json"], argv)
         self.assertNotIn(["plugin", "install", MOD_ID], argv)
         self.assertFalse(any(args[:2] == ["plugin", "disable"] for args in argv))
-        # The disabled plugin stays disabled; only the missing default is added.
+        # The disabled plugin stays disabled; only the missing defaults are added.
         self.assertEqual(json.loads(self.state_path.read_text())["plugins"],
-                         [{"id": MOD_ID, "enabled": False}, {"id": GUARD_ID, "enabled": True}])
+                         [{"id": MOD_ID, "enabled": False}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}])
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
 
@@ -285,7 +287,7 @@ class ModInstallerTests(unittest.TestCase):
         later = self.install(home, fake=True)
         self.assertEqual(later.returncode, 0, later.stderr + later.stdout)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
-        self.assertEqual([call["argv"] for call in self.calls()][-2:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID]])
+        self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
 
     def test_unsupported_claude_version_is_skipped_without_record(self):
         self.set_fake_state(new_state(version="2.1.200 (Claude Code)"))
@@ -317,7 +319,7 @@ class ModInstallerTests(unittest.TestCase):
                 override = self.install(home, "--mods", mods=mods_env)
                 self.assertEqual(override.returncode, 0, override.stderr + override.stdout)
                 self.assertEqual(self.metadata(home).get("modsState"), "registered")
-                self.assertEqual([call["argv"] for call in self.calls()][-2:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID]])
+                self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
 
     def test_dry_run_makes_no_claude_calls(self):
         home = self.home_for()
@@ -391,7 +393,7 @@ class ModInstallerTests(unittest.TestCase):
         later = self.install(home)
         self.assertEqual(later.returncode, 0, later.stderr + later.stdout)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
-        self.assertEqual([call["argv"] for call in self.calls()][-2:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID]])
+        self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
 
     def test_failed_plugin_install_still_records_marketplace_ownership_for_uninstall(self):
         home = self.home_for()
@@ -468,6 +470,7 @@ class ModInstallerTests(unittest.TestCase):
         self.assertIn(["plugin", "marketplace", "add", str(home / ".claude/agentfleet/mods")], argv)
         self.assertIn(["plugin", "install", MOD_ID], argv)
         self.assertIn(["plugin", "install", GUARD_ID], argv, "a re-added catalog gets every default mod back")
+        self.assertIn(["plugin", "install", WEATHER_ID], argv)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
 

@@ -322,7 +322,8 @@ def claude_json(executable: str, home: Path, *args: str) -> object | None:
 def manual_mod_commands(mods_dir: Path) -> str:
     return (f'claude plugin marketplace add "{mods_dir}" and '
             'claude plugin install fleet-status@agentfleet and '
-            'claude plugin install lane-guard@agentfleet')
+            'claude plugin install lane-guard@agentfleet and '
+            'claude plugin install token-weather@agentfleet')
 
 
 def marketplace_is_ours(item: dict, mods_dir: Path) -> bool:
@@ -354,6 +355,15 @@ def marketplace_entry(value: object) -> dict | None:
 
 def print_mod_manual(mods_dir: Path) -> None:
     print(f"Claude Code plugin registration was skipped; run: {manual_mod_commands(mods_dir)}")
+
+
+# Mods installed once by default; one the user later removes is not re-added.
+DEFAULT_MODS = (
+    ("fleet-status", "fleet-status@agentfleet"),
+    ("lane-guard", "lane-guard@agentfleet"),
+    ("token-weather", "token-weather@agentfleet"),
+)
+DEFAULT_MOD_NAMES = tuple(name for name, _ in DEFAULT_MODS)
 
 
 def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
@@ -396,11 +406,7 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
         installed = ["fleet-status"]
     else:
         installed = []
-    default_mods = [
-        ("fleet-status", "fleet-status@agentfleet"),
-        ("lane-guard", "lane-guard@agentfleet"),
-    ]
-    for name, plugin_id in default_mods:
+    for name, plugin_id in DEFAULT_MODS:
         already_in_meta = any(item in {name, plugin_id} for item in installed)
         already_in_cli = any(
             isinstance(item, dict) and item.get("id") == plugin_id
@@ -421,6 +427,8 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
             return True, False
         if name == "lane-guard":
             print("Added the lane-guard mod: fleet lanes can no longer commit, push, deploy, run migrations or destructive SQL, or revert the working tree. Turn it off with /plugin.")
+        if name == "token-weather":
+            print("Added the token-weather mod: a forecast of how full the context window is, above the prompt. Turn it off with /plugin or agentfleet configure.")
         if name not in installed:
             installed.append(name)
     update_mods_metadata(home, {"modsInstalled": installed})
@@ -2868,8 +2876,8 @@ def managed_specs(
 
     add(claude / "settings.json", settings_bytes, 0o600, "home:.claude/settings.json")
     policy_template = source_bytes(bundle, "config/agentfleet.md")
-    policy = provider_catalog.render_policy(
-        policy_template.decode("utf-8"), provider_catalog.load_preferences(home)["workStyle"],
+    policy = provider_catalog.render_policy_for(
+        policy_template.decode("utf-8"), provider_catalog.load_preferences(home),
     ).encode("utf-8")
     add(claude / "rules" / "agentfleet.md", policy, 0o644, "home:.claude/rules/agentfleet.md")
     add(claude / "agentfleet" / "policy-template.md", policy_template, 0o644, "home:.claude/agentfleet/policy-template.md")
@@ -3770,7 +3778,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     print("      agentfleet profiles | agentfleet use native | agentfleet status | agentfleet doctor")
     if declined_mods and not getattr(args, "mods", False):
         print("Claude Code plugin registration was declined; pass --mods to enable it.")
-    elif mods_state != "registered" or not {"fleet-status", "lane-guard"}.issubset(set(previous.get("modsInstalled") or [])):
+    elif mods_state != "registered" or not set(DEFAULT_MOD_NAMES).issubset(set(previous.get("modsInstalled") or [])):
         mods_dir = mods_dir_for_home(home)
         try:
             owned, registered = register_mods(home, mods_dir)
@@ -3937,11 +3945,12 @@ def uninstall(args: argparse.Namespace, bundle: Path, dry: bool) -> int:
 
 
 def rendered_policy_digests(template_path: Path) -> set[str]:
-    """Digests of every work-style rendering of the installed policy template.
+    """Digests of every rendering of the installed policy template.
 
-    `agentfleet config work-style` re-renders rules/agentfleet.md without
-    updating the install record, so uninstall accepts any of these renderings
-    as AgentFleet's own file rather than a user edit.
+    `agentfleet config work-style` and `config ask-first` re-render
+    rules/agentfleet.md without updating the install record, so uninstall
+    accepts any of these renderings as AgentFleet's own file rather than a
+    user edit.
     """
     try:
         if template_path.is_symlink() or not template_path.is_file():
@@ -3950,8 +3959,9 @@ def rendered_policy_digests(template_path: Path) -> set[str]:
     except (OSError, UnicodeError):
         return set()
     return {
-        hashlib.sha256(provider_catalog.render_policy(template, style).encode("utf-8")).hexdigest()
+        hashlib.sha256(provider_catalog.render_policy(template, style, ask_first).encode("utf-8")).hexdigest()
         for style in provider_catalog.WORK_STYLES
+        for ask_first in (True, False)
     }
 
 
