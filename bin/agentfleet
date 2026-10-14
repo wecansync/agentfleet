@@ -1089,13 +1089,12 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print(f"agentfleet: {exc}", file=sys.stderr)
             return 2
         if binary is not None:
-            # agent-brain writes and removes its own hooks and memory server.
+            # agent-brain writes and removes its own hooks.
             code, output = (agent_brain.connect if enabled else agent_brain.disconnect)(paths.home, binary)
             if code:
                 print(f"agentfleet: agent-brain {'install' if enabled else 'uninstall'} failed: {output[-500:]}", file=sys.stderr)
                 return 1
-            print("agent-brain is connected to Claude Code. For memory across sessions (agent-brain Pro): "
-                  "agent-brain login, then agent-brain memory enable" if enabled
+            print("agent-brain is connected to Claude Code and records the tokens and cost of each session." if enabled
                   else "agent-brain is disconnected from Claude Code; it stays installed and keeps its data.")
         release = current_release(paths)
         if release is None:

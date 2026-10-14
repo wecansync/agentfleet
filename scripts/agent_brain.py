@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Install, update and connect agent-brain, which records token usage per
-session and, with an agent-brain Pro account, keeps project memory.
+"""Install, update and connect agent-brain, the free tool that records the
+tokens and cost of each Claude Code session.
 
 Releases come from the manifest at agentbrain.wecansync.com: an archive must
 match the manifest's size and SHA-256, and only the agent-brain executable is
-taken from it. The Claude Code hooks and the memory MCP server belong to
-agent-brain itself: `agent-brain install --assistant claude-code` writes them and
+taken from it. The Claude Code hooks belong to agent-brain itself:
+`agent-brain install --assistant claude-code` writes them and
 `agent-brain uninstall --assistant claude-code` removes them.
 """
 from __future__ import annotations
@@ -39,9 +39,6 @@ ARCHIVE_LIMIT = 128 * 1024 * 1024
 BINARY_LIMIT = 256 * 1024 * 1024
 VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 ASSET_NAME_RE = re.compile(r"agent-brain_[a-z0-9]+_[a-z0-9]+\.(?:tar\.gz|zip)")
-# agent-brain's own settings, plus what `agent-brain login` needs to open a
-# browser. The gateway token and other credentials never reach it.
-PASSTHROUGH_ENV = {"DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS", "BROWSER"}
 
 
 class AgentBrainError(Exception):
@@ -96,8 +93,10 @@ def environment(home: Path) -> dict[str, str]:
         if os.name == "nt":
             env["APPDATA"] = str(home / "AppData" / "Roaming")
             env["LOCALAPPDATA"] = str(home / "AppData" / "Local")
+    # agent-brain's own settings reach it; the gateway token and other
+    # credentials never do.
     for name, value in os.environ.items():
-        if (real and name.upper().startswith("AGENT_BRAIN_")) or name.upper() in PASSTHROUGH_ENV:
+        if real and name.upper().startswith("AGENT_BRAIN_"):
             env[name] = value
     return env
 
@@ -320,18 +319,10 @@ def _run(home: Path, binary: Path, *args: str, timeout: float = 120) -> tuple[in
 
 
 def connect(home: Path, binary: Path) -> tuple[int, str]:
-    """Let agent-brain add its hooks and memory server to Claude Code."""
+    """Let agent-brain add its hooks and MCP server to Claude Code."""
     return _run(home, binary, "install", "--assistant", "claude-code")
 
 
 def disconnect(home: Path, binary: Path) -> tuple[int, str]:
-    """Let agent-brain remove its hooks and memory server; its data stays."""
+    """Let agent-brain remove its hooks and MCP server; its data stays."""
     return _run(home, binary, "uninstall", "--assistant", "claude-code")
-
-
-def run_interactive(home: Path, binary: Path, *args: str) -> int:
-    """Run an agent-brain command on this terminal, for sign-in and consent."""
-    try:
-        return subprocess.run([str(binary), *args], env=environment(home)).returncode
-    except (OSError, KeyboardInterrupt):
-        return 1
