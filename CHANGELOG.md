@@ -3,6 +3,22 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.6.0] - 2026-10-14
+
+### Added
+
+- Branch check: a new `branchCheck` setting, on by default, adds a "Check the branch before changing files" section to the policy. In a git repository, before the first file change of a task (and before a lane that changes files), Claude runs `git status -sb` and `git fetch`, tells you the current branch, uncommitted changes and whether it is behind its remote, and asks whether to continue on this branch, switch, or create a new one from the up-to-date default branch, with its recommendation. It offers to pull when the branch is behind and waits for your answer before changing files. It asks once per task, skips the check when you already chose the branch or the task has its own worktree, and never pulls, switches or creates a branch without your answer; lanes never do these at all. Set it with `agentfleet config branch-check on|off`.
+- agent-brain install: when agent-brain is missing, the configuration wizard offers to install it (default: yes; wizard question and `"agentBrainInstall"` preset key). AgentFleet downloads the release for your system from agentbrain.wecansync.com, checks it against the release manifest's size and SHA-256, and puts only the `agent-brain` executable in `~/.local/bin` (on Windows, `%LOCALAPPDATA%\Programs\agent-brain`). `agentfleet config agent-brain on` installs it the same way when it is missing.
+- agent-brain memory: the wizard asks whether to turn memory on. agent-brain opens your browser to sign in (`agent-brain login`) and shows its own consent text (`agent-brain memory enable`). Memory needs an agent-brain Pro account; without one agent-brain says so and the wizard goes on. Presets never turn memory on.
+- agent-brain updates: with automatic updates on, AgentFleet checks once a day for a newer agent-brain, installs it in the background, and says so at the next start. It only replaces the copy in agent-brain's standard folder, skips dev builds and copies installed elsewhere, and never moves to an older version. Failures go to `~/.claude/agentfleet/auto-update.log`.
+
+### Changed
+
+- agent-brain owns its Claude Code hooks. AgentFleet no longer writes them: `agentfleet config agent-brain on` runs `agent-brain install --assistant claude-code`, and `off` runs `agent-brain uninstall --assistant claude-code` (agent-brain stays installed and keeps its data). An update removes the hooks earlier releases wrote and, unless agent-brain is switched off, lets agent-brain write its own. Before, agent-brain's own `install` and AgentFleet's update replaced each other's copies.
+- `agentfleet config` shows `branch-check`, and `agent-brain: …, not connected` when agent-brain is installed but its hooks are missing.
+- The agent-brain wizard question now says what the hooks do without memory: they record the tokens and cost of each session.
+- `fleet-status` 1.5.0 counts the two new wizard questions.
+
 ## [2.5.0] - 2026-10-13
 
 ### Added

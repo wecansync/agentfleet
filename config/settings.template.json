@@ -36,28 +36,6 @@
     "replaceBuiltInOptions": true
   },
   "hooks": {
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook tool-use; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook session-end; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "PreModelSwitch": [
       {
         "hooks": [
@@ -85,15 +63,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook session-start; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
             "command": "node \"__CLAUDE_HOME__/sync-provider-models.mjs\" --quiet --drift # claude-agents-config:model-sync",
             "timeout": 8
           }
@@ -109,38 +78,7 @@
         ]
       }
     ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook stop; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook subagent-stop; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if command -v agent-brain >/dev/null 2>&1; then agent-brain hook prompt; fi # claude-agents-config:agent-brain",
-            "timeout": 10
-          }
-        ]
-      },
       {
         "hooks": [
           {

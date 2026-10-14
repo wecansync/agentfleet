@@ -23,7 +23,9 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "askFirst", "tokenWeather", "agentBrain", "instructions"]
+KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "askFirst", "tokenWeather",
+        "agentBrainInstall", "agentBrain", "agentBrainMemory", "instructions"]
+ACTIONS = {"instructions", "agentBrainMemory"}
 
 
 class ConfigureTests(unittest.TestCase):
@@ -146,17 +148,18 @@ class ConfigureTests(unittest.TestCase):
     def test_no_hint_without_mods_when_only_plugin_features_remain(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
         self.paths.store.mkdir(parents=True, exist_ok=True)
-        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'askFirst', 'agentBrain', 'instructions'], "version": "2.3.0"}))
+        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'askFirst', 'agentBrainInstall', 'agentBrain', 'instructions'], "version": "2.3.0"}))
         self.assertEqual(self.cli('--after-install').stdout, "")
 
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
         self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
         later = {f.key: f.introduced for f in wizard.FEATURES[7:]}
-        self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrain": "2.4.0", "instructions": "2.4.0"})
+        self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrainInstall": "2.6.0",
+                                 "agentBrain": "2.4.0", "agentBrainMemory": "2.6.0", "instructions": "2.4.0"})
 
     def test_validation(self):
-        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"tokenSecret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}):
+        for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"tokenSecret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}, {"agentBrainMemory": True}, {"agentBrainInstall": "yes"}):
             with self.subTest(data=data):
                 result = self.cli("--preset", str(self.preset(data)))
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -198,10 +201,11 @@ class ConfigureTests(unittest.TestCase):
         result = self.cli("--export", str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
         data = json.loads(path.read_text())
-        self.assertEqual(list(data), ["format"] + [key for key in KEYS if key != "instructions"])
+        self.assertEqual(list(data), ["format"] + [key for key in KEYS if key not in ACTIONS])
+        self.assertIs(data["agentBrainInstall"], False)
         if os.name == "posix":
             self.assertEqual(path.stat().st_mode & 0o777, 0o644)
-        self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS if k != "instructions"})
+        self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS if k not in ACTIONS})
         self.assertEqual(self.cli("--preset", str(path)).returncode, 0)
 
     def test_yes_and_after_install(self):
@@ -261,6 +265,86 @@ class ConfigureTests(unittest.TestCase):
         self.assertIn('learn', error.getvalue())
         self.assertFalse((self.paths.store / 'wizard.json').exists())
 
+    def fake_agent_brain_install(self, paths, args):
+        managed = wizard.agent_brain.managed_binary(self.home)
+        managed.parent.mkdir(parents=True, exist_ok=True)
+        managed.write_text("fake")
+        return 0
+
+    def test_preset_installs_agent_brain_and_leaves_memory_for_the_terminal(self):
+        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(self.preset({"agentBrainInstall": True})))
+        with patch.object(api, "cmd_config", side_effect=self.fake_agent_brain_install) as config, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertEqual([(c.args[1].setting, c.args[1].value) for c in config.call_args_list], [("agent-brain", "on")])
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertTrue({'agentBrainInstall', 'agentBrain'}.issubset(asked))
+        # Memory needs a sign-in, so it stays open for an interactive run.
+        self.assertNotIn('agentBrainMemory', asked)
+
+    def test_preset_can_install_agent_brain_unconnected(self):
+        preset = self.preset({"agentBrainInstall": True, "agentBrain": False})
+        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(preset))
+        with patch.object(api, "cmd_config", side_effect=self.fake_agent_brain_install) as config, \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertEqual([(c.args[1].setting, c.args[1].value) for c in config.call_args_list],
+                         [("agent-brain", "on"), ("agent-brain", "off")])
+
+    def test_failed_agent_brain_install_is_offered_again(self):
+        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(self.preset({"agentBrainInstall": True})))
+        with patch.object(api, "cmd_config", return_value=1), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()) as error:
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertIn("agentfleet config agent-brain on", error.getvalue())
+        state = self.paths.store / 'wizard.json'
+        self.assertNotIn('agentBrainInstall', json.loads(state.read_text())['asked'] if state.exists() else [])
+
+    def test_yes_never_installs_agent_brain(self):
+        with patch.object(api, "cmd_config", return_value=0) as config, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wizard.run(api, self.paths, argparse.Namespace(after_install=False, yes=True, export=None, preset=None)), 0)
+        self.assertNotIn(("agent-brain", "on"), [(c.args[1].setting, c.args[1].value) for c in config.call_args_list])
+        self.assertFalse(wizard.agent_brain.managed_binary(self.home).exists())
+
+    def interactive_run(self, answers, sign_in=0):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+        prompted = []
+        def fake_prompt(feature, value):
+            prompted.append(feature.key)
+            return answers.get(feature.key, value)
+        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=None)
+        output = Terminal()
+        with patch.object(wizard, "prompt", side_effect=fake_prompt), \
+                patch.object(api, "cmd_config", side_effect=self.fake_agent_brain_install), \
+                patch.object(wizard.agent_brain, "run_interactive", return_value=sign_in) as agent_brain_cli, \
+                patch.object(sys, "stdin", Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        return prompted, [call.args[2:] for call in agent_brain_cli.call_args_list], output.getvalue()
+
+    def test_interactive_install_then_memory_signs_in_through_agent_brain(self):
+        prompted, calls, output = self.interactive_run({"agentBrainInstall": True, "agentBrainMemory": True, "instructions": False})
+        # Installing it answers whether to connect it.
+        self.assertIn("agentBrainInstall", prompted)
+        self.assertNotIn("agentBrain", prompted)
+        self.assertIn("agentBrainMemory", prompted)
+        self.assertEqual(calls, [("login",), ("memory", "enable")])
+        self.assertIn("agent-brain is installed and connected", output)
+        self.assertNotIn("agent-brain memory is not on", output)
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertTrue({'agentBrainInstall', 'agentBrain', 'agentBrainMemory'}.issubset(asked))
+
+    def test_failed_sign_in_skips_memory_enable_and_says_how_to_retry(self):
+        prompted, calls, output = self.interactive_run({"agentBrainInstall": True, "agentBrainMemory": True, "instructions": False}, sign_in=1)
+        self.assertEqual(calls, [("login",)])
+        self.assertIn("agent-brain login, then agent-brain memory enable", output)
+
+    def test_declining_memory_runs_nothing(self):
+        prompted, calls, _ = self.interactive_run({"agentBrainInstall": True, "agentBrainMemory": False, "instructions": False})
+        self.assertIn("agentBrainMemory", prompted)
+        self.assertEqual(calls, [])
+
     @unittest.skipUnless(os.name == 'posix', 'pty requires POSIX')
     def test_interactive_pty(self):
         import pty
@@ -271,9 +355,11 @@ class ConfigureTests(unittest.TestCase):
             os.execve(sys.executable, self.command(), self.env)
         output = b''
         index = 0
-        # agent-brain is not on this PATH, so its question is skipped; the
-        # instruction check is declined so no headless Claude run starts.
-        questions = [f for f in wizard.FEATURES if f.key != 'agentBrain']
+        # agent-brain is not installed, so only its install question is
+        # asked, and declined; the instruction check is declined so no
+        # headless Claude run starts.
+        questions = [f for f in wizard.FEATURES if f.key not in ('agentBrain', 'agentBrainMemory')]
+        declined = ('agentBrainInstall', 'instructions')
         deadline = time.monotonic() + 20
         reaped = False
         try:
@@ -289,7 +375,7 @@ class ConfigureTests(unittest.TestCase):
                     output += chunk
                     text = output.decode('utf-8', errors='replace')
                     if index < len(questions) and questions[index].question in text:
-                        os.write(fd, b'n\n' if questions[index].key == 'instructions' else b'\n')
+                        os.write(fd, b'n\n' if questions[index].key in declined else b'\n')
                         index += 1
                 waited, status = os.waitpid(pid, os.WNOHANG)
                 if waited:

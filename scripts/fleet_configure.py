@@ -8,9 +8,9 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 
+import agent_brain
 import provider_catalog
 
 MODS_MESSAGE = "AgentFleet mods are not registered; run the installer with --mods to use this"
@@ -36,8 +36,18 @@ def mods_registered(paths):
 _plugin_cache: list | None = None
 
 
-def agent_brain_available():
-    return shutil.which("agent-brain") is not None
+def agent_brain_available(paths):
+    return agent_brain.find_binary(paths.home) is not None
+
+
+def agent_brain_applies(paths, key):
+    """Whether an agent-brain question means anything on this machine now."""
+    installed = agent_brain_available(paths)
+    if key == "agentBrainInstall":
+        return not installed
+    if key == "agentBrainMemory":
+        return installed and provider_catalog.load_preferences(paths.home)["agentBrain"] is not False
+    return installed
 
 
 def plugins(paths):
@@ -63,8 +73,10 @@ def current(api, paths, key):
         return provider_catalog.load_preferences(paths.home)[pref[key]]
     if key == "agentBrain":
         value = provider_catalog.load_preferences(paths.home)["agentBrain"]
-        return agent_brain_available() if value is None else value
-    if key == "instructions":
+        return agent_brain_available(paths) if value is None else value
+    if key == "agentBrainInstall":
+        return agent_brain_available(paths)
+    if key in ACTIONS:
         return False
     if key == "autoUpdate":
         return api._read_auto_update_state(paths).get("enabled", True)
@@ -74,12 +86,13 @@ def current(api, paths, key):
 
 
 def apply(api, paths, key, value):
-    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain"):
+    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain", "agentBrainInstall"):
         setting = {
             "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
             "workStyle": "work-style", "askFirst": "ask-first", "agentBrain": "agent-brain",
+            "agentBrainInstall": "agent-brain",
         }[key]
-        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain") else str(value)
+        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain", "agentBrainInstall") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -118,6 +131,11 @@ class Feature:
             _plugin_cache = None
 
 
+# Actions the wizard offers, not settings: presets cannot carry them and the
+# summary does not list them.
+ACTIONS = ("instructions", "agentBrainMemory")
+AGENT_BRAIN_KEYS = ("agentBrainInstall", "agentBrain", "agentBrainMemory")
+
 FEATURES = (
     Feature("compact", "2.3.0", "Auto-compact at what percent of each model's context? (20-95, or off)", "20-95 or off"),
     Feature("jev", "2.3.0", "Use JEV compaction? It keeps messages word-for-word instead of a summary and sends conversation text to api.typesafe.ai. (y/N)", "yes/no"),
@@ -129,7 +147,9 @@ FEATURES = (
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
     Feature("askFirst", "2.5.0", "Before large, unclear or risky tasks, should Claude check the docs, investigate, and agree on the approach with you (workflow, worktrees, new-project setup)? Small, clear tasks are done straight away. (Y/n)", "yes/no"),
     Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
-    Feature("agentBrain", "2.4.0", "Connect agent-brain memory hooks? They add a memory-saving step to every reply and lane run. (Y/n)", "yes/no"),
+    Feature("agentBrainInstall", "2.6.0", "Install agent-brain? It records the tokens and cost of each session and, with an agent-brain Pro account, remembers project decisions across sessions. It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
+    Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code? It records the tokens and cost of each session; with memory on, Claude also saves and recalls project decisions. (Y/n)", "yes/no"),
+    Feature("agentBrainMemory", "2.6.0", "Turn on agent-brain memory, so Claude remembers project decisions across sessions? It needs an agent-brain Pro account: you sign in through your browser, then agent-brain asks for your consent. (Y/n)", "yes/no"),
     Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
 
@@ -137,8 +157,7 @@ FEATURES = (
 def validate_preset(data):
     if not isinstance(data, dict):
         raise ValueError("preset must be an object")
-    # The instruction check is an action, so presets cannot carry it.
-    known = {f.key: f for f in FEATURES if f.key != "instructions"}
+    known = {f.key: f for f in FEATURES if f.key not in ACTIONS}
     for key in data:
         if key not in known and any(word in key.lower() for word in ("key", "token", "secret")):
             raise ValueError("presets must not contain secrets")
@@ -217,6 +236,19 @@ def save_state(api, paths, state_path, asked):
     return asked
 
 
+def enable_memory(paths):
+    """Sign in and turn memory on through agent-brain itself, so the user
+    agrees to agent-brain's own consent text."""
+    binary = agent_brain.find_binary(paths.home)
+    if binary is None:
+        return
+    print("agent-brain opens your browser to sign in; approve the code it shows there.")
+    if (agent_brain.run_interactive(paths.home, binary, "login") == 0
+            and agent_brain.run_interactive(paths.home, binary, "memory", "enable") == 0):
+        return
+    print("agent-brain memory is not on. Turn it on later with: agent-brain login, then agent-brain memory enable")
+
+
 def run(api, paths, args):
     global _plugin_cache
     _plugin_cache = None
@@ -225,15 +257,16 @@ def run(api, paths, args):
     asked = state.get("asked", []) if state.get("format") == "agentfleet.wizard.v1" else []
     asked = [k for k in asked if isinstance(k, str)] if isinstance(asked, list) else []
     registered = mods_registered(paths)
-    # Without the agent-brain CLI there is nothing to ask; it is recorded as
-    # asked on the first successful run so the status band does not count it.
-    brain = agent_brain_available()
     unasked = [f for f in FEATURES if f.key not in asked]
-    applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS) and (brain or f.key != "agentBrain")]
+    # An agent-brain question that means nothing here (installing it when it
+    # is installed, connecting it when it is not) is recorded as asked once a
+    # run succeeds, so the status band does not count it.
+    skipped_brain = [f.key for f in unasked if f.key in AGENT_BRAIN_KEYS and not agent_brain_applies(paths, f.key)]
+    applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS) and f.key not in skipped_brain]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
     if args.after_install and not tty:
-        if not brain and "agentBrain" not in asked:
-            asked = save_state(api, paths, state_path, [*asked, "agentBrain"])
+        if skipped_brain:
+            asked = save_state(api, paths, state_path, [*asked, *skipped_brain])
         # The instruction check is offered interactively but is not a new option.
         if any(f.key != "instructions" for f in applicable):
             print("New AgentFleet options are available: run agentfleet configure")
@@ -251,7 +284,7 @@ def run(api, paths, args):
                 print(f"agentfleet configure: {exc}", file=sys.stderr)
                 return 2
         if args.export:
-            values = {f.key: f.read(api, paths) for f in FEATURES if f.key != "instructions"}
+            values = {f.key: f.read(api, paths) for f in FEATURES if f.key not in ACTIONS}
             api.atomic_write(Path(args.export).expanduser(), api.json_bytes({"format": "agentfleet.preset.v1", **values}), 0o644)
             return 0
         if args.preset:
@@ -259,23 +292,20 @@ def run(api, paths, args):
         elif args.after_install:
             selected = applicable
         elif args.yes:
-            # --yes keeps values and never runs the instruction check.
-            selected = [f for f in unasked if f.key != "instructions"]
+            # --yes keeps values, so it installs nothing and runs no action.
+            selected = [f for f in unasked if f.key not in ACTIONS]
         else:
             selected = list(FEATURES)
-        # Recorded only once the run succeeds, so a failed apply writes nothing.
-        pending_brain = not brain and "agentBrain" not in asked
-        if not brain and not args.preset:
-            selected = [f for f in selected if f.key != "agentBrain"]
         if args.after_install and not selected:
-            if pending_brain:
-                save_state(api, paths, state_path, [*asked, "agentBrain"])
+            if skipped_brain:
+                save_state(api, paths, state_path, [*asked, *skipped_brain])
             return 0
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
+        answered = set()
         for feature in selected:
             key = feature.key
-            if key in PLUGIN_IDS and not registered:
+            if (key in PLUGIN_IDS and not registered) or key in answered:
                 continue
             if key == "instructions":
                 # An action, not a setting: its output must stay visible and a
@@ -290,11 +320,40 @@ def run(api, paths, args):
                             print("The instruction check did not finish; run agentfleet instructions later.")
                 asked = save_state(api, paths, state_path, [*asked, key])
                 continue
-            if key == "agentBrain" and not brain:
-                # Only a preset gets here. Save its choice so installing
-                # agent-brain later does not switch the hooks on by default;
-                # the next update applies it.
-                provider_catalog.write_preferences(paths.home, {"agentBrain": values[key]})
+            if key in AGENT_BRAIN_KEYS and not agent_brain_applies(paths, key):
+                if key == "agentBrain" and key in values:
+                    # A preset's choice is saved so installing agent-brain
+                    # later does not connect it against that choice.
+                    provider_catalog.write_preferences(paths.home, {"agentBrain": values[key]})
+                asked = save_state(api, paths, state_path, [*asked, key])
+                continue
+            if key == "agentBrainInstall":
+                want = values[key] if key in values else interactive and prompt(feature, True)
+                if want:
+                    print("Installing agent-brain from agentbrain.wecansync.com ...")
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        code = feature.apply(api, paths, True)
+                    if code:
+                        # Not recorded, so the next run offers it again.
+                        print("agentfleet configure: agent-brain was not installed; try again with: agentfleet config agent-brain on",
+                              file=sys.stderr)
+                        continue
+                    print("agent-brain is installed and connected to Claude Code.")
+                    if values.get("agentBrain") is False:
+                        # A preset that installs it unconnected: the
+                        # agentBrain step disconnects it.
+                        asked = save_state(api, paths, state_path, [*asked, key])
+                        continue
+                    # Installing it is the answer to connecting it.
+                    answered.add("agentBrain")
+                    values["agentBrain"] = True
+                    asked = save_state(api, paths, state_path, [*asked, key, "agentBrain"])
+                    continue
+                asked = save_state(api, paths, state_path, [*asked, key])
+                continue
+            if key == "agentBrainMemory":
+                if interactive and prompt(feature, True):
+                    enable_memory(paths)
                 asked = save_state(api, paths, state_path, [*asked, key])
                 continue
             value = values[key] if key in values else feature.read(api, paths)
@@ -313,10 +372,13 @@ def run(api, paths, args):
             if key not in asked:
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
-        if pending_brain:
-            asked = save_state(api, paths, state_path, [*asked, "agentBrain"])
+        # A question this run made meaningful (memory, after installing
+        # agent-brain from a preset) stays open for the next run.
+        still_skipped = [key for key in skipped_brain if not agent_brain_applies(paths, key)]
+        if still_skipped:
+            asked = save_state(api, paths, state_path, [*asked, *still_skipped])
         for feature in FEATURES:
-            if feature.key == "instructions":
+            if feature.key in ACTIONS or feature.key == "agentBrainInstall":
                 continue
             value = values[feature.key] if feature.key in values else feature.read(api, paths)
             print(f"{feature.key}: {display(value)}")

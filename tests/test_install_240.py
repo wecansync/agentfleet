@@ -124,10 +124,32 @@ class Install240Tests(unittest.TestCase):
                 shutil.rmtree(backup)
 
     def agent_brain_on_path(self):
-        script = self.fake_bin / ("agent-brain.cmd" if os.name == "nt" else "agent-brain")
-        script.write_text("@exit /b 0\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        """A fake agent-brain that records each call and whether a credential reached it."""
+        self.brain_log = Path(self.raw.name) / "agent-brain-calls.jsonl"
+        script = self.fake_bin / "agent-brain"
+        script.write_text(
+            "#!" + PYTHON + "\nimport json, os, sys\n"
+            f"with open({str(self.brain_log)!r}, 'a', encoding='utf-8') as log:\n"
+            "    log.write(json.dumps({'argv': sys.argv[1:], 'token': 'ANTHROPIC_AUTH_TOKEN' in os.environ}) + '\\n')\n",
+            encoding="utf-8")
         script.chmod(0o755)
+        if os.name == "nt":
+            (self.fake_bin / "agent-brain.cmd").write_text(f'@"{PYTHON}" "%~dp0agent-brain" %*\n', encoding="utf-8")
         self.env["PATH"] = str(self.fake_bin) + os.pathsep + self.env["PATH"]
+
+    def brain_calls(self) -> list[dict]:
+        if not self.brain_log.exists():
+            return []
+        return [json.loads(line) for line in self.brain_log.read_text(encoding="utf-8").splitlines()]
+
+    def add_pre_260_agent_brain_hooks(self):
+        """The marked hooks AgentFleet wrote for agent-brain before 2.6.0."""
+        settings = json.loads((self.claude / "settings.json").read_text(encoding="utf-8"))
+        for event, action in (("Stop", "stop"), ("SessionStart", "session-start")):
+            command = f"{self.fake_bin / 'agent-brain'} hook {action} # claude-agents-config:agent-brain"
+            settings.setdefault("hooks", {}).setdefault(event, []).append({"hooks": [{"type": "command", "command": command}]})
+        settings["hooks"].setdefault("Stop", []).append({"hooks": [{"type": "command", "command": "echo mine"}]})
+        (self.claude / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
     def hook_commands(self) -> list[str]:
         settings = json.loads((self.claude / "settings.json").read_text(encoding="utf-8"))
@@ -235,10 +257,12 @@ class Install240Tests(unittest.TestCase):
         self.assertIn("\neffort: xhigh\n", (self.claude / "agents" / "fleet-plan.md").read_text(encoding="utf-8"))
 
     # -- agent-brain ------------------------------------------------------------------
-    def test_agent_brain_off_removes_its_hooks_and_agent_memory_lines(self):
+    def test_agent_brain_lanes_follow_the_preference_and_the_installer_writes_no_hooks(self):
         self.agent_brain_on_path()
         self.install_native()
-        self.assertTrue(any("claude-agents-config:agent-brain" in command for command in self.hook_commands()))
+        # agent-brain's own `install` owns its hooks since 2.6.0.
+        self.assertFalse(any("agent-brain" in command for command in self.hook_commands()))
+        self.assertEqual(self.brain_calls(), [])
         lane = (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8")
         # Lanes search memory but leave saving it to the main agent.
         self.assertIn("mcp__agent-brain-memory__memory_search", lane)
@@ -248,12 +272,34 @@ class Install240Tests(unittest.TestCase):
         self.assertIn("Do not save memory, even when a hook asks you to", lane)
         provider_catalog.write_preferences(self.home, {"agentBrain": False})
         self.update()
-        self.assertFalse(any("claude-agents-config:agent-brain" in command for command in self.hook_commands()))
         agent = (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8")
         self.assertNotIn("agent-brain", agent)
         fleet = json.loads((self.claude / "fleet.json").read_text(encoding="utf-8"))
         self.assertIs(fleet["integrations"]["agentBrain"], False)
         self.doctor()
+
+    @unittest.skipUnless(os.name == "posix", "the fake agent-brain is a script")
+    def test_update_hands_pre_260_agent_brain_hooks_to_agent_brain(self):
+        self.agent_brain_on_path()
+        self.install_native()
+        self.add_pre_260_agent_brain_hooks()
+        self.env["ANTHROPIC_AUTH_TOKEN"] = "sk-" + "1234567890" * 2
+        self.update()
+        commands = self.hook_commands()
+        self.assertFalse(any("claude-agents-config:agent-brain" in command for command in commands))
+        self.assertIn("echo mine", commands)
+        self.assertEqual(self.brain_calls(), [{"argv": ["install", "--assistant", "claude-code"], "token": False}])
+        self.doctor()
+
+    @unittest.skipUnless(os.name == "posix", "the fake agent-brain is a script")
+    def test_update_with_agent_brain_off_only_drops_the_old_hooks(self):
+        self.agent_brain_on_path()
+        self.install_native()
+        self.add_pre_260_agent_brain_hooks()
+        provider_catalog.write_preferences(self.home, {"agentBrain": False})
+        self.update()
+        self.assertFalse(any("agent-brain" in command for command in self.hook_commands()))
+        self.assertEqual(self.brain_calls(), [])
 
     def test_installer_and_generator_render_the_same_lane_memory_text(self):
         # The installer renders lanes itself when Node is missing; both copies

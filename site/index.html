@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.5.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 13, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.6.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 14, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,21 +431,31 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.5.0</span>
-        <span class="release-date" data-latest-date>October 13, 2026</span>
+        <span class="release-version" data-latest-version>v2.6.0</span>
+        <span class="release-date" data-latest-date>October 14, 2026</span>
       </div>
-      <p>Claude checks with you before big or unclear tasks, lanes keep working when a model runs out, and everything uses fewer tokens.</p>
+      <p>Claude checks the git branch with you before changing files, and the setup wizard installs agent-brain and keeps it up to date.</p>
       <ul class="release-list">
-        <li>When a lane's model hits its quota or fails, the lane moves to the next of its fallback models instead of stopping. You can pin your own chain, such as Haiku, then Luna, then Gemini.</li>
-        <li>Claude decides whether to split work across lanes after reading the code, not from how long your prompt is, and tells you when it splits.</li>
-        <li>Lanes no longer spend turns saving memory, and keep their reports short.</li>
-        <li>Before a large, unclear or risky task, Claude reads the project's docs, investigates, and agrees the approach with you: Spec Kit or a plan, worktrees for several tasks, and the structure of a new project. Small, clear tasks are still done straight away.</li>
-        <li>The token-weather context forecast is on by default.</li>
+        <li>Before changing files in a git repository, Claude shows the current branch, uncommitted changes and whether it is behind its remote, then asks whether to continue, switch, or start a new branch, with its recommendation. No more work landing on last task's branch. Turn it off with <code class="il">agentfleet config branch-check off</code>.</li>
+        <li>The wizard offers to install <a href="https://agentbrain.wecansync.com">agent-brain</a>, which records the tokens and cost of each session. The download is checked against the release manifest before it is installed.</li>
+        <li>With an agent-brain Pro account, the wizard turns on its memory: you sign in through your browser and agree to agent-brain's own consent text.</li>
+        <li>Automatic updates now keep agent-brain current too, once a day, never to an older version.</li>
+        <li>agent-brain writes its own Claude Code hooks; AgentFleet no longer keeps a second copy.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.5.0</span><span class="release-date">October 13, 2026</span><span class="version-summary">Claude checks with you before big or unclear tasks, lanes keep working when a model runs out, and everything uses fewer tokens.</span></summary>
+        <ul class="release-list">
+          <li>When a lane's model hits its quota or fails, the lane moves to the next of its fallback models instead of stopping. You can pin your own chain, such as Haiku, then Luna, then Gemini.</li>
+          <li>Claude decides whether to split work across lanes after reading the code, not from how long your prompt is, and tells you when it splits.</li>
+          <li>Lanes no longer spend turns saving memory, and keep their reports short.</li>
+          <li>Before a large, unclear or risky task, Claude reads the project's docs, investigates, and agrees the approach with you: Spec Kit or a plan, worktrees for several tasks, and the structure of a new project. Small, clear tasks are still done straight away.</li>
+          <li>The token-weather context forecast is on by default.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.4.3</span><span class="release-date">October 13, 2026</span><span class="version-summary">Cleaner learned suggestions in <code class="il">/fleet-suggest</code>.</span></summary>
         <ul class="release-list">

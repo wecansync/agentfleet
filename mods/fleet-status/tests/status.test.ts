@@ -255,7 +255,15 @@ test('2.5.0 adds the ask-first and token-weather options to the count', () => {
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, null]).newOptions).toBe(11)
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, wizardSource(wizardKeys24)]).newOptions).toBe(2)
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.5.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(0)
-  expect(snapshotFromSources(null, [JSON.stringify({ version: '3.0.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(0)
+})
+
+test('2.6.0 adds the agent-brain install and memory options to the count', () => {
+  const keys25 = [...wizardKeys24, 'askFirst', 'tokenWeather']
+  const keys26 = [...keys25, 'agentBrainInstall', 'agentBrainMemory']
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, null]).newOptions).toBe(13)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(2)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, wizardSource(keys26)]).newOptions).toBe(0)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '3.0.0' }), null, null, null, null, null, null, null, wizardSource(keys26)]).newOptions).toBe(0)
 })
 
 test('wizard notice uses guarded read and stays hidden after refresh', async ($, on) => {

@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.5.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.6.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -83,9 +83,9 @@ its models?":
 Updates keep the installed profile; `--wizard` explicitly reopens the provider
 wizard. The separate configuration wizard runs after terminal installs and
 updates, covering work style, auto-compact, JEV, reviewer access, learning, the
-status band, lane-guard, automatic updates, and, only when the `agent-brain` CLI
-is installed, whether its hooks stay on. It then offers the
-[instruction check](#instruction-check). Run `agentfleet configure` to revisit
+status band, lane-guard, automatic updates, and [agent-brain](#agent-brain):
+installing it when it is missing, keeping it connected, and turning on its
+memory. It then offers the [instruction check](#instruction-check). Run `agentfleet configure` to revisit
 every question.
 
 ### Automatic updates
@@ -237,6 +237,25 @@ It follows a "Workflow" section in the project's CLAUDE.md instead of asking,
 and offers to record the workflow you pick there. Turn the section off with
 `agentfleet config ask-first off`.
 
+### Branch check
+
+It is easy to finish a task, forget to switch branches, and start the next one
+on the old branch. With `branch-check` on (the default), before Claude changes
+files in a git repository it:
+
+- runs `git status -sb` and `git fetch` to see the current branch, uncommitted
+  changes, and whether the branch is behind or ahead of its remote;
+- tells you what it found and asks whether to continue on this branch, switch
+  to another, or create a new one from the up-to-date default branch, with its
+  recommendation (a new branch when the current one holds finished or merged
+  work), and offers to pull first when the branch is behind;
+- waits for your answer before changing files.
+
+It asks once per task, not before every edit, and skips the check when you have
+already named the branch or the task runs in its own worktree. It never pulls,
+switches or creates a branch without your answer, and lanes never do these at
+all. Turn it off with `agentfleet config branch-check off`.
+
 ### Lane effort and stopping
 
 Lanes use less reasoning effort than in 2.3. `implement`, `review`,
@@ -372,8 +391,9 @@ differs from auto-ranking.
 
 Run `agentfleet configure` in a terminal to ask every question: work style,
 ask-first, auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, token-weather,
-automatic updates, and the `agent-brain` hooks (asked only when `agent-brain` is
-installed). It ends by offering the [instruction check](#instruction-check).
+automatic updates, and [agent-brain](#agent-brain) (install it when it is
+missing, connect it when it is installed, and turn on its memory). It ends by
+offering the [instruction check](#instruction-check).
 Enter keeps the current value. When enabling JEV without an available
 key, the wizard offers hidden TypeSafe API key input and can store it as
 `TYPESAFE_API_KEY` in `~/.claude/settings.json`'s `env` (mode 0600), where
@@ -391,12 +411,13 @@ invalid values, and any other key containing "key", "token", or "secret" are rej
 Example `team.json`:
 
 ```json
-{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrain":true,"askFirst":true}
+{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrainInstall":true,"agentBrain":true,"askFirst":true}
 ```
 
 `workStyle` and `agentBrain` are accepted from 2.4.0, `askFirst` and
-`tokenWeather` from 2.5.0. A preset never runs the
-instruction check.
+`tokenWeather` from 2.5.0, and `agentBrainInstall` from 2.6.0. A preset never
+runs the instruction check and never turns on agent-brain memory, which needs
+you to sign in.
 
 `agentfleet config` shows every feature, including work-style and agent-brain.
 The shared preferences live in `~/.claude/agentfleet/config.json`:
@@ -405,23 +426,47 @@ The shared preferences live in `~/.claude/agentfleet/config.json`:
 agentfleet config                                    # view effective preferences
 agentfleet config work-style direct|balanced|fleet   # how readily Claude uses lanes (default: balanced)
 agentfleet config ask-first on|off                   # agree on the approach before large or unclear tasks (default: on)
+agentfleet config branch-check on|off                # check the git branch and ask before changing files (default: on)
 agentfleet config compact <20-95|off>                # set auto-compact percentage (default: 70)
 agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
 agentfleet config learn on|off                       # command usage learning (new installs: on)
-agentfleet config agent-brain on|off                 # agent-brain memory hooks (off removes them)
+agentfleet config agent-brain on|off                 # install and connect agent-brain, or disconnect it
 ```
 
-Restart Claude Code after changing the work style or ask-first.
+Restart Claude Code after changing the work style, ask-first or branch-check.
 
-### agent-brain hooks
+### agent-brain
 
-If the `agent-brain` CLI is installed, AgentFleet keeps its hooks, which ask
-Claude to save project memory as it works. Lanes can search that memory but never
-save to it: they report what they learned and the main conversation records it,
-which keeps each lane run to its task. To remove the hooks, run
-`agentfleet config agent-brain off` or answer no in the wizard, which asks only
-when `agent-brain` is installed. Without the CLI, `agentfleet config` shows
-`agent-brain: not installed` and nothing is connected.
+[agent-brain](https://agentbrain.wecansync.com) records the tokens and cost of
+each Claude Code session. With an agent-brain Pro account and its memory turned
+on, it also saves project decisions and serves them back at the start of later
+sessions.
+
+- **Install:** when agent-brain is missing, the wizard offers to install it
+  (default: yes). AgentFleet downloads the release for your system from
+  agentbrain.wecansync.com, checks it against the release manifest's size and
+  SHA-256, and puts the `agent-brain` executable in `~/.local/bin` (on Windows,
+  `%LOCALAPPDATA%\Programs\agent-brain`). `agentfleet config agent-brain on`
+  does the same.
+- **Connect:** agent-brain adds its own hooks and memory server to Claude Code
+  with `agent-brain install --assistant claude-code`, using its recommended
+  settings. `agentfleet config agent-brain off` runs `agent-brain uninstall
+  --assistant claude-code`; agent-brain stays installed and keeps its data.
+- **Memory:** the wizard asks whether to turn memory on. It needs an
+  agent-brain Pro account: agent-brain opens your browser to sign in
+  (`agent-brain login`), then shows its own consent text
+  (`agent-brain memory enable`). Without Pro, agent-brain says so and the
+  wizard goes on; token and cost records work either way.
+- **Updates:** with automatic updates on, AgentFleet checks once a day for a
+  newer agent-brain and installs it in the background, then says so at the next
+  start. It only replaces the copy in agent-brain's standard folder, never a dev
+  build or one a package manager installed, and never moves to an older
+  version.
+
+Lanes can search agent-brain memory but never save to it: they report what they
+learned and the main conversation records it, which keeps each lane run to its
+task. Before 2.6.0 AgentFleet wrote agent-brain's hooks itself; an update
+removes those copies and lets agent-brain write its own.
 
 ### Instruction check
 
@@ -564,7 +609,7 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet add <name> --gateway-url URL` | Add a gateway profile without reinstalling (`--token-env VAR`, `--use`, `--force`, `--allow-insecure-http`). |
 | `agentfleet remove <name> [--yes]` | Delete a saved profile and its token. The active profile and `native` cannot be removed. |
 | `agentfleet configure [--yes\|--preset FILE\|--export FILE]` | Revisit every feature; keep values and mark questions answered, apply a team preset, or export settings without secrets. |
-| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `ask-first`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
+| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `ask-first`, `branch-check`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
 | `agentfleet instructions [--project DIR] [--check]` | Check your Claude Code instruction files for stale lane names, duplicates, and contradictions; apply edits only with your approval. `--check` reports without editing. |
 | `agentfleet jev <on\|off\|status>` | Enable, disable, or inspect optional `fast-jev-compaction` plugin. |
 | `agentfleet report [--days N] [--json]` | Summarize subagent runs (files changed, blocked commands) and active provider outages. |
@@ -601,9 +646,9 @@ install command (or an update) keeps the gateway you switched to.
   plugins, and environment values are preserved. Mode 0600 because it can
   contain a gateway token.
 - `~/.claude/agentfleet/config.json` — user preferences (`workStyle`,
-  `askFirst`, `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
+  `askFirst`, `branchCheck`, `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
 - `~/.claude/rules/agentfleet.md` — the policy for your work style (300 to 500
-  words, plus about 300 for the ask-first section). Claude Code loads it automatically. AgentFleet manages
+  words, plus about 300 for the ask-first section and 200 for the branch check). Claude Code loads it automatically. AgentFleet manages
   this file and rewrites it on update. It does not touch your own
   `~/.claude/CLAUDE.md`, so a first install over a personal `CLAUDE.md` works.
   Keep your own instructions in `CLAUDE.md` or in other files under
@@ -611,6 +656,7 @@ install command (or an update) keeps the gateway you switched to.
 - `~/.claude/route-to-fleet.py` — UserPromptSubmit routing hook.
 - `~/.claude/fleet_watch.py` — subagent reports, outage failover, and usage tracker.
 - `~/.claude/fleet_suggest.py` — project capability suggestions engine.
+- `~/.claude/agent_brain.py` — installs, updates and connects agent-brain.
 - `~/.claude/subagent-statusline.py` — native subagent status rendering.
 - `~/.claude/sync-provider-models.mjs` — startup hook for gateway model
   discovery and fleet reconciliation.
@@ -636,9 +682,9 @@ install command (or an update) keeps the gateway you switched to.
 
 Machine-local marketplace source paths are not copied (they cannot be
 portable). Remote marketplace entries, enabled plugin selections, permissions,
-and model picker descriptions are preserved. `agent-brain` hooks are guarded
-with `command -v` and are inert when that optional tool is absent. Switch them
-off with `agentfleet config agent-brain off`.
+and model picker descriptions are preserved. AgentFleet writes no
+`agent-brain` hooks: agent-brain adds and removes its own (see
+[agent-brain](#agent-brain)).
 
 AgentFleet 2.3 and earlier kept the policy in `~/.claude/CLAUDE.md`. On upgrade,
 if an earlier install replaced your own `CLAUDE.md`, AgentFleet restores your
@@ -667,7 +713,8 @@ your user permissions and are not sandboxed.
   unconfigured), model proposals, auto-compact percentage, reviewer access level, learning state,
   active outages, project suggestions, a JEV stats line, and `Options: all reviewed`
   or `Options: N new (run agentfleet configure)`; from 1.4.0 the count includes
-  the work style, ask-first, token-weather and agent-brain options. The band
+  the work style, ask-first, token-weather and agent-brain options, and from
+  1.5.0 the agent-brain install and memory options. The band
   also names a lane that failed over to another of its models. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
@@ -823,7 +870,8 @@ The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current rep
   logs.
 
 `agentfleet uninstall` also removes the `agentfleet` catalog and its plugins
-from Claude Code. A rollback to a backup from before 2.1.0 does too.
+from Claude Code. A rollback to a backup from before 2.1.0 does too. It leaves
+agent-brain installed and connected; remove that with `agent-brain uninstall`.
 
 ---
 
@@ -874,8 +922,9 @@ earlier deploy. Published release archives are never deleted.
 `site/`, `packaging/`, `dist/`, `.github/`, and a local `.claude/` are
 repository-only and are never part of an installed bundle.
 
-If the `agent-brain` CLI is on PATH at install time, agents receive its memory
-tools and hooks. Otherwise they are omitted with no functional change.
+If `agent-brain` is installed (on PATH or in its standard folder) and not
+switched off, lanes receive its memory search tool. Otherwise it is omitted
+with no functional change.
 
 ---
 
