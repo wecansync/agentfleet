@@ -298,7 +298,10 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(wizard.run(api, self.paths, args), 0)
         self.assertIn("agentfleet config agent-brain on", error.getvalue())
         state = self.paths.store / 'wizard.json'
-        self.assertNotIn('agentBrainInstall', json.loads(state.read_text())['asked'] if state.exists() else [])
+        asked = json.loads(state.read_text())['asked'] if state.exists() else []
+        # The questions after it wait for it too.
+        for key in ('agentBrainInstall', 'agentBrain', 'agentBrainMemory'):
+            self.assertNotIn(key, asked)
 
     def test_yes_never_installs_agent_brain(self):
         with patch.object(api, "cmd_config", return_value=0) as config, contextlib.redirect_stdout(io.StringIO()):
@@ -306,7 +309,7 @@ class ConfigureTests(unittest.TestCase):
         self.assertNotIn(("agent-brain", "on"), [(c.args[1].setting, c.args[1].value) for c in config.call_args_list])
         self.assertFalse(wizard.agent_brain.managed_binary(self.home).exists())
 
-    def interactive_run(self, answers, sign_in=0):
+    def interactive_run(self, answers, sign_in=0, after_install=False):
         class Terminal(io.StringIO):
             def isatty(self):
                 return True
@@ -314,7 +317,7 @@ class ConfigureTests(unittest.TestCase):
         def fake_prompt(feature, value):
             prompted.append(feature.key)
             return answers.get(feature.key, value)
-        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=None)
+        args = argparse.Namespace(after_install=after_install, yes=False, export=None, preset=None)
         output = Terminal()
         with patch.object(wizard, "prompt", side_effect=fake_prompt), \
                 patch.object(api, "cmd_config", side_effect=self.fake_agent_brain_install), \
@@ -334,6 +337,13 @@ class ConfigureTests(unittest.TestCase):
         self.assertNotIn("agent-brain memory is not on", output)
         asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
         self.assertTrue({'agentBrainInstall', 'agentBrain', 'agentBrainMemory'}.issubset(asked))
+
+    def test_after_an_update_installing_agent_brain_also_asks_about_memory(self):
+        prompted, calls, _ = self.interactive_run({"agentBrainInstall": True, "agentBrainMemory": True, "instructions": False},
+                                                  after_install=True)
+        self.assertIn("agentBrainInstall", prompted)
+        self.assertIn("agentBrainMemory", prompted)
+        self.assertEqual(calls, [("login",), ("memory", "enable")])
 
     def test_failed_sign_in_skips_memory_enable_and_says_how_to_retry(self):
         prompted, calls, output = self.interactive_run({"agentBrainInstall": True, "agentBrainMemory": True, "instructions": False}, sign_in=1)

@@ -87,8 +87,17 @@ def find_binary(home: Path) -> Path | None:
 
 def environment(home: Path) -> dict[str, str]:
     env = provider_catalog.claude_cli_environment(home)
+    real = _real_home(home)
+    if not real:
+        # agent-brain keeps its data in the config folders; for another home
+        # they must not point back at this user's.
+        for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+            env.pop(name, None)
+        if os.name == "nt":
+            env["APPDATA"] = str(home / "AppData" / "Roaming")
+            env["LOCALAPPDATA"] = str(home / "AppData" / "Local")
     for name, value in os.environ.items():
-        if name.upper().startswith("AGENT_BRAIN_") or name.upper() in PASSTHROUGH_ENV:
+        if (real and name.upper().startswith("AGENT_BRAIN_")) or name.upper() in PASSTHROUGH_ENV:
             env[name] = value
     return env
 
@@ -123,12 +132,23 @@ def _check_url(url: str) -> None:
         raise AgentBrainError(f"{BASE_URL_ENV} must use https")
 
 
+class _HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect hop that leaves https, not only the last one:
+    the manifest's checksums are only as trustworthy as its transport."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _check_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HttpsRedirects)
+
+
 def _get(url: str, limit: int, timeout: float) -> bytes:
     _check_url(url)
     request = urllib.request.Request(url, headers={"User-Agent": "agentfleet"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            # A redirect must not leave https either.
+        with _OPENER.open(request, timeout=timeout) as response:
             _check_url(response.geturl())
             data = response.read(limit + 1)
     except AgentBrainError:
@@ -209,6 +229,7 @@ def _extract(data: bytes, filename: str) -> bytes:
 def _replace(target: Path, content: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(prefix=".agent-brain-", dir=target.parent)
+    moved = None
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(content)
@@ -222,13 +243,20 @@ def _replace(target: Path, content: bytes) -> None:
                     stale.unlink()
                 except OSError:
                     pass
-            os.replace(target, target.with_name(f"{target.name}.{os.getpid()}.old"))
+            moved = target.with_name(f"{target.name}.{os.getpid()}.old")
+            os.replace(target, moved)
         os.replace(temp, target)
     except BaseException:
         try:
             os.unlink(temp)
         except OSError:
             pass
+        if moved is not None and not target.exists():
+            # Put the old copy back rather than leave the hooks with nothing to run.
+            try:
+                os.replace(moved, target)
+            except OSError:
+                pass
         raise
 
 

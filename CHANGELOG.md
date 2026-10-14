@@ -15,6 +15,7 @@ file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 ### Changed
 
 - agent-brain owns its Claude Code hooks. AgentFleet no longer writes them: `agentfleet config agent-brain on` runs `agent-brain install --assistant claude-code`, and `off` runs `agent-brain uninstall --assistant claude-code` (agent-brain stays installed and keeps its data). An update removes the hooks earlier releases wrote and, unless agent-brain is switched off, lets agent-brain write its own. Before, agent-brain's own `install` and AgentFleet's update replaced each other's copies.
+- The implement, ui, tests and docs lanes are told never to pull, switch or create branches; the main conversation agrees the branch with you first.
 - `agentfleet config` shows `branch-check`, and `agent-brain: …, not connected` when agent-brain is installed but its hooks are missing.
 - The agent-brain wizard question now says what the hooks do without memory: they record the tokens and cost of each session.
 - `fleet-status` 1.5.0 counts the two new wizard questions.

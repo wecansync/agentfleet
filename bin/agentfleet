@@ -1073,20 +1073,21 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print("agentfleet: agent-brain must be on or off", file=sys.stderr)
             return 2
         enabled = value == "on"
-        try:
-            provider_catalog.write_preferences(paths.home, {"agentBrain": enabled})
-        except ValueError as exc:
-            print(f"agentfleet: {exc}", file=sys.stderr)
-            return 2
         binary = agent_brain.find_binary(paths.home)
         if enabled and binary is None:
             print(f"Installing agent-brain from {agent_brain.DEFAULT_BASE_URL} ...")
             try:
                 version, binary = agent_brain.install(paths.home)
             except agent_brain.AgentBrainError as exc:
+                # Nothing is saved, so the choice stays open.
                 print(f"agentfleet: could not install agent-brain: {exc}", file=sys.stderr)
                 return 1
             print(f"Installed agent-brain {version} at {binary}")
+        try:
+            provider_catalog.write_preferences(paths.home, {"agentBrain": enabled})
+        except ValueError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 2
         if binary is not None:
             # agent-brain writes and removes its own hooks and memory server.
             code, output = (agent_brain.connect if enabled else agent_brain.disconnect)(paths.home, binary)
@@ -1696,8 +1697,12 @@ def _auto_update_hook(paths: Paths) -> None:
     if not state.get("enabled", True):
         return
 
-    # 1b'. agent-brain: report a finished update, and check once a day
-    _agent_brain_update_hook(paths, state)
+    # 1b'. agent-brain: report a finished update, and check once a day. Its
+    # failure must not cost AgentFleet's own update check.
+    try:
+        _agent_brain_update_hook(paths, state)
+    except Exception:
+        pass
 
     # 1c. Skip if not a release install
     if current_release(paths) is None:

@@ -71,10 +71,16 @@ class ReleaseServer:
 
     def __init__(self):
         self.files: dict[str, bytes] = {}
-        handler_files = self.files
+        self.redirects: dict[str, str] = {}
+        handler_files, handler_redirects = self.files, self.redirects
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802 - http.server API
+                if self.path in handler_redirects:
+                    self.send_response(302)
+                    self.send_header("Location", handler_redirects[self.path])
+                    self.end_headers()
+                    return
                 body = handler_files.get(self.path)
                 if body is None:
                     self.send_response(404)
@@ -204,6 +210,19 @@ class AgentBrainTests(unittest.TestCase):
             os.environ.pop(agent_brain.BASE_URL_ENV)
             self.assertEqual(agent_brain.base_url(), "https://agentbrain.wecansync.com")
 
+    def test_every_redirect_hop_must_stay_on_https(self):
+        self.server.publish_binary("0.9.0", fake_binary("0.9.0"))
+        manifest = self.server.files.pop("/releases/latest.json")
+        # A hop through plain http is refused before it is followed, even
+        # when a later hop would come back to a trusted address.
+        self.server.redirects["/releases/latest.json"] = "http://agentbrain.example/back?to=" + self.server.url
+        with self.assertRaisesRegex(agent_brain.AgentBrainError, "must use https"):
+            agent_brain.latest_release()
+        # Redirects that stay trusted are followed.
+        self.server.files["/moved/latest.json"] = manifest
+        self.server.redirects["/releases/latest.json"] = self.server.url + "/moved/latest.json"
+        self.assertEqual(agent_brain.latest_release()["version"], "0.9.0")
+
     # -- update ------------------------------------------------------------------
     @unittest.skipUnless(POSIX, "the fake agent-brain is a script")
     def test_update_moves_forward_only(self):
@@ -253,6 +272,18 @@ class AgentBrainTests(unittest.TestCase):
             self.assertNotIn("GATEWAY_TOKEN", call["env"])
             # agent-brain's own settings still reach it.
             self.assertIn("AGENT_BRAIN_SERVER_URL", call["env"])
+
+    def test_another_home_gets_none_of_this_users_agent_brain_settings(self):
+        mine = {"AGENT_BRAIN_SERVER_URL": "https://brain.example", "XDG_CONFIG_HOME": str(self.home / ".config"),
+                "XDG_DATA_HOME": str(self.home / ".local" / "share")}
+        with mock.patch.dict(os.environ, mine):
+            own = agent_brain.environment(self.home)
+            other = agent_brain.environment(self.root / "scratch")
+        self.assertEqual(own["AGENT_BRAIN_SERVER_URL"], "https://brain.example")
+        self.assertEqual(own["XDG_CONFIG_HOME"], mine["XDG_CONFIG_HOME"])
+        self.assertEqual(other["HOME"], str(self.root / "scratch"))
+        for name in mine:
+            self.assertNotIn(name, other)
 
     def test_connected_means_agent_brain_wrote_its_own_hooks(self):
         settings = self.home / ".claude" / "settings.json"
@@ -332,6 +363,8 @@ class AgentBrainCliTests(unittest.TestCase):
         self.assertIn("does not match the release manifest", result.stderr)
         self.assertFalse(self.target.exists())
         self.assertEqual(self.calls(), [])
+        # The choice is not saved, so the wizard and config still offer it.
+        self.assertIsNone(agent_brain.provider_catalog.load_preferences(self.home)["agentBrain"])
 
     def hook(self, **extra: str):
         return self.cli("auto-update", "--hook", AGENTFLEET_AUTO_UPDATE_SYNC="1", **extra)

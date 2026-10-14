@@ -34,7 +34,7 @@ Do small, clear tasks straight away. For larger, unclear or risky ones, investig
 
 In a git repository, before the first file change of each task, and before dispatching a lane that changes files:
 
-1. Run `git status -sb` and `git fetch --quiet` (skip the fetch when there is no remote; if it fails, say so and go on). Note the current branch, uncommitted changes, and whether the branch is behind or ahead of its remote.
+1. Run `git status -sb` and `GIT_TERMINAL_PROMPT=0 git fetch --quiet` (skip the fetch when there is no remote; if it fails, say so and go on). Note the current branch, uncommitted changes, and whether the branch is behind or ahead of its remote.
 2. Tell the user in one short message and ask which way to go, with your recommendation: continue on this branch, switch to another, or create a new one from the up-to-date default branch. Offer to pull first when the branch is behind. Recommend a new branch when the current one holds finished or unrelated work, for example when it is already merged or its name does not fit the task. Mention uncommitted changes, since switching carries them along.
 3. Wait for the answer before changing files. Ask once per task, not before every edit. Reading code, answering questions and running read-only commands need no check.
 

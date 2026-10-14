@@ -258,10 +258,17 @@ def run(api, paths, args):
     asked = [k for k in asked if isinstance(k, str)] if isinstance(asked, list) else []
     registered = mods_registered(paths)
     unasked = [f for f in FEATURES if f.key not in asked]
+
+    def install_pending():
+        # Connecting agent-brain and its memory wait for the install
+        # question: a yes there makes them meaningful in the same run.
+        return "agentBrainInstall" not in asked and agent_brain_applies(paths, "agentBrainInstall")
+
     # An agent-brain question that means nothing here (installing it when it
     # is installed, connecting it when it is not) is recorded as asked once a
     # run succeeds, so the status band does not count it.
-    skipped_brain = [f.key for f in unasked if f.key in AGENT_BRAIN_KEYS and not agent_brain_applies(paths, f.key)]
+    skipped_brain = [] if install_pending() else [
+        f.key for f in unasked if f.key in AGENT_BRAIN_KEYS and not agent_brain_applies(paths, f.key)]
     applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS) and f.key not in skipped_brain]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
     if args.after_install and not tty:
@@ -292,8 +299,9 @@ def run(api, paths, args):
         elif args.after_install:
             selected = applicable
         elif args.yes:
-            # --yes keeps values, so it installs nothing and runs no action.
-            selected = [f for f in unasked if f.key not in ACTIONS]
+            # --yes keeps values, so it installs nothing, leaves memory off,
+            # and never runs the instruction check.
+            selected = [f for f in unasked if f.key != "instructions"]
         else:
             selected = list(FEATURES)
         if args.after_install and not selected:
@@ -325,7 +333,8 @@ def run(api, paths, args):
                     # A preset's choice is saved so installing agent-brain
                     # later does not connect it against that choice.
                     provider_catalog.write_preferences(paths.home, {"agentBrain": values[key]})
-                asked = save_state(api, paths, state_path, [*asked, key])
+                if not install_pending():
+                    asked = save_state(api, paths, state_path, [*asked, key])
                 continue
             if key == "agentBrainInstall":
                 want = values[key] if key in values else interactive and prompt(feature, True)
@@ -373,8 +382,10 @@ def run(api, paths, args):
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
         # A question this run made meaningful (memory, after installing
-        # agent-brain from a preset) stays open for the next run.
-        still_skipped = [key for key in skipped_brain if not agent_brain_applies(paths, key)]
+        # agent-brain from a preset) stays open for the next run, and so does
+        # every one while installing agent-brain is still open.
+        still_skipped = [] if install_pending() else [
+            key for key in AGENT_BRAIN_KEYS if key not in asked and not agent_brain_applies(paths, key)]
         if still_skipped:
             asked = save_state(api, paths, state_path, [*asked, *still_skipped])
         for feature in FEATURES:
