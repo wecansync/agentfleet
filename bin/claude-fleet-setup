@@ -320,32 +320,41 @@ def reconcile_native(home: Path, config_home: Path, reconcile_script: Path) -> N
         release_lock(fd, lock)
 
 
+def refresh_catalog_cache(home: Path, policy_file: Path | None) -> bool:
+    """Fetch the gateway's model list into the catalog cache.
+
+    Returns whether settings.json names a gateway. The cache is otherwise
+    written only by the startup model sync, so without this the audit and
+    the stale-settings repair would see no models until Claude Code restarts.
+    A failed fetch keeps the existing cache.
+    """
+    credentials = live_gateway_credentials(home)
+    if credentials is None:
+        return False
+    endpoint, token = credentials
+    try:
+        from provider_catalog import cache_payload, fetch_catalog
+        rows, complete, _ = fetch_catalog(endpoint, token, timeout=5.0)
+        if complete and isinstance(rows, list):
+            try:
+                provider_label = load_policy(policy_file).get("provider", "gateway") if policy_file else "gateway"
+            except CatalogError:
+                provider_label = "gateway"
+            payload = cache_payload(rows, endpoint, token, provider=provider_label)
+            atomic_json(home / ".claude" / "cache" / "provider-models-cache.json", payload, 0o600)
+    except Exception:
+        pass
+    return True
+
+
 def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file: Path) -> None:
     settings_file = home / ".claude" / "settings.json"
     settings = read_json(settings_file, {})
     if not isinstance(settings, dict):
         return
 
-    # Try live fetch if credentials exist
-    env = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    endpoint = env.get("ANTHROPIC_BASE_URL")
-    token = env.get("ANTHROPIC_AUTH_TOKEN")
     catalog_cache = home / ".claude" / "cache" / "provider-models-cache.json"
-    gateway = isinstance(endpoint, str) and isinstance(token, str) and bool(endpoint and token)
-
-    if gateway:
-        try:
-            from provider_catalog import cache_payload, fetch_catalog
-            rows, complete, _ = fetch_catalog(endpoint, token, timeout=5.0)
-            if complete and isinstance(rows, list):
-                try:
-                    provider_label = load_policy(policy_file).get("provider", "gateway")
-                except CatalogError:
-                    provider_label = "gateway"
-                payload = cache_payload(rows, endpoint, token, provider=provider_label)
-                atomic_json(catalog_cache, payload, 0o600)
-        except Exception:
-            pass
+    gateway = refresh_catalog_cache(home, policy_file)
 
     reconcile_script = SCRIPTS / "fleet-reconcile.py"
     if not reconcile_script.is_file():
@@ -1383,6 +1392,7 @@ def main() -> int:
                 raise SystemExit("--compact-percent must be between 20 and 95 or 'off'")
 
     if args.audit:
+        refresh_catalog_cache(home, path)
         res = audit_fleet(home, config_home, path, check_health=not args.no_health)
         if args.json:
             print(json.dumps(res, ensure_ascii=False, indent=2))
@@ -1448,6 +1458,9 @@ def main() -> int:
         if args.compact_percent is not None:
             pct = "off" if args.compact_percent == "off" else int(args.compact_percent)
             write_preferences(home, {"compactPercent": pct})
+        # Fetched before fix_settings takes the lock, which it must not hold
+        # across a network request.
+        refresh_catalog_cache(home, path)
         fix_res = fix_settings(
             home,
             advisor_override=args.advisor,

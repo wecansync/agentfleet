@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.6.2] - 2026-10-14
+
+### Fixed
+
+- An install or update over settings that already point at a gateway no longer stops with "autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW differ". While AgentFleet manages auto-compact, a mismatched pair, an invalid value, or a pair deleted after an earlier install is set to AgentFleet's window, and the installer says what it changed.
+- The installer replaces `model`, `advisorModel` and `ANTHROPIC_DEFAULT_*_MODEL`/`ANTHROPIC_SMALL_FAST_MODEL` values the gateway does not serve with models from its live list, and says which. Before, settings left over from another provider or an older model list were kept, so Claude Code asked for models the gateway does not have, and an active model missing from the model picker made the post-install check fail and roll the install back. Aliases (`opus`, `sonnet`, `haiku`, `default`), models the gateway serves, and models you added to the picker yourself stay: an alias you chose gets its own picker row, and a served model written without the picker's context suffix (`claude-opus-5` for `claude-opus-5[1m]`) uses the picker's ID. When the gateway does not answer, an active model the picker lacks is replaced with `default`.
+- Gateway model discovery is on for every gateway install, including settings or shell variables that already name a gateway. Before, it was on only with `--provider gateway` or the wizard, so the startup hook never fetched the gateway's models. If you turn it off (`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=0`) after AgentFleet turned it on, updates keep it off.
+- The installer saves the model list it fetched, and `claude-fleet-setup --audit` and `--fix-settings` (used by `/fleet-setup`) fetch it again when a gateway is configured. Before, they read only the list the startup hook saves, so on a new device they found no models and nothing to repair.
+- At startup, model reconciliation also replaces an `advisorModel` the gateway does not serve (with the best model of the nearest tier the gateway has), and an active model that has no picker row.
+- A gateway URL and token exported together in the shell are used to fetch the model list during install.
+
 ## [2.6.1] - 2026-10-14
 
 ### Removed
@@ -338,6 +349,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.6.2]: https://github.com/wecansync/claude-agents-config/pull/36
 [2.6.1]: https://github.com/wecansync/claude-agents-config/pull/35
 [2.6.0]: https://github.com/wecansync/claude-agents-config/pull/34
 [2.5.0]: https://github.com/wecansync/claude-agents-config/pull/33

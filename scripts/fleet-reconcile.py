@@ -53,14 +53,16 @@ from provider_catalog import (
     is_excluded,
     tier_overrides,
     context_length,
+    GATEWAY_ROW_MARKERS,
+    MODEL_ENV_KEYS,
+    unserved_model,
 )
 
 TRANSACTION_MARKER = ".fleet-reconcile-pending.json"
 TRANSACTION_FORMAT = "claude-agents-config.reconcile-transaction.v1"
-# Picker rows this bundle writes always carry one of these description markers,
-# which is how reconciliation recognises its own rows without knowing any
-# provider's model naming scheme.
-GATEWAY_ROW_MARKERS = ("gateway context", "gateway model")
+# Picker rows this bundle writes always carry one of GATEWAY_ROW_MARKERS in
+# their description, which is how reconciliation recognises its own rows
+# without knowing any provider's model naming scheme.
 
 def read_json(path: Path, default: object = None) -> object:
     try:
@@ -748,21 +750,23 @@ def reconcile_settings(
             any(marker in desc for marker in GATEWAY_ROW_MARKERS)
             or (policy is not None and model_family_specific(active_model, policy) is not None)
         )
-        if active_is_gateway and incoming:
+        # A model left over from another provider has no picker row at all.
+        if (active_is_gateway or unserved_model(active_model, incoming_by_model, existing)) and incoming:
             fallback_active = best_for("balanced") or best_for("deep") or incoming[0].get("model")
             if isinstance(fallback_active, str) and fallback_active:
                 result["model"] = fallback_active
+
+    advisor = result.get("advisorModel")
+    if isinstance(advisor, str) and advisor not in incoming_by_model and unserved_model(advisor, incoming_by_model, existing):
+        replacement = best_for("deep") or best_for("balanced") or best_for("fast") or best_for("cheap") or (incoming[0].get("model") if incoming else None)
+        if isinstance(replacement, str) and replacement:
+            result["advisorModel"] = replacement
 
     # Claude Code maps its opus/sonnet/haiku aliases through these variables;
     # keep each pointing at a live model of the matching tier.
     env = result.get("env")
     if isinstance(env, dict) and incoming_by_model:
-        for key, tier in (
-            ("ANTHROPIC_DEFAULT_OPUS_MODEL", "deep"),
-            ("ANTHROPIC_DEFAULT_SONNET_MODEL", "balanced"),
-            ("ANTHROPIC_DEFAULT_HAIKU_MODEL", "fast"),
-            ("ANTHROPIC_SMALL_FAST_MODEL", "fast"),
-        ):
+        for key, tier in zip(MODEL_ENV_KEYS, ("deep", "balanced", "fast", "fast")):
             value = env.get(key)
             if isinstance(value, str) and value not in incoming_by_model:
                 replacement = best_for(tier)

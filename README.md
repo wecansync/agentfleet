@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.6.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.6.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -123,10 +123,10 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
 
 | Flag | Effect |
 |---|---|
-| `--provider native\|anthropic-api\|gateway` | Set the provider without the wizard. `gateway` also turns on startup model discovery. |
+| `--provider native\|anthropic-api\|gateway` | Set the provider without the wizard. |
 | `--gateway-url URL` | Gateway base URL (https required outside loopback). |
 | `--gateway-token-env NAME` | Environment variable that holds the gateway token. |
-| `--enable-model-discovery` | Turn on startup model discovery for a bare `--gateway-url` install (implied by `--provider gateway`). |
+| `--enable-model-discovery` | Turn startup model discovery back on after you turned it off. Every gateway install turns it on by default. |
 | `--no-wizard` | Skip provider prompts and post-install configuration; keep or infer the provider. |
 | `--no-configure` | Skip the post-install configuration wizard (`AGENTFLEET_NO_CONFIGURE=1` also skips it). |
 | `--wizard` | Force the wizard even on an existing install. |

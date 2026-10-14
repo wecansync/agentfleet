@@ -213,10 +213,10 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <table>
             <thead><tr><th>Flag</th><th>Effect</th></tr></thead>
             <tbody>
-              <tr><td><code class="il">--provider native|anthropic-api|gateway</code></td><td>Set the provider without the wizard. <code class="il">gateway</code> also turns on startup model discovery.</td></tr>
+              <tr><td><code class="il">--provider native|anthropic-api|gateway</code></td><td>Set the provider without the wizard.</td></tr>
               <tr><td><code class="il">--gateway-url URL</code></td><td>Gateway base URL (https required outside loopback).</td></tr>
               <tr><td><code class="il">--gateway-token-env NAME</code></td><td>Environment variable that holds the gateway token.</td></tr>
-              <tr><td><code class="il">--enable-model-discovery</code></td><td>Turn on startup model discovery for a bare <code class="il">--gateway-url</code> install (implied by <code class="il">--provider gateway</code>).</td></tr>
+              <tr><td><code class="il">--enable-model-discovery</code></td><td>Turn startup model discovery back on after you turned it off. Every gateway install turns it on by default.</td></tr>
               <tr><td><code class="il">--no-wizard</code></td><td>Skip provider prompts and post-install configuration; keep or infer the provider.</td></tr>
               <tr><td><code class="il">--no-configure</code></td><td>Skip post-install configuration (<code class="il">AGENTFLEET_NO_CONFIGURE=1</code> also skips it).</td></tr>
               <tr><td><code class="il">--mods</code></td><td>Opt back in to mods. The choice is remembered.</td></tr>
@@ -305,7 +305,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
               <tr><td><code class="il">--gateway-url URL</code></td><td>Gateway base URL. HTTPS is required outside loopback; use <code class="il">--allow-insecure-http</code> for local testing.</td></tr>
               <tr><td><code class="il">--gateway-token-env NAME</code></td><td>Name of the environment variable that holds the gateway token.</td></tr>
               <tr><td><code class="il">--allow-insecure-http</code></td><td>Explicitly allow a loopback HTTP gateway URL (for local development only).</td></tr>
-              <tr><td><code class="il">--enable-model-discovery</code></td><td>Register gateway model discovery at startup. Implied by <code class="il">--provider gateway</code>.</td></tr>
+              <tr><td><code class="il">--enable-model-discovery</code></td><td>Turn gateway model discovery back on after you turned it off. Every gateway install turns it on by default.</td></tr>
             </tbody>
           </table>
         </div>

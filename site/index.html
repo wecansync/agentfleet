@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.6.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 14, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.6.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 14, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,17 +431,25 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.6.1</span>
+        <span class="release-version" data-latest-version>v2.6.2</span>
         <span class="release-date" data-latest-date>October 14, 2026</span>
       </div>
-      <p>The setup wizard installs and connects the free agent-brain only.</p>
+      <p>Installing over an existing gateway setup now fixes it instead of stopping.</p>
       <ul class="release-list">
-        <li>The wizard no longer asks you to sign in to agent-brain or turn on its memory; it installs the free tool, which records the tokens and cost of each session, and connects it to Claude Code.</li>
+        <li>Mismatched auto-compact settings are set to one value instead of stopping the install.</li>
+        <li>Model settings the gateway does not serve are replaced with models it does, and the installer says which.</li>
+        <li>Every gateway install fetches the gateway's models at startup, and <code class="il">/fleet-setup</code> fetches them itself when it checks your settings.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.6.1</span><span class="release-date">October 14, 2026</span><span class="version-summary">The setup wizard installs and connects the free agent-brain only.</span></summary>
+        <ul class="release-list">
+          <li>The wizard no longer asks you to sign in to agent-brain or turn on its memory; it installs the free tool, which records the tokens and cost of each session, and connects it to Claude Code.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.6.0</span><span class="release-date">October 14, 2026</span><span class="version-summary">Claude checks the git branch with you before changing files, and the setup wizard installs agent-brain and keeps it up to date.</span></summary>
         <ul class="release-list">
