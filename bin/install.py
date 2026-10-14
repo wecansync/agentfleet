@@ -40,6 +40,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 from provider_catalog import acquire_lock as acquire_shared_lock, release_lock as release_shared_lock
 import provider_catalog  # noqa: E402
+import agent_brain  # noqa: E402
 
 # Windows pipes and consoles default to a legacy encoding while install plans
 # echo non-ASCII home paths and model names; emit stdout as UTF-8.
@@ -112,6 +113,7 @@ PROVIDER_POLICY_PATH = "config/provider-policy.json"
 PROVIDER_CATALOG_MODULE = "scripts/provider_catalog.py"
 RECONCILE_SCRIPT = "scripts/fleet-reconcile.py"
 INSTRUCTIONS_SCRIPT = "scripts/fleet_instructions.py"
+AGENT_BRAIN_SCRIPT = "scripts/agent_brain.py"
 RETIRED_POLICY_PATH = ".claude/CLAUDE.md"
 
 
@@ -677,7 +679,7 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
     if not fleet["lanes"]:
         fail("bundle fleet must contain at least one lane")
     for rel in (
-        PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT, INSTRUCTIONS_SCRIPT,
+        PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT, INSTRUCTIONS_SCRIPT, AGENT_BRAIN_SCRIPT,
         "scripts/fleet_watch.py", "scripts/fleet_suggest.py", "scripts/fleet_configure.py",
         "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
     ):
@@ -823,7 +825,6 @@ LEGACY_FRAGMENT_KIND = {
     "\\.claude\\sync-omniroute-models.mjs": "model-sync",
     "/.claude/sync-provider-models.mjs": "model-sync",
     "\\.claude\\sync-provider-models.mjs": "model-sync",
-    "/.local/bin/agent-brain hook ": "agent-brain",
     # Superseded: fleet model drift detection now runs as a synchronous
     # subprocess of the model-sync hook instead of its own SessionStart hook,
     # so this user-authored prototype hook is retired outright.
@@ -1336,21 +1337,7 @@ def target_lock(home: Path):
         release_shared_lock(fd, lock_path)
 
 
-def optional_agent_brain_available() -> bool:
-    return shutil.which("agent-brain") is not None
-
-
-def agent_brain_command(action: str) -> str:
-    runtime = shutil.which("agent-brain")
-    if not runtime:
-        return ""
-    parts = (runtime, "hook", action)
-    if os.name == "nt":
-        return windows_command(*parts)
-    return " ".join(shlex.quote(str(part)) for part in parts)
-
-
-def platform_hook_template(home: Path, config_root: Path, template: dict, enable_discovery: bool, enable_agent_brain: bool | None = None) -> dict:
+def platform_hook_template(home: Path, config_root: Path, template: dict, enable_discovery: bool) -> dict:
     value = copy.deepcopy(template)
     hooks = value.get("hooks") if isinstance(value.get("hooks"), dict) else {}
     desired: dict[str, list[dict]] = {}
@@ -1369,8 +1356,6 @@ def platform_hook_template(home: Path, config_root: Path, template: dict, enable
                 if not marker:
                     continue
                 kind = marker.group(1)
-                if kind == "agent-brain" and (enable_agent_brain is False or not optional_agent_brain_available()):
-                    continue
                 if kind == "route":
                     command = hook_command_for("route", home / ".claude") + hook_marker("route")
                 elif kind == "statusline":
@@ -1396,14 +1381,6 @@ def platform_hook_template(home: Path, config_root: Path, template: dict, enable
                         "--catalog", home / ".claude" / "cache" / MODEL_CACHE_NAME,
                         "--session-start",
                     )) + hook_marker("fleet-reconcile")
-                elif kind == "agent-brain":
-                    match = re.search(r"agent-brain\s+hook\s+([A-Za-z0-9_-]+)", command)
-                    if not match:
-                        continue
-                    command = agent_brain_command(match.group(1))
-                    if not command:
-                        continue
-                    command += hook_marker("agent-brain")
                 else:
                     continue
                 copied = copy.deepcopy(hook)
@@ -1543,7 +1520,6 @@ def clean_hook_groups(
     notices: list[str],
     home: Path,
     previous_managed: dict[str, dict],
-    remove_agent_brain: bool = False,
 ) -> dict:
     result = copy.deepcopy(existing)
     prior_commands = {
@@ -1552,29 +1528,30 @@ def clean_hook_groups(
         if isinstance(entry, dict) and entry.get("kind") == "hook" and isinstance(entry.get("installed"), str)
     }
     incoming_kinds = incoming_kinds_by_event(incoming)
-    if remove_agent_brain:
-        for event in list(result):
-            entries = result.get(event)
-            if not isinstance(entries, list):
+    # Before 2.6.0 AgentFleet wrote agent-brain's hooks itself; agent-brain's
+    # own `install` owns them now, so the marked copies always go.
+    for event in list(result):
+        entries = result.get(event)
+        if not isinstance(entries, list):
+            continue
+        filtered_entries = []
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
+                filtered_entries.append(entry)
                 continue
-            filtered_entries = []
-            for entry in entries:
-                if not isinstance(entry, dict) or not isinstance(entry.get("hooks"), list):
-                    filtered_entries.append(entry)
-                    continue
-                kept = [hook for hook in entry["hooks"]
-                        if not (isinstance(hook, dict) and isinstance(hook.get("command"), str)
-                                and "claude-agents-config:agent-brain" in hook["command"])]
-                if kept:
-                    filtered_entries.append({**entry, "hooks": kept})
-            if filtered_entries:
-                result[event] = filtered_entries
-            else:
-                result.pop(event, None)
-        for identity, item in list(journal.items()):
-            if (identity.startswith("hook:") and isinstance(item, dict)
-                    and hook_suffix(item.get("command")) == "agent-brain"):
-                journal.pop(identity, None)
+            kept = [hook for hook in entry["hooks"]
+                    if not (isinstance(hook, dict) and isinstance(hook.get("command"), str)
+                            and "claude-agents-config:agent-brain" in hook["command"])]
+            if kept:
+                filtered_entries.append({**entry, "hooks": kept})
+        if filtered_entries:
+            result[event] = filtered_entries
+        else:
+            result.pop(event, None)
+    for identity, item in list(journal.items()):
+        if (identity.startswith("hook:") and isinstance(item, dict)
+                and hook_suffix(item.get("command")) == "agent-brain"):
+            journal.pop(identity, None)
     incoming_commands: dict[str, str] = {}
     for event, entries in incoming.items():
         for group in entries if isinstance(entries, list) else []:
@@ -1977,7 +1954,6 @@ def merge_settings(
     previous_managed: dict[str, dict] | None = None,
     catalog_rows: list[dict] | None = None,
     compact_percent: object = None,
-    agent_brain: bool | None = None,
 ) -> tuple[dict, list[dict], str | None, bool, list[str], list[str]]:
     desired = copy.deepcopy(existing)
     prior = previous_journal_map(previous)
@@ -2204,12 +2180,11 @@ def merge_settings(
             prior,
         )
         env["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = discovery_value
-    template_with_hooks = platform_hook_template(home, config_root, template, discovery_enabled, agent_brain)
+    template_with_hooks = platform_hook_template(home, config_root, template, discovery_enabled)
     incoming_hooks = template_with_hooks.get("hooks") if isinstance(template_with_hooks.get("hooks"), dict) else {}
     existing_hooks = desired.get("hooks") if isinstance(desired.get("hooks"), dict) else {}
     desired["hooks"] = clean_hook_groups(
         existing_hooks, incoming_hooks, journal, prior, notices, home, previous_managed or {},
-        remove_agent_brain=agent_brain is False,
     )
 
     status = template_with_hooks.get("subagentStatusLine")
@@ -2892,6 +2867,7 @@ def managed_specs(
     add(claude / "fleet_suggest.py", source_bytes(bundle, "scripts/fleet_suggest.py"), 0o755, "home:.claude/fleet_suggest.py")
     add(claude / "fleet_configure.py", source_bytes(bundle, "scripts/fleet_configure.py"), 0o755, "home:.claude/fleet_configure.py")
     add(claude / "fleet_instructions.py", source_bytes(bundle, INSTRUCTIONS_SCRIPT), 0o755, "home:.claude/fleet_instructions.py")
+    add(claude / "agent_brain.py", source_bytes(bundle, AGENT_BRAIN_SCRIPT), 0o755, "home:.claude/agent_brain.py")
     add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")
     add(claude / "skills" / "fleet-suggest" / "SKILL.md", source_bytes(bundle, "skills/fleet-suggest/SKILL.md"), 0o644, "home:.claude/skills/fleet-suggest/SKILL.md")
@@ -3332,7 +3308,7 @@ def profile_data(
     template = load_json(bundle / "config/settings.template.json", "settings template")
     fleet_source = load_json(bundle / "config/delegate-fleet.json", "fleet configuration")
     fleet_source.setdefault("integrations", {})["agentBrain"] = (
-        agent_brain_preference is not False and optional_agent_brain_available()
+        agent_brain_preference is not False and agent_brain.find_binary(home) is not None
     )
     note = ""
     installed = carry_from if carry_from is not None else existing_fleet_map(home, config_root)
@@ -3503,6 +3479,28 @@ def run_provider_wizard(args: argparse.Namespace) -> None:
     args.interactive_review = True
 
 
+def has_marked_agent_brain_hooks(home: Path) -> bool:
+    try:
+        return "claude-agents-config:agent-brain" in (home / ".claude" / "settings.json").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+
+
+def reconnect_agent_brain(home: Path) -> None:
+    """Give agent-brain back the hooks this install removed: releases before
+    2.6.0 wrote marked copies of them, and agent-brain's own install owns them now."""
+    if provider_catalog.load_preferences(home)["agentBrain"] is False:
+        return
+    binary = agent_brain.find_binary(home)
+    if binary is None or agent_brain.connected(home):
+        return
+    code, _ = agent_brain.connect(home, binary)
+    if code == 0:
+        print("agent-brain now manages its own Claude Code hooks.")
+    else:
+        print("Warning: agent-brain could not reconnect to Claude Code; run: agent-brain install --assistant claude-code", file=sys.stderr)
+
+
 def run_configure(args: argparse.Namespace, home: Path) -> None:
     """Configure only after the install transaction and its lock have finished."""
     if args.no_wizard or args.no_configure or os.environ.get("AGENTFLEET_NO_CONFIGURE") == "1":
@@ -3646,7 +3644,6 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     desired, journal, _, gateway_owned, permission_owned, hook_notices = merge_settings(
         existing, template, home, config_root, args, not dry, previous, gateway_mode, gateway_token, required_models,
         previous_managed=previous_managed, catalog_rows=catalog.get("rows"), compact_percent=compact_percent,
-        agent_brain=provider_catalog.load_preferences(home)["agentBrain"],
     )
     settings_bytes = json_bytes(desired)
     fleet_hash = bytes_sha256(fleet_bytes)[:16]
@@ -3947,10 +3944,10 @@ def uninstall(args: argparse.Namespace, bundle: Path, dry: bool) -> int:
 def rendered_policy_digests(template_path: Path) -> set[str]:
     """Digests of every rendering of the installed policy template.
 
-    `agentfleet config work-style` and `config ask-first` re-render
-    rules/agentfleet.md without updating the install record, so uninstall
-    accepts any of these renderings as AgentFleet's own file rather than a
-    user edit.
+    `agentfleet config work-style`, `config ask-first` and `config
+    branch-check` re-render rules/agentfleet.md without updating the install
+    record, so uninstall accepts any of these renderings as AgentFleet's own
+    file rather than a user edit.
     """
     try:
         if template_path.is_symlink() or not template_path.is_file():
@@ -3958,11 +3955,8 @@ def rendered_policy_digests(template_path: Path) -> set[str]:
         template = template_path.read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return set()
-    return {
-        hashlib.sha256(provider_catalog.render_policy(template, style, ask_first).encode("utf-8")).hexdigest()
-        for style in provider_catalog.WORK_STYLES
-        for ask_first in (True, False)
-    }
+    return {hashlib.sha256(rendering.encode("utf-8")).hexdigest()
+            for rendering in provider_catalog.policy_renderings(template)}
 
 
 def _uninstall_locked(args: argparse.Namespace, bundle: Path, dry: bool, home: Path) -> int:
@@ -4221,8 +4215,11 @@ def main() -> int:
         if not args.apply and not args.dry_run:
             parser.error("--uninstall requires explicit --apply or --dry-run")
         return uninstall(args, bundle, dry=args.dry_run)
+    marked_agent_brain = has_marked_agent_brain_hooks(target_home(args))
     result = apply_install(args, bundle, dry=args.dry_run)
     if result == 0 and not args.dry_run:
+        if marked_agent_brain:
+            reconnect_agent_brain(target_home(args))
         run_configure(args, target_home(args))
     return result
 

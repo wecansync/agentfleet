@@ -629,25 +629,25 @@ function getRoleSpec(role, access) {
       trigger: 'Implement code: build a feature, fix a bug, refactor, migrate, or change behavior across files.',
       tools: writableTools, color: "green", maxTurns: 100,
       description: "Implementation with focused verification",
-      prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the applicable focused gates. Never commit, push, merge, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`
+      prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the applicable focused gates. Never commit, push, merge, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`
     },
     ui: {
       trigger: 'Build or change user-facing interface code: components, screens, styling, accessibility, responsive or localized layout.',
       tools: writableTools, color: "pink", maxTurns: 100,
       description: "UI implementation and verification",
-      prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run focused UI tests or builds. Never commit, push, deploy, publish, or start nested agents. Report touched files and measured evidence.`
+      prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run focused UI tests or builds. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files and measured evidence.`
     },
     tests: {
       trigger: 'Test work: write new tests, fix failing tests, or investigate a flaky suite.',
       tools: writableTools, color: "yellow", maxTurns: 90,
       description: "Test implementation and failure analysis",
-      prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Never commit, push, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`
+      prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`
     },
     docs: {
       trigger: 'Document: write or update a README, guide, API reference, runbook, or changelog.',
       tools: writableTools, color: "cyan", maxTurns: 80,
       description: "Documentation implementation and validation",
-      prompt: `Write the assigned documentation from repository evidence. Preserve authority order, avoid unsupported claims, and run the applicable documentation and formatting checks. Never commit, push, publish, or start nested agents. Report changed files and verification results.`
+      prompt: `Write the assigned documentation from repository evidence. Preserve authority order, avoid unsupported claims, and run the applicable documentation and formatting checks. Never commit, push, pull, switch or create branches, publish, or start nested agents. Report changed files and verification results.`
     }
   };
   return base[role];

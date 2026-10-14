@@ -181,7 +181,7 @@ class WorkStyleTests(unittest.TestCase):
                 self.assertNotIn("How to approach a task", off)
                 self.assertNotIn("speckit", off)
                 # The rest of the policy is the same either way.
-                self.assertEqual(off, on.replace(on[on.index("## How to approach a task"):on.index("## Work style")], ""))
+                self.assertEqual(off, on.replace(on[on.index("## How to approach a task"):on.index("## Check the branch")], ""))
                 self.assertEqual("then lanes for the independent parts" in on, style != "direct")
                 self.assertEqual("then build, test and fix it yourself" in on, style == "direct")
                 self.assertIn('--integration-options="--no-model-invocation"', on)
@@ -189,6 +189,47 @@ class WorkStyleTests(unittest.TestCase):
                          provider_catalog.render_policy(template, "direct", True))
         self.assertEqual(provider_catalog.render_policy_for(template, {"workStyle": "direct", "askFirst": False}),
                          provider_catalog.render_policy(template, "direct", False))
+
+    def test_policy_renders_branch_check_section_per_preference(self):
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        for style in provider_catalog.WORK_STYLES:
+            for ask_first in (True, False):
+                with self.subTest(style=style, ask_first=ask_first):
+                    on = provider_catalog.render_policy(template, style, ask_first, True)
+                    off = provider_catalog.render_policy(template, style, ask_first, False)
+                    for rendered in (on, off):
+                        self.assertNotIn("branch-check -->", rendered)
+                        self.assertNotIn("<!-- /", rendered)
+                    self.assertIn("## Check the branch before changing files", on)
+                    self.assertIn("git fetch --quiet", on)
+                    self.assertIn("continue on this branch, switch to another, or create a new one", on)
+                    self.assertIn("lanes never do these at all", on)
+                    self.assertNotIn("Check the branch", off)
+                    self.assertEqual(off, on.replace(on[on.index("## Check the branch"):on.index("## Work style")], ""))
+        self.assertEqual(provider_catalog.render_policy_for(template, {"branchCheck": False}),
+                         provider_catalog.render_policy(template, "balanced", True, False))
+        self.assertEqual(len(provider_catalog.policy_renderings(template)), 12)
+
+    def test_config_branch_check_rerenders_policy_and_keeps_other_choices(self):
+        store = self.claude / "agentfleet"
+        store.mkdir(parents=True)
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        (store / "policy-template.md").write_text(template, encoding="utf-8")
+        self.assertIn("branch-check: on (default)", self.cli("config").stdout)
+        self.assertEqual(self.cli("config", "ask-first", "off").returncode, 0)
+        result = self.cli("config", "branch-check", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Restart Claude Code to apply.", result.stdout)
+        rules = self.claude / "rules" / "agentfleet.md"
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "balanced", False, False))
+        self.assertIn("branch-check: off", self.cli("config").stdout)
+        self.assertEqual(self.cli("config", "work-style", "direct").returncode, 0)
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "direct", False, False))
+        self.assertEqual(self.cli("config", "branch-check", "on").returncode, 0)
+        self.assertEqual(rules.read_text(encoding="utf-8"), provider_catalog.render_policy(template, "direct", False, True))
+        self.assertEqual(self.cli("config", "branch-check", "sometimes").returncode, 2)
+        with self.assertRaises(ValueError):
+            provider_catalog.write_preferences(self.home, {"branchCheck": "yes"})
 
     def test_config_ask_first_rerenders_policy_and_keeps_work_style(self):
         store = self.claude / "agentfleet"
@@ -277,7 +318,14 @@ class WorkStyleTests(unittest.TestCase):
             brain.chmod(0o755)
         env = dict(self.env, PATH=str(brain_bin) + os.pathsep + self.env["PATH"])
         provider_catalog.preferences_path(self.home).unlink(missing_ok=True)
+        self.assertEqual(line(env), "agent-brain: auto (default), not connected")
+        hook = {"type": "command", "command": f"{brain} hook stop"}
+        (self.claude / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [hook]}]}}), encoding="utf-8")
         self.assertEqual(line(env), "agent-brain: auto (default)")
+        # A pre-2.6.0 AgentFleet copy of the hook is not agent-brain's own.
+        hook["command"] += " # claude-agents-config:agent-brain"
+        (self.claude / "settings.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [hook]}]}}), encoding="utf-8")
+        self.assertEqual(line(env), "agent-brain: auto (default), not connected")
 
     def test_preset_agent_brain_choice_is_saved_without_agent_brain_installed(self):
         preset = self.root / "preset.json"

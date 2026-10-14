@@ -500,7 +500,8 @@ def validate_policy_files(home: Path, errors: list[str]) -> None:
         return
     if actual != expected:
         fail(errors, f"rendered policy does not match workStyle={preferences['workStyle']}, "
-                     f"askFirst={'on' if preferences['askFirst'] else 'off'}: {rendered_path}")
+                     f"askFirst={'on' if preferences['askFirst'] else 'off'}, "
+                     f"branchCheck={'on' if preferences.get('branchCheck', True) else 'off'}: {rendered_path}")
     for path in (template_path, rendered_path):
         if path.is_symlink():
             fail(errors, f"installed policy file is a symlink: {path}")
@@ -623,6 +624,7 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
         home / ".claude" / "fleet_suggest.py",
         home / ".claude" / "fleet_configure.py",
         home / ".claude" / "fleet_instructions.py",
+        home / ".claude" / "agent_brain.py",
         home / ".claude" / "fleet-suggestions.json",
         config_root / "delegate-skills" / "provider-policy.json",
         config_root / "delegate-skills" / "generate-claude-agents.mjs",

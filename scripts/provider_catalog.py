@@ -213,32 +213,37 @@ WORK_STYLES = ("direct", "balanced", "fleet")
 # behaviour before 2.4.0; True or False is the user's explicit choice.
 # askFirst keeps the policy's "How to approach a task" section: investigate
 # and agree on the approach before large, unclear or risky work.
+# branchCheck keeps the "Check the branch before changing files" section.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
-                       "workStyle": "balanced", "agentBrain": None, "askFirst": True}
+                       "workStyle": "balanced", "agentBrain": None, "askFirst": True, "branchCheck": True}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
+BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
 
 
-def render_policy(template: str, style: str, ask_first: bool = True) -> str:
+def render_policy(template: str, style: str, ask_first: bool = True, branch_check: bool = True) -> str:
     """Keep the template's block for ``style`` and drop the other styles'
     blocks and every block marker. An unknown style renders as balanced.
-    The ask-first section is kept only when ``ask_first`` is true."""
+    The ask-first and branch-check sections are kept only when their flag is true."""
     style = style if style in WORK_STYLES else PREFERENCE_DEFAULTS["workStyle"]
     template = ASK_FIRST_BLOCK.sub(lambda match: match.group(1) if ask_first else "", template)
+    template = BRANCH_CHECK_BLOCK.sub(lambda match: match.group(1) if branch_check else "", template)
     return POLICY_BLOCK.sub(lambda match: match.group(2) if match.group(1) == style else "", template)
 
 
 def policy_renderings(template: str) -> set[str]:
     """Every rendering of ``template`` AgentFleet can write: each work style
-    with and without the ask-first section. A rules file equal to none of them
-    carries the user's own edits."""
-    return {render_policy(template, style, ask_first) for style in WORK_STYLES for ask_first in (True, False)}
+    with and without the ask-first and branch-check sections. A rules file
+    equal to none of them carries the user's own edits."""
+    return {render_policy(template, style, ask_first, branch_check)
+            for style in WORK_STYLES for ask_first in (True, False) for branch_check in (True, False)}
 
 
 def render_policy_for(template: str, preferences: dict) -> str:
     """Render the policy for the user's effective preferences."""
     return render_policy(template, preferences.get("workStyle", PREFERENCE_DEFAULTS["workStyle"]),
-                         preferences.get("askFirst", PREFERENCE_DEFAULTS["askFirst"]) is not False)
+                         preferences.get("askFirst", PREFERENCE_DEFAULTS["askFirst"]) is not False,
+                         preferences.get("branchCheck", PREFERENCE_DEFAULTS["branchCheck"]) is not False)
 
 
 def preferences_path(home: Path) -> Path:
@@ -272,6 +277,8 @@ def load_preferences(home: Path) -> dict:
         preferences["agentBrain"] = raw["agentBrain"]
     if isinstance(raw.get("askFirst"), bool):
         preferences["askFirst"] = raw["askFirst"]
+    if isinstance(raw.get("branchCheck"), bool):
+        preferences["branchCheck"] = raw["branchCheck"]
     return preferences
 
 
@@ -291,6 +298,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError("agentBrain must be true or false")
         if key == "askFirst" and not isinstance(value, bool):
             raise ValueError("askFirst must be true or false")
+        if key == "branchCheck" and not isinstance(value, bool):
+            raise ValueError("branchCheck must be true or false")
         if key not in PREFERENCE_DEFAULTS:
             raise ValueError(f"unknown preference: {key}")
     path = preferences_path(home)

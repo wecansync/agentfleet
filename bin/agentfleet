@@ -33,6 +33,7 @@ _HERE = Path(__file__).resolve().parent
 SCRIPTS = _HERE if (_HERE / "provider_catalog.py").is_file() else _HERE.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import provider_catalog  # noqa: E402
+import agent_brain  # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -877,6 +878,8 @@ def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
         explicit.add("agentBrain")
     if isinstance(raw.get("askFirst"), bool):
         explicit.add("askFirst")
+    if isinstance(raw.get("branchCheck"), bool):
+        explicit.add("branchCheck")
     return preferences, explicit
 
 
@@ -928,22 +931,26 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         reviewer = preferences["reviewerAccess"]
         learn = "on" if preferences["learn"] else "off"
         work_style = preferences["workStyle"]
-        agent_brain = "on" if preferences["agentBrain"] is True else ("off" if preferences["agentBrain"] is False else "auto")
+        brain_state = "on" if preferences["agentBrain"] is True else ("off" if preferences["agentBrain"] is False else "auto")
         ask_first = "on" if preferences["askFirst"] else "off"
+        branch_check = "on" if preferences["branchCheck"] else "off"
         for key, display in (
             ("compactPercent", f"compact: {compact_text}"),
             ("reviewerAccess", f"reviewer-access: {reviewer}"),
             ("learn", f"learn: {learn}"),
             ("workStyle", f"work-style: {work_style}"),
             ("askFirst", f"ask-first: {ask_first}"),
-            ("agentBrain", f"agent-brain: {agent_brain}"),
+            ("branchCheck", f"branch-check: {branch_check}"),
+            ("agentBrain", f"agent-brain: {brain_state}"),
         ):
             suffix = " (default)" if key not in explicit else ""
-            if key == "agentBrain" and shutil.which("agent-brain") is None:
+            if key == "agentBrain" and agent_brain.find_binary(paths.home) is None:
                 if preferences["agentBrain"] is None:
                     display, suffix = "agent-brain: not installed", ""
                 elif preferences["agentBrain"] is True:
                     suffix += ", not installed"
+            elif key == "agentBrain" and preferences["agentBrain"] is not False and not agent_brain.connected(paths.home):
+                suffix += ", not connected"
             print(display + suffix)
         state = "unknown"
         try:
@@ -1049,23 +1056,52 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print("Claude will start tasks without the ask-first steps. Restart Claude Code to apply.")
         return 0
 
+    if setting == "branch-check":
+        if value not in {"on", "off"}:
+            print("agentfleet: branch-check must be on or off", file=sys.stderr)
+            return 2
+        if render_rules_file(paths, {"branchCheck": value == "on"}):
+            return 1
+        if value == "on":
+            print("Before changing files in a git repository, Claude will check the branch and ask which one to use. Restart Claude Code to apply.")
+        else:
+            print("Claude will change files without checking the branch first. Restart Claude Code to apply.")
+        return 0
+
     if setting == "agent-brain":
         if value not in {"on", "off"}:
             print("agentfleet: agent-brain must be on or off", file=sys.stderr)
             return 2
         enabled = value == "on"
+        binary = agent_brain.find_binary(paths.home)
+        if enabled and binary is None:
+            print(f"Installing agent-brain from {agent_brain.DEFAULT_BASE_URL} ...")
+            try:
+                version, binary = agent_brain.install(paths.home)
+            except agent_brain.AgentBrainError as exc:
+                # Nothing is saved, so the choice stays open.
+                print(f"agentfleet: could not install agent-brain: {exc}", file=sys.stderr)
+                return 1
+            print(f"Installed agent-brain {version} at {binary}")
         try:
             provider_catalog.write_preferences(paths.home, {"agentBrain": enabled})
         except ValueError as exc:
             print(f"agentfleet: {exc}", file=sys.stderr)
             return 2
-        if enabled and shutil.which("agent-brain") is None:
-            print("agent-brain is not on PATH; choice saved but hooks were not applied.")
-            return 0
+        if binary is not None:
+            # agent-brain writes and removes its own hooks and memory server.
+            code, output = (agent_brain.connect if enabled else agent_brain.disconnect)(paths.home, binary)
+            if code:
+                print(f"agentfleet: agent-brain {'install' if enabled else 'uninstall'} failed: {output[-500:]}", file=sys.stderr)
+                return 1
+            print("agent-brain is connected to Claude Code. For memory across sessions (agent-brain Pro): "
+                  "agent-brain login, then agent-brain memory enable" if enabled
+                  else "agent-brain is disconnected from Claude Code; it stays installed and keeps its data.")
         release = current_release(paths)
         if release is None:
-            print("No downloaded release found; run agentfleet update to apply agent-brain hooks.", file=sys.stderr)
+            print("No downloaded release found; run agentfleet update to update the fleet lanes.", file=sys.stderr)
             return 1
+        # The lanes get or lose the memory search tool.
         command = [sys.executable, str(release / "bin" / "install.py"), "--apply", "--no-configure", "--no-wizard",
                    "--home", str(paths.home), "--prefix", str(paths.prefix), "--config-home", str(paths.config)]
         return subprocess.run(command).returncode
@@ -1560,7 +1596,8 @@ def _auto_update_run(paths: Paths, version: str) -> None:
 
 def cmd_auto_update(paths: Paths, args: argparse.Namespace) -> int:
     """agentfleet auto-update [--hook | --run X.Y.Z | on | off | status]"""
-    subcommand = "--hook" if args.hook else "--run" if args.run else args.action
+    subcommand = ("--hook" if args.hook else "--run" if args.run
+                  else "--agent-brain" if getattr(args, "agent_brain", False) else args.action)
     au_version = args.run
 
     if subcommand == "on":
@@ -1606,6 +1643,11 @@ def cmd_auto_update(paths: Paths, args: argparse.Namespace) -> int:
             print("agentfleet: auto-update --run requires a valid version", file=sys.stderr)
             return 1
         _auto_update_run(paths, version)
+        return 0
+
+    if subcommand == "--agent-brain":
+        # Background worker for agent-brain updates.
+        _agent_brain_update_run(paths)
         return 0
 
     if subcommand == "--hook":
@@ -1654,6 +1696,13 @@ def _auto_update_hook(paths: Paths) -> None:
         return
     if not state.get("enabled", True):
         return
+
+    # 1b'. agent-brain: report a finished update, and check once a day. Its
+    # failure must not cost AgentFleet's own update check.
+    try:
+        _agent_brain_update_hook(paths, state)
+    except Exception:
+        pass
 
     # 1c. Skip if not a release install
     if current_release(paths) is None:
@@ -1719,6 +1768,65 @@ def _auto_update_hook(paths: Paths) -> None:
     else:
         subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _agent_brain_update_due(paths: Paths, state: dict) -> bool:
+    if provider_catalog.load_preferences(paths.home)["agentBrain"] is False:
+        return False
+    # Only the copy in agent-brain's standard folder, which this or
+    # agent-brain's own installer put there; never one a package manager owns.
+    target = agent_brain.managed_binary(paths.home)
+    if target.is_symlink() or not target.is_file():
+        return False
+    last_check = state.get("agentBrainCheck")
+    if isinstance(last_check, str):
+        try:
+            last_dt = dt.datetime.fromisoformat(last_check.replace("Z", "+00:00"))
+            if (dt.datetime.now(dt.timezone.utc) - last_dt).total_seconds() < 86400:
+                return False
+        except (ValueError, TypeError):
+            pass
+    return True
+
+
+def _agent_brain_update_hook(paths: Paths, state: dict) -> None:
+    result = state.get("agentBrainResult")
+    if isinstance(result, dict) and state.get("agentBrainReported") is False:
+        print(f"agent-brain was updated to {result.get('version', '?')} automatically.")
+        _update_auto_update_state(paths, lambda current: current.update(agentBrainReported=True), timeout=2.0, required=True)
+    if not _agent_brain_update_due(paths, state):
+        return
+    checked = _now_iso()
+    _update_auto_update_state(paths, lambda current: current.update(agentBrainCheck=checked), timeout=2.0, required=True)
+    if os.environ.get("AGENTFLEET_AUTO_UPDATE_SYNC") == "1":
+        _agent_brain_update_run(paths)
+        return
+    cmd = [sys.executable, str(Path(sys.argv[0]).resolve()),
+           "--home", str(paths.home), "--config-home", str(paths.config),
+           "auto-update", "--agent-brain"]
+    if os.name == "nt":
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=0x00000008 | 0x00000200)  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+def _agent_brain_update_run(paths: Paths) -> None:
+    """Install a newer agent-brain over the managed copy. Only a finished
+    update is reported at the next start; a failure goes to the log."""
+    log_path = _auto_update_log(paths)
+    try:
+        version = agent_brain.update(paths.home)
+    except (agent_brain.AgentBrainError, OSError) as exc:
+        _append_log(log_path, f"[{_now_iso()}] agent-brain update failed: {exc}\n")
+        return
+    if version is None:
+        return
+    _append_log(log_path, f"[{_now_iso()}] agent-brain updated to {version}\n")
+    result = {"version": version, "ok": True, "time": _now_iso()}
+    _update_auto_update_state(paths, lambda state: state.update(agentBrainResult=result, agentBrainReported=False),
+                              timeout=LOCK_TIMEOUT, required=True)
 
 
 def cmd_update(paths: Paths, args: argparse.Namespace) -> int:
@@ -1813,7 +1921,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "agent-brain"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")
@@ -1862,6 +1970,7 @@ def main() -> int:
     au.add_argument("action", nargs="?", choices=("on", "off", "status"), default="status")
     au.add_argument("--hook", action="store_true", help=argparse.SUPPRESS)
     au.add_argument("--run", metavar="VERSION", help=argparse.SUPPRESS)
+    au.add_argument("--agent-brain", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.lock_timeout is not None:
         global LOCK_TIMEOUT

@@ -120,10 +120,11 @@ const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand',
 // The instruction check is an action offered by the wizard, not a new option.
 const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
 const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
+const optionKeys26 = [...optionKeys25, 'agentBrainInstall', 'agentBrainMemory']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
   const minor = releaseMinor(version)
-  const optionKeys = minor >= 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
+  const optionKeys = minor >= 6 ? optionKeys26 : minor === 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
       !data.asked.every(key => typeof key === 'string')) return optionKeys.length
