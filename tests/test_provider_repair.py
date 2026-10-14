@@ -2458,6 +2458,136 @@ class AgentFleetTwoTests(unittest.TestCase):
                     run([installed(home, "agentfleet"), "use", "work"])
                     self.assertEqual(custom_model(), expected)
 
+    def test_install_repairs_a_hand_configured_gateway(self):
+        """A new device whose settings already point at a gateway: stale model
+        settings, a mismatched compaction pair and discovery switched off."""
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is required for the agent generator")
+        endpoint = self.serve(self.GATEWAY_ROWS)
+        served = {row["id"] for row in self.GATEWAY_ROWS}
+        with tempfile.TemporaryDirectory(prefix="agentfleet new device ") as raw:
+            home, config = Path(raw) / "home", Path(raw) / "config"
+            (home / ".claude").mkdir(parents=True)
+            settings_path = home / ".claude/settings.json"
+            settings_path.write_text(json.dumps({
+                "model": "claude-opus-4-6",
+                "advisorModel": "claude-opus-4-6",
+                "autoCompactWindow": 200000,
+                "modelPicker": {"options": [{"model": "my-local-model", "label": "Local", "description": "User local model"}]},
+                "env": {
+                    "ANTHROPIC_BASE_URL": endpoint,
+                    "ANTHROPIC_AUTH_TOKEN": "fake-token",
+                    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+                    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
+                    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "180000",
+                    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "0",
+                },
+            }))
+            env = self.env_for(home, config)
+            install = [PYTHON, str(ROOT / "bin/install.py"), "--home", str(home), "--config-home", str(config)]
+            result = subprocess.run(install, cwd=ROOT, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("which the gateway does not serve", result.stdout)
+            self.assertIn("Auto-compact:", result.stdout)
+
+            def base(model: str) -> str:
+                return re.sub(r"\[[^\]]*\]$", "", model)
+
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            for value in (settings["model"], settings["advisorModel"], settings["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"]):
+                self.assertIn(base(value), served, "a model the gateway does not serve is replaced")
+            self.assertEqual(settings["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"], "claude-sonnet-5", "a served choice of the user's stays")
+            self.assertIn("my-local-model", [row["model"] for row in settings["modelPicker"]["options"]], "the user's own picker row stays")
+            self.assertEqual(settings["autoCompactWindow"], int(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), "the compaction pair is repaired")
+            self.assertEqual(settings["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"], "1", "a gateway discovers its models")
+            cache = home / ".claude/cache/provider-models-cache.json"
+            self.assertEqual({row["id"] for row in json.loads(cache.read_text(encoding="utf-8"))["models"]}, served, "the install seeds the model cache")
+
+            # /fleet-setup's audit fetches the list itself when the cache is gone.
+            cache.unlink()
+            audit = subprocess.run([installed(home, "claude-fleet-setup"), "--audit", "--json", "--no-health"], env=env, text=True, capture_output=True)
+            self.assertEqual(audit.returncode, 0, audit.stderr)
+            self.assertTrue(cache.is_file(), "the audit refreshes the model cache")
+            report = json.loads(audit.stdout)
+            self.assertEqual(report["live_models"]["total"], len(served))
+            self.assertEqual(report["settings"]["stale_models"], {})
+
+            # Turning discovery off after AgentFleet turned it on is kept.
+            settings["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"] = "0"
+            settings_path.write_text(json.dumps(settings))
+            again = subprocess.run(install, cwd=ROOT, env=env, text=True, capture_output=True)
+            self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(settings["env"]["CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"], "0")
+
+    def test_install_without_a_catalog_replaces_an_active_model_the_picker_lacks(self):
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is required for the agent generator")
+        endpoint = self.serve(self.GATEWAY_ROWS)
+        FakeProvider.mode = "unauthorized"
+        with tempfile.TemporaryDirectory(prefix="agentfleet offline gateway ") as raw:
+            home, config = Path(raw) / "home", Path(raw) / "config"
+            (home / ".claude").mkdir(parents=True)
+            settings_path = home / ".claude/settings.json"
+            settings_path.write_text(json.dumps({
+                "model": "claude-opus-4-6",
+                "env": {"ANTHROPIC_BASE_URL": endpoint, "ANTHROPIC_AUTH_TOKEN": "fake-token"},
+            }))
+            result = subprocess.run([PYTHON, str(ROOT / "bin/install.py"), "--home", str(home), "--config-home", str(config)],
+                                    cwd=ROOT, env=self.env_for(home, config), text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("gateway models: unavailable", result.stdout)
+            self.assertIn("model: replaced claude-opus-4-6, which is not in the model picker, with default.", result.stdout)
+            self.assertEqual(json.loads(settings_path.read_text(encoding="utf-8"))["model"], "default")
+
+    def test_install_keeps_a_chosen_alias_or_served_model(self):
+        if shutil.which("node") is None:
+            self.skipTest("Node.js is required for the agent generator")
+        endpoint = self.serve(self.GATEWAY_ROWS)
+        with tempfile.TemporaryDirectory(prefix="agentfleet kept model ") as raw:
+            home, config = Path(raw) / "home", Path(raw) / "config"
+            (home / ".claude").mkdir(parents=True)
+            settings_path = home / ".claude/settings.json"
+            install = [PYTHON, str(ROOT / "bin/install.py"), "--home", str(home), "--config-home", str(config)]
+            env = self.env_for(home, config)
+            for chosen, expected in (("opus", "opus"), ("claude-opus-5", "claude-opus-5[1m]")):
+                with self.subTest(chosen=chosen):
+                    settings_path.write_text(json.dumps({"model": chosen, "env": {"ANTHROPIC_BASE_URL": endpoint, "ANTHROPIC_AUTH_TOKEN": "fake-token"}}))
+                    (home / ".claude/agentfleet").mkdir(parents=True, exist_ok=True)
+                    result = subprocess.run(install, cwd=ROOT, env=env, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                    self.assertEqual(settings["model"], expected, "the chosen model stays, under the picker's ID")
+                    self.assertIn(expected, [row["model"] for row in settings["modelPicker"]["options"]])
+                    self.assertNotIn("which is not in the model picker", result.stdout)
+
+    def test_reconcile_replaces_unserved_model_settings(self):
+        ns = self.reconcile()
+        picker = {"options": [
+            {"model": "claude-opus-5[1m]", "label": "Opus 5", "description": "Gateway model (1000K gateway context)"},
+            {"model": "claude-sonnet-5[1m]", "label": "Sonnet 5", "description": "Gateway model (1000K gateway context)"},
+        ]}
+        fleet = {"version": "delegate-fleet.v1", "lanes": {
+            "plan": {"implementer": "claude", "model": "claude-opus-5[1m]", "tier": "deep"},
+            "implement": {"implementer": "claude", "model": "claude-sonnet-5[1m]", "tier": "balanced"},
+        }}
+        stale = {"model": "claude-opus-4-6", "advisorModel": "claude-opus-4-6", "env": {}}
+        result = ns["reconcile_settings"](stale, picker, fleet, GENERIC_POLICY)
+        served = {row["model"] for row in picker["options"]}
+        self.assertIn(result["model"], served)
+        self.assertIn(result["advisorModel"], served)
+        own = {**stale, "modelPicker": {"options": [{"model": "claude-opus-4-6", "label": "Mine", "description": "My own row"}]}}
+        kept = ns["reconcile_settings"](own, picker, fleet, GENERIC_POLICY)
+        self.assertEqual((kept["model"], kept["advisorModel"]), ("claude-opus-4-6", "claude-opus-4-6"), "a model with the user's own picker row stays")
+        aliases = ns["reconcile_settings"]({"model": "opus[1m]", "advisorModel": "sonnet"}, picker, fleet, GENERIC_POLICY)
+        self.assertEqual((aliases["model"], aliases["advisorModel"]), ("opus[1m]", "sonnet"), "aliases always resolve")
+        # A catalog with neither a deep nor a balanced model still repairs the advisor.
+        fast_only = {"options": [{"model": "claude-haiku-4-5", "label": "Haiku", "description": "Gateway model (200K gateway context)"}]}
+        fast_fleet = {"version": "delegate-fleet.v1", "lanes": {"implement-fast": {"implementer": "claude", "model": "claude-haiku-4-5", "tier": "fast"}}}
+        repaired = ns["reconcile_settings"](stale, fast_only, fast_fleet, GENERIC_POLICY)
+        self.assertEqual((repaired["model"], repaired["advisorModel"]), ("claude-haiku-4-5", "claude-haiku-4-5"))
+
+
 def stat_mode(path: Path) -> int:
     return path.stat().st_mode & 0o777
 

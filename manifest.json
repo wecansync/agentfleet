@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.6.1",
+  "version": "2.6.2",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "b84e05308913d76b131046d19aa90949ddb2b1f5ea7a2f4b80f26abb3ade7b66",
+      "sha256": "ce90f3bcdf4f339fd694fdc52a1a6a6e7dd7a3917fa6d001397233bb44c824c9",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "bc0a6a1fdc82617e181b82b944a1249582d2870240f43415d1ce3f4e4ec2073c",
+      "sha256": "f72e1fc8861143531881366faea7739acdf3b8290c27c2beafdde91ba018d32a",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "a3fbebb0fe4c012038eceff3148b1602c7da8942fcfe1d563c1de6d377558ae5",
+      "sha256": "8fde0552368c64879b3f23c72df5308bcee45ab7c4226ad2d18efd12d1f2e960",
       "mode": "0o644"
     },
     {
@@ -149,7 +149,7 @@
     },
     {
       "path": "bin/claude-fleet-setup",
-      "sha256": "499bd842188332de6d4adf1d601e27b429a87048868bd11667d1b634a3a80a8f",
+      "sha256": "b89c80bd0fb4fc86fa5e300ca47853c2847f622d54ce07737ab4e19763f70b5a",
       "mode": "0o755"
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "c34f9ab77a67223cd1bc669cddb5e1a4679f8fcd6bb16a9db2c9a63ce6f4444e",
+      "sha256": "06ff8ef203bc8ec363ab8a722f130ebba1b7dad1396c9108ea440c17a9428bbc",
       "mode": "0o755"
     },
     {
@@ -439,7 +439,7 @@
     },
     {
       "path": "scripts/fleet-reconcile.py",
-      "sha256": "0cfd8c0d7f822dc2b1f98963d58233a4c0ec9187f0c01680d903411681a4298a",
+      "sha256": "d50e0def795091a6fa083acdac474ca378869e5a36f7cda4ef8df69a2657a4aa",
       "mode": "0o755"
     },
     {
@@ -469,7 +469,7 @@
     },
     {
       "path": "scripts/provider_catalog.py",
-      "sha256": "742340ef36b6bb90f21db9bae6d7ea3a2383fbaf8d33bf5c802d756ab2e8ba6f",
+      "sha256": "77dc1af084f41d478ff31d351729c49a78754002dc2fc460a87c33d6415249bf",
       "mode": "0o755"
     },
     {
@@ -574,12 +574,12 @@
     },
     {
       "path": "tests/test_profiles.py",
-      "sha256": "88bbb1719218956cfcd9d109e76b7a57bccfe343684868d07f222db2bea21e01",
+      "sha256": "67cad3887532112337cc3783dec8b9432b271bd1742a4c545218e9a09f59e31f",
       "mode": "0o755"
     },
     {
       "path": "tests/test_provider_repair.py",
-      "sha256": "050888d433088b315b831ac455c73dae7b6c24dabc200897d99ac6f609e6615c",
+      "sha256": "a3ede868c050ef87f04703c886178716d56c942829933033e95bd2e4043329ef",
       "mode": "0o755"
     },
     {

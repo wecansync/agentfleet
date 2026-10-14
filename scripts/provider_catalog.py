@@ -571,6 +571,37 @@ TIER_DESCRIPTION_KEYWORDS = (
 NATIVE_TIER_MODELS = {"deep": "opus", "balanced": "sonnet", "fast": "haiku", "cheap": "haiku"}
 NATIVE_MODELS = ("default", "opus", "sonnet", "haiku")
 _TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
+# Picker rows AgentFleet writes for a gateway carry one of these in their
+# description; a row without one was added by the user.
+GATEWAY_ROW_MARKERS = ("gateway context", "gateway model")
+MODEL_ENV_KEYS = (
+    "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL",
+)
+
+
+def model_base(model: str) -> str:
+    """A model ID without its context suffix, such as [1m]."""
+    return re.sub(r"\[[^\]]*\]$", "", model.strip())
+
+
+def unserved_model(model: object, served: object, picker_options: object = None) -> bool:
+    """Whether a model setting names a model the gateway does not serve.
+
+    Claude Code aliases always resolve, and a model with a picker row the user
+    added by hand is theirs to keep. Context suffixes such as [1m] are ignored.
+    """
+    if not isinstance(model, str) or not model.strip() or model.removesuffix("[1m]") in NATIVE_MODELS:
+        return False
+    base = model_base(model)
+    if any(isinstance(item, str) and model_base(item) == base for item in served or ()):
+        return False
+    for row in picker_options if isinstance(picker_options, list) else ():
+        if isinstance(row, dict) and row.get("model") == model:
+            description = str(row.get("description", "")).lower()
+            if not any(marker in description for marker in GATEWAY_ROW_MARKERS):
+                return False
+    return True
 
 
 def supports_reasoning(row: object) -> bool:

@@ -265,8 +265,14 @@ class ProfileTests(unittest.TestCase):
         self.ok(self.af("save", "a"))
         self.ok(self.add("b", "b"))
         self.ok(self.af("use", "b"))
-        audit = json.loads(self.ok(self.run_cmd([bin_script(self.home, "claude-fleet-setup"), "--audit", "--json"])).stdout)
+        audit_cmd = [bin_script(self.home, "claude-fleet-setup"), "--audit", "--json", "--no-health"]
+        # While b does not answer, only a's cache exists.
+        self.servers["b"][1].mode = "401"
+        audit = json.loads(self.ok(self.run_cmd(audit_cmd)).stdout)
         self.assertEqual(audit["live_models"]["total"], 0, "a's cached models must not be shown for b")
+        self.servers["b"][1].mode = "ok"
+        audit = json.loads(self.ok(self.run_cmd(audit_cmd)).stdout)
+        self.assertEqual(sorted(model["id"] for model in audit["live_models"]["models"]), sorted(B_IDS), "the audit fetches b's own models")
 
     # -- refusals --------------------------------------------------------------------
     def test_collisions_and_force(self):

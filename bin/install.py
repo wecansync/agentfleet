@@ -1066,14 +1066,16 @@ def merge_compaction_controls(
     compact_percent: object = None,
     gateway_mode: bool = False,
     gateway_context: int | None = None,
+    notices: list[str] | None = None,
 ) -> None:
     """Keep the two global compaction controls valid and ownership-aware.
 
     Claude Code accepts one global window, so an update must never refresh one
-    control while preserving a later edit to the other.  A mismatched pair is
-    refused unless it is the exact legacy pair recorded as bundle-installed;
-    a one-sided value is mirrored so a deliberate user value remains intact.
-    A gateway profile also caps the active model at its catalog context.
+    control while preserving a later edit to the other.  While AgentFleet
+    manages compaction, a mismatched, invalid, or missing pair has no single
+    value to keep, so both controls are set to AgentFleet's window; a
+    one-sided valid value is mirrored so a deliberate user value remains
+    intact. A gateway profile also caps the active model at its catalog context.
     """
     if compact_percent is None:
         compact_percent = 70
@@ -1121,9 +1123,13 @@ def merge_compaction_controls(
             record_value_journal(journal, env_identity, ["env", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"], current, installed, prior)
         desired.setdefault("env", {})["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = installed
 
+    def repair(reason: str) -> None:
+        set_top(effective_window)
+        set_env(effective_window)
+        if notices is not None:
+            notices.append(f"Auto-compact: {reason}; set both to {effective_window}.")
+
     if top_current is ABSENT and env_current is ABSENT:
-        if top_identity in prior or env_identity in prior:
-            fail("both compaction controls are missing after an earlier install; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to the same value before updating")
         set_top(effective_window)
         set_env(effective_window)
         return
@@ -1131,7 +1137,8 @@ def merge_compaction_controls(
     if top_current is ABSENT or env_current is ABSENT:
         number = env_number if top_current is ABSENT else top_number
         if number is None:
-            fail("compaction controls contain an invalid token count; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to matching integers from 100000 to 1000000 before updating")
+            repair(f"the window setting held an invalid token count ({top_current if env_current is ABSENT else env_current!r})")
+            return
         # The present value is a deliberate user choice unless both controls
         # still prove bundle-owned.  Mirroring it avoids a post-write doctor
         # failure without silently changing that choice.
@@ -1142,7 +1149,8 @@ def merge_compaction_controls(
         return
 
     if top_number is None or env_number is None:
-        fail("compaction controls contain an invalid token count; set autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW to matching integers from 100000 to 1000000 before updating")
+        repair(f"the window settings held an invalid token count ({top_current!r} and {env_current!r})")
+        return
 
     pair_owned = prior_installed_matches(prior, top_identity, top_current) and prior_installed_matches(prior, env_identity, env_current)
     # The installer's own catalog (live, or the cache it accepts offline)
@@ -1158,10 +1166,10 @@ def merge_compaction_controls(
             and pair_owned
         )
         if not legacy_owned:
-            fail("autoCompactWindow and CLAUDE_CODE_AUTO_COMPACT_WINDOW differ; set both controls to the same token count before updating")
-        if compact_percent != "off":
-            set_top(effective_window)
-            set_env(effective_window)
+            repair(f"autoCompactWindow ({top_number}) and CLAUDE_CODE_AUTO_COMPACT_WINDOW ({env_number}) differed")
+            return
+        set_top(effective_window)
+        set_env(effective_window)
     elif (pair_owned or top_number in {700_000, 800_000, LEGACY_AUTO_COMPACT_WINDOW, int(LEGACY_AUTO_COMPACT_ENV)}
           or hook_owned
           ) and top_number != effective_window:
@@ -1954,11 +1962,23 @@ def merge_settings(
     previous_managed: dict[str, dict] | None = None,
     catalog_rows: list[dict] | None = None,
     compact_percent: object = None,
+    served_models: set[str] | None = None,
 ) -> tuple[dict, list[dict], str | None, bool, list[str], list[str]]:
     desired = copy.deepcopy(existing)
     prior = previous_journal_map(previous)
     journal: dict[str, dict] = dict(prior)
     notices: list[str] = []
+    # A model setting the gateway does not serve (left over from another
+    # provider or an older catalog) breaks Claude Code, so it is replaced like
+    # a bundle-owned value. Only a catalog the gateway reported counts.
+    existing_picker = existing.get("modelPicker") if isinstance(existing.get("modelPicker"), dict) else {}
+    existing_picker_rows = existing_picker.get("options") if isinstance(existing_picker.get("options"), list) else []
+
+    def unserved(value: object) -> bool:
+        return gateway_mode and served_models is not None and provider_catalog.unserved_model(value, served_models, existing_picker_rows)
+
+    def replaced(key: str, old: object, new: object, reason: str = "the gateway does not serve") -> None:
+        notices.append(f"{key}: replaced {old}, which {reason}, with {new}.")
     redact_journal_secrets(journal)
     env_before = get_nested(existing, ["env"])
     permissions_before = get_nested(existing, ["permissions"])
@@ -2013,6 +2033,10 @@ def merge_settings(
             record_value_journal(journal, identity, ["env", key], ABSENT, value, prior)
         elif identity in prior and env[key] == prior[identity].get("installed") and env[key] != value:
             # The same ownership rule applies to environment-backed settings.
+            record_value_journal(journal, identity, ["env", key], env[key], value, prior)
+            env[key] = copy.deepcopy(value)
+        elif key in provider_catalog.MODEL_ENV_KEYS and env[key] != value and unserved(env[key]):
+            replaced(key, env[key], value)
             record_value_journal(journal, identity, ["env", key], env[key], value, prior)
             env[key] = copy.deepcopy(value)
 
@@ -2080,6 +2104,15 @@ def merge_settings(
         existing_models.add(item.get("model"))
         if gateway_mode:
             owned_picker_rows.add(picker_row_key(item))
+    # An alias the user chose resolves through ANTHROPIC_DEFAULT_*_MODEL on a
+    # gateway, so it stays; it only needs a picker row, which Claude Code and
+    # the post-install check require of the active model.
+    active = desired.get("model")
+    old_active = prior.get("value:model")
+    if (gateway_mode and isinstance(active, str) and active.removesuffix("[1m]") in NATIVE_MODELS
+            and active not in existing_models and not (old_active and active == old_active.get("installed"))):
+        new_options.append({"model": active, "label": active.removesuffix("[1m]").capitalize(), "description": f"Claude Code alias ({active})"})
+        existing_models.add(active)
     picker_value = {**old_picker, "options": new_options}
     if "replaceBuiltInOptions" in incoming_picker and "replaceBuiltInOptions" not in old_picker:
         picker_value["replaceBuiltInOptions"] = incoming_picker["replaceBuiltInOptions"]
@@ -2114,9 +2147,30 @@ def merge_settings(
     current_model = desired.get("model", ABSENT)
     direct_invalid = not gateway_mode and not gateway_ready and current_model is not ABSENT and not is_first_party(current_model)
     old_model = prior.get("value:model")
-    can_update_model = current_model is ABSENT or (old_model and current_model == old_model.get("installed")) or direct_invalid
+    model_unserved = current_model is not ABSENT and unserved(current_model)
+    # Claude Code cannot select an active model the picker lacks, and the
+    # post-install check rejects it; this also covers a gateway that did not
+    # answer, when nothing says which models it serves.
+    model_unpicked = gateway_mode and current_model is not ABSENT and current_model not in picker_models
+    if model_unpicked and not model_unserved and isinstance(current_model, str):
+        # The same model under the picker's ID, with or without a context suffix.
+        same = next((row.get("model") for row in picker_value.get("options", [])
+                     if isinstance(row, dict) and isinstance(row.get("model"), str)
+                     and provider_catalog.model_base(row["model"]) == provider_catalog.model_base(current_model)), None)
+        if same:
+            notices.append(f"model: {current_model} is listed in the model picker as {same}; it now uses {same}.")
+            record_value_journal(journal, "value:model", ["model"], current_model, same, prior)
+            desired["model"] = same
+            current_model = same
+            model_unpicked = False
+    can_update_model = (current_model is ABSENT or (old_model and current_model == old_model.get("installed"))
+                        or direct_invalid or model_unserved or model_unpicked)
     if can_update_model and preferred:
         if current_model != preferred:
+            if model_unserved:
+                replaced("model", current_model, preferred)
+            elif model_unpicked:
+                replaced("model", current_model, preferred, "is not in the model picker")
             record_value_journal(journal, "value:model", ["model"], current_model, preferred, prior)
             desired["model"] = preferred
 
@@ -2126,11 +2180,14 @@ def merge_settings(
     current_advisor = desired.get("advisorModel", ABSENT)
     direct_advisor_invalid = not gateway_mode and not gateway_ready and current_advisor is not ABSENT and not is_first_party(current_advisor)
     old_advisor = prior.get("value:advisorModel")
+    advisor_unserved = current_advisor is not ABSENT and unserved(current_advisor)
     can_update_advisor = current_advisor is ABSENT or (
         old_advisor and current_advisor == old_advisor.get("installed")
-    ) or direct_advisor_invalid
+    ) or direct_advisor_invalid or advisor_unserved
     if can_update_advisor and preferred_advisor:
         if current_advisor != preferred_advisor:
+            if advisor_unserved:
+                replaced("advisorModel", current_advisor, preferred_advisor)
             record_value_journal(journal, "value:advisorModel", ["advisorModel"], current_advisor, preferred_advisor, prior)
             desired["advisorModel"] = preferred_advisor
 
@@ -2142,32 +2199,30 @@ def merge_settings(
     merge_compaction_controls(
         desired, desired, prior, journal, home=home, compact_percent=compact_percent,
         gateway_mode=gateway_mode, gateway_context=catalog_context(catalog_rows, desired.get("model")) if gateway_mode else None,
+        notices=notices,
     )
     env = desired.get("env") if isinstance(desired.get("env"), dict) else {}
 
-    # Platform-safe hook merge at inner-command granularity. Discovery is an
-    # explicit opt-in, but a previously enabled value backed by gateway
-    # credentials is preserved across updates in either profile, whether this
-    # bundle installed it or the user set it directly; a fresh install still
-    # defaults to disabled.
+    # Platform-safe hook merge at inner-command granularity. A gateway profile
+    # discovers its models: without discovery the lanes keep whatever models
+    # the gateway served at install time. The one exception is a user who
+    # turned discovery off after AgentFleet turned it on. A previously enabled
+    # value backed by gateway credentials is also kept in a direct profile.
+    discovery_identity = "value:env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"
+    old_discovery = prior.get(discovery_identity)
+    discovery_opted_out = (
+        env.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY") == "0"
+        and bool(old_discovery) and old_discovery.get("installed") == "1"
+    )
     discovery_enabled = (
         gateway_mode
-        and (
-            args.enable_model_discovery
-            or (
-                # Any earlier install: a native install may have switched to
-                # a gateway with agentfleet since.
-                bool(previous)
-                and env.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY") == "1"
-            )
-        )
+        and (args.enable_model_discovery or not discovery_opted_out)
         or (
             not gateway_mode
             and gateway_ready
             and env.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY") == "1"
         )
     )
-    discovery_identity = "value:env:CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY"
     discovery_value = "1" if discovery_enabled else "0"
     discovery_current = env.get("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", ABSENT)
     if discovery_current != discovery_value:
@@ -3323,6 +3378,7 @@ def profile_data(
         rows, source = discover_gateway_rows(home, url, token, existing)
         if catalog_out is not None:
             catalog_out["rows"] = rows
+            catalog_out["source"] = source
         if rows:
             fleet, template_profile = gateway_profile(carried, template, rows, policy)
             note = f"gateway models: {len(rows)} ({source})"
@@ -3609,8 +3665,11 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         if args.gateway_url and not requested:
             print(f"Keeping the live gateway {live_url}: it was changed after install, so --gateway-url {args.gateway_url} is not applied. "
                   "Switch providers with: agentfleet add NAME --gateway-url URL --use")
-        # A token is only ever sent to the endpoint it belongs to.
-        if not gateway_token and not same_endpoint(gateway_url, live_url):
+        # A token is only ever sent to the endpoint it belongs to. Without
+        # --gateway-url or a gateway in settings, URL and token are the pair
+        # exported in the shell, which Claude Code itself sends together.
+        shell_pair = not args.gateway_url and not live_url
+        if not gateway_token and not shell_pair and not same_endpoint(gateway_url, live_url):
             discovery_token = None
     policy_data, carry_from = provider_policy(bundle, home, config_root, existing, gateway_url if args.gateway_url and requested else None)
     policy = install_policy(policy_data)
@@ -3641,9 +3700,14 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
         for model in [config.get("model"), *(config.get("fallbacks") or [])]
         if isinstance(model, str) and model
     }
+    # Rows read back from the old picker say nothing about what the gateway
+    # serves today, so only a live or cached catalog can mark a model stale.
+    authoritative = catalog.get("source") in {"live", "cache"} and catalog.get("rows")
+    served_models = {row["id"] for row in catalog["rows"] if isinstance(row, dict) and isinstance(row.get("id"), str)} if authoritative else None
     desired, journal, _, gateway_owned, permission_owned, hook_notices = merge_settings(
         existing, template, home, config_root, args, not dry, previous, gateway_mode, gateway_token, required_models,
         previous_managed=previous_managed, catalog_rows=catalog.get("rows"), compact_percent=compact_percent,
+        served_models=served_models,
     )
     settings_bytes = json_bytes(desired)
     fleet_hash = bytes_sha256(fleet_bytes)[:16]
@@ -3764,6 +3828,16 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             if store.is_dir() and not any(store.iterdir()):
                 store.rmdir()
         return 1
+    if catalog.get("source") == "live" and catalog.get("rows") and gateway_url and discovery_token:
+        # Seed the catalog cache the startup hooks and /fleet-setup read, so
+        # they work before the first model sync.
+        try:
+            payload = provider_catalog.cache_payload(catalog["rows"], gateway_url, discovery_token, provider=str(policy.get("provider") or "gateway"))
+            cache_dir = home / ".claude" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write(cache_dir / MODEL_CACHE_NAME, json_bytes(payload), 0o600)
+        except (OSError, provider_catalog.CatalogError) as exc:
+            print(f"claude-agents-config: could not save the gateway model list ({exc}); the next Claude Code start fetches it", file=sys.stderr)
     print(f"Installed AgentFleet {version} ({profile}) under {home}")
     if kept_window is not None and not gateway_mode:
         print(f"Kept your auto-compact window ({kept_window} tokens). To compact at a percentage of each model's context instead: agentfleet config compact 70")
