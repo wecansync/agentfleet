@@ -120,7 +120,7 @@ const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand',
 // The instruction check is an action offered by the wizard, not a new option.
 const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
 const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
-const optionKeys26 = [...optionKeys25, 'agentBrainInstall', 'agentBrainMemory']
+const optionKeys26 = [...optionKeys25, 'agentBrainInstall']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
   const minor = releaseMinor(version)

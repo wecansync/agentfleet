@@ -43,7 +43,7 @@ The mod derives the Claude directory only from its known installed location
 - `agentfleet/suggestions.json`
 - `agentfleet/suggestions-hidden.json`
 - `agentfleet/jev-stats.json`
-- `agentfleet/wizard.json` — on AgentFleet 2.3.0+, unreviewed options prompt `agentfleet configure` in a terminal and appear in `/fleet-status`; AgentFleet 2.4.0 adds the work-style and agent-brain questions, 2.5.0 the ask-first and token-weather questions, and 2.6.0 the agent-brain install and memory questions (the instruction check is offered by the wizard but not counted).
+- `agentfleet/wizard.json` — on AgentFleet 2.3.0+, unreviewed options prompt `agentfleet configure` in a terminal and appear in `/fleet-status`; AgentFleet 2.4.0 adds the work-style and agent-brain questions, 2.5.0 the ask-first and token-weather questions, and 2.6.0 the agent-brain install question (the instruction check is offered by the wizard but not counted).
 - `agentfleet/lane-reports.jsonl`
 
 It uses filesystem stat to check size and resolved paths before reading; links

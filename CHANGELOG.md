@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.6.1] - 2026-10-14
+
+### Removed
+
+- The agent-brain memory question (`agentBrainMemory`). AgentFleet installs and connects the free agent-brain only, which records the tokens and cost of each session. It never asks you to sign in to agent-brain, create an account, or turn on its memory, and its messages and docs no longer mention them.
+
+### Changed
+
+- The agent-brain wizard questions and `agentfleet config agent-brain on` describe only what the free tool does.
+- `fleet-status` 1.5.1 counts only the agent-brain install question as new in 2.6.
+
 ## [2.6.0] - 2026-10-14
 
 ### Added

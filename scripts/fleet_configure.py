@@ -45,8 +45,6 @@ def agent_brain_applies(paths, key):
     installed = agent_brain_available(paths)
     if key == "agentBrainInstall":
         return not installed
-    if key == "agentBrainMemory":
-        return installed and provider_catalog.load_preferences(paths.home)["agentBrain"] is not False
     return installed
 
 
@@ -133,8 +131,8 @@ class Feature:
 
 # Actions the wizard offers, not settings: presets cannot carry them and the
 # summary does not list them.
-ACTIONS = ("instructions", "agentBrainMemory")
-AGENT_BRAIN_KEYS = ("agentBrainInstall", "agentBrain", "agentBrainMemory")
+ACTIONS = ("instructions",)
+AGENT_BRAIN_KEYS = ("agentBrainInstall", "agentBrain")
 
 FEATURES = (
     Feature("compact", "2.3.0", "Auto-compact at what percent of each model's context? (20-95, or off)", "20-95 or off"),
@@ -147,9 +145,8 @@ FEATURES = (
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
     Feature("askFirst", "2.5.0", "Before large, unclear or risky tasks, should Claude check the docs, investigate, and agree on the approach with you (workflow, worktrees, new-project setup)? Small, clear tasks are done straight away. (Y/n)", "yes/no"),
     Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
-    Feature("agentBrainInstall", "2.6.0", "Install agent-brain? It records the tokens and cost of each session and, with an agent-brain Pro account, remembers project decisions across sessions. It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
-    Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code? It records the tokens and cost of each session; with memory on, Claude also saves and recalls project decisions. (Y/n)", "yes/no"),
-    Feature("agentBrainMemory", "2.6.0", "Turn on agent-brain memory, so Claude remembers project decisions across sessions? It needs an agent-brain Pro account: you sign in through your browser, then agent-brain asks for your consent. (Y/n)", "yes/no"),
+    Feature("agentBrainInstall", "2.6.0", "Install agent-brain, the free tool that records the tokens and cost of each session? It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
+    Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code, so it records the tokens and cost of each session? (Y/n)", "yes/no"),
     Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
 
@@ -236,19 +233,6 @@ def save_state(api, paths, state_path, asked):
     return asked
 
 
-def enable_memory(paths):
-    """Sign in and turn memory on through agent-brain itself, so the user
-    agrees to agent-brain's own consent text."""
-    binary = agent_brain.find_binary(paths.home)
-    if binary is None:
-        return
-    print("agent-brain opens your browser to sign in; approve the code it shows there.")
-    if (agent_brain.run_interactive(paths.home, binary, "login") == 0
-            and agent_brain.run_interactive(paths.home, binary, "memory", "enable") == 0):
-        return
-    print("agent-brain memory is not on. Turn it on later with: agent-brain login, then agent-brain memory enable")
-
-
 def run(api, paths, args):
     global _plugin_cache
     _plugin_cache = None
@@ -260,8 +244,8 @@ def run(api, paths, args):
     unasked = [f for f in FEATURES if f.key not in asked]
 
     def install_pending():
-        # Connecting agent-brain and its memory wait for the install
-        # question: a yes there makes them meaningful in the same run.
+        # Connecting agent-brain waits for the install question: a failed
+        # install leaves both open for the next run.
         return "agentBrainInstall" not in asked and agent_brain_applies(paths, "agentBrainInstall")
 
     # An agent-brain question that means nothing here (installing it when it
@@ -299,9 +283,8 @@ def run(api, paths, args):
         elif args.after_install:
             selected = applicable
         elif args.yes:
-            # --yes keeps values, so it installs nothing, leaves memory off,
-            # and never runs the instruction check.
-            selected = [f for f in unasked if f.key != "instructions"]
+            # --yes keeps values, so it installs nothing and runs no action.
+            selected = [f for f in unasked if f.key not in ACTIONS]
         else:
             selected = list(FEATURES)
         if args.after_install and not selected:
@@ -360,11 +343,6 @@ def run(api, paths, args):
                     continue
                 asked = save_state(api, paths, state_path, [*asked, key])
                 continue
-            if key == "agentBrainMemory":
-                if interactive and prompt(feature, True):
-                    enable_memory(paths)
-                asked = save_state(api, paths, state_path, [*asked, key])
-                continue
             value = values[key] if key in values else feature.read(api, paths)
             if interactive:
                 value = prompt(feature, value)
@@ -381,9 +359,7 @@ def run(api, paths, args):
             if key not in asked:
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
-        # A question this run made meaningful (memory, after installing
-        # agent-brain from a preset) stays open for the next run, and so does
-        # every one while installing agent-brain is still open.
+        # While installing agent-brain is still open, so is connecting it.
         still_skipped = [] if install_pending() else [
             key for key in AGENT_BRAIN_KEYS if key not in asked and not agent_brain_applies(paths, key)]
         if still_skipped:
