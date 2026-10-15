@@ -182,7 +182,8 @@ class WorkStyleTests(unittest.TestCase):
                 self.assertNotIn("speckit", off)
                 # The rest of the policy is the same either way.
                 self.assertEqual(off, on.replace(on[on.index("## How to approach a task"):on.index("## Check the branch")], ""))
-                self.assertEqual("then lanes for the independent parts" in on, style != "direct")
+                self.assertEqual("with a review lane only for risky parts" in on, style == "balanced")
+                self.assertEqual("then your own review of what they changed" in on, style == "fleet")
                 self.assertEqual("then build, test and fix it yourself" in on, style == "direct")
                 self.assertIn('--integration-options="--no-model-invocation"', on)
         self.assertEqual(provider_catalog.render_policy_for(template, {"workStyle": "direct"}),

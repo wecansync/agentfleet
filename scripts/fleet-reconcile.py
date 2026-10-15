@@ -34,7 +34,6 @@ from provider_catalog import (
     available_rows,
     cache_rows,
     candidate_list,
-    eligible_candidates,
     family_approved,
     load_policy,
     model_family,
@@ -51,6 +50,7 @@ from provider_catalog import (
     native_lane_model,
     excluded_models,
     is_excluded,
+    reserved_models,
     tier_overrides,
     context_length,
     GATEWAY_ROW_MARKERS,
@@ -566,6 +566,15 @@ def select_live_fallback(
     return ranked[0] if ranked else None
 
 
+def resolve_catalog_name(name: str, catalog: dict[str, dict]) -> str:
+    """Map a bare or suffixed name to the live catalog id with the same
+    suffix-stripped value; an exact match wins, an unknown name is kept."""
+    if name in catalog:
+        return name
+    base = strip_known_suffix(name)
+    return next((model for model in catalog if strip_known_suffix(model) == base), name)
+
+
 def resolve_fleet(
     fleet: dict,
     settings: dict,
@@ -583,12 +592,18 @@ def resolve_fleet(
     next-best models become its fallbacks, so every live model can serve
     somewhere regardless of how many lanes exist. Models listed in
     ``excludedModels`` never serve a lane (they stay in the model picker).
+    Models listed in ``reservedModels`` are never chosen by tier ranking or a
+    fallback chain; only a lane whose ``preferred`` names one may use it. A
+    lane with ``preferredOnly`` takes just its live preferred entries as
+    fallbacks, with no ranked filler. Bare ``preferred`` names resolve to the
+    live catalog id at reconcile time; the stored list is left as written.
     Primary lanes resolve before their ``altOf`` alternates.
     """
     result = copy.deepcopy(fleet)
     result.pop("_reconcile", None)
     full_catalog = available_rows(rows, policy)
     excluded = excluded_models(result)
+    reserved = reserved_models(result) - excluded
     catalog = {model: row for model, row in full_catalog.items() if not is_excluded(model, excluded)}
     pending: list[str] = []
     changes: dict[str, dict] = {}
@@ -601,7 +616,23 @@ def resolve_fleet(
         if not isinstance(config, dict):
             pending.append(f"{lane}: malformed lane configuration")
             continue
-        candidates = candidate_list(config)
+        preferred = config.get("preferred")
+        preferred_names = [
+            resolve_catalog_name(item.strip(), catalog)
+            for item in preferred if isinstance(item, str) and item.strip()
+        ] if isinstance(preferred, list) else []
+        written = {item.strip() for item in preferred if isinstance(item, str)} if isinstance(preferred, list) else set()
+        candidates = list(dict.fromkeys(
+            resolve_catalog_name(model, catalog) if model in written else model for model in candidate_list(config)
+        ))
+        # A reserved model is barred from this lane unless its own preferred
+        # list names it.
+        barred = reserved - {strip_known_suffix(model) for model in preferred_names}
+
+        def usable(model: str) -> bool:
+            return model in catalog and family_approved(model, policy) and strip_known_suffix(model) not in barred
+
+        lane_live = [model for model in approved_live if strip_known_suffix(model) not in barred]
         for model in candidates:
             if not family_approved(model, policy) and not allow_new_families and model in catalog:
                 pending.append(f"{lane}: unapproved model family {model}")
@@ -616,19 +647,20 @@ def resolve_fleet(
             sibling_model = lanes[sibling].get("model")
             if isinstance(sibling_model, str) and sibling_model:
                 avoid.add(sibling_model)
-        preferred = config.get("preferred")
-        explicit = isinstance(preferred, list) and any(isinstance(item, str) and item.strip() for item in preferred)
-        ranked = rank_live_candidates(lane, config, current, approved_live, catalog, policy, avoid=avoid, overrides=overrides, usage=usage)
+        explicit = bool(preferred_names)
+        preferred_only = explicit and config.get("preferredOnly") is True
+        live_preferred = list(dict.fromkeys(model for model in preferred_names if usable(model)))
+        ranked = rank_live_candidates(lane, config, current, lane_live, catalog, policy, avoid=avoid, overrides=overrides, usage=usage)
         selected = None
         if explicit:
-            eligible, _ = eligible_candidates(config, catalog, policy)
+            eligible = live_preferred if preferred_only else [model for model in candidates if usable(model)]
             independent = [model for model in eligible if model not in avoid]
             pick_from = independent or eligible
             selected = pick_from[0] if pick_from else None
-        if selected is None and not (isinstance(current, str) and current in catalog):
+        if selected is None and not preferred_only and not (isinstance(current, str) and current in catalog):
             # The lane's model left the catalog: continue with the next live
             # model from its own fallback chain before re-ranking from scratch.
-            own = [m for m in candidates if m in catalog and family_approved(m, policy) and m not in avoid]
+            own = [m for m in candidates if usable(m) and m not in avoid]
             selected = own[0] if own else None
         if selected is None:
             selected = ranked[0] if ranked else None
@@ -645,16 +677,16 @@ def resolve_fleet(
         # the next run -- where it is current -- yields the same order and a
         # single reconciliation pass converges.
         settled = ranked if selected == current else rank_live_candidates(
-            lane, config, selected, approved_live, catalog, policy, avoid=avoid, overrides=overrides, usage=usage,
+            lane, config, selected, lane_live, catalog, policy, avoid=avoid, overrides=overrides, usage=usage,
         )
         ranked_fallbacks = [model for model in settled if model != selected and model not in avoid]
-        if explicit:
+        if preferred_only and live_preferred:
+            # Pinned to the preferred list: no tier-ranked filler.
+            fallback_values = [model for model in live_preferred if model != selected]
+        elif explicit and not preferred_only:
             # The user's own order first; tier ranking fills the free slots so
             # a lane pinned to one model still has somewhere to go.
-            fallback_values = [
-                model for model in candidates
-                if model != selected and family_approved(model, policy) and model in catalog
-            ]
+            fallback_values = [model for model in candidates if model != selected and usable(model)]
             fallback_values += [model for model in ranked_fallbacks if model not in fallback_values]
         else:
             fallback_values = ranked_fallbacks

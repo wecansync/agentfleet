@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.7.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.8.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,17 +431,27 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.7.2</span>
+        <span class="release-version" data-latest-version>v2.8.0</span>
         <span class="release-date" data-latest-date>October 15, 2026</span>
       </div>
-      <p>Updates now reach your installed mods.</p>
+      <p>Lanes cost fewer tokens.</p>
       <ul class="release-list">
-        <li>Claude Code kept running each mod as it was first installed, so mod fixes never arrived. An update now updates each installed mod whose version changed and says which; restart Claude Code to load them. Disabled mods stay disabled.</li>
+        <li>Claude reviews lane work itself; a review lane runs only for security, data-loss or migration changes, or when you ask.</li>
+        <li>Fixes go back to the lane that wrote the code, which keeps what it has read, and a failed lane is re-dispatched only once.</li>
+        <li>Lanes get a warning near their turn limit, so they report instead of being cut off.</li>
+        <li>When the gateway itself is failing, Claude works directly instead of retrying lanes.</li>
+        <li>Teams can pin each lane's models and effort in a preset, and reserve an expensive model for the lanes that name it.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.7.2</span><span class="release-date">October 15, 2026</span><span class="version-summary">Updates now reach your installed mods.</span></summary>
+        <ul class="release-list">
+          <li>Claude Code kept running each mod as it was first installed, so mod fixes never arrived. An update now updates each installed mod whose version changed and says which; restart Claude Code to load them. Disabled mods stay disabled.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.7.1</span><span class="release-date">October 15, 2026</span><span class="version-summary"><code class="il">/brain</code> shows your memories, in a pane you can scroll.</span></summary>
         <ul class="release-list">

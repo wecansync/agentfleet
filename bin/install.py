@@ -89,7 +89,8 @@ RETIRED_LANES = {
 PERMISSION_MODE_KEYS = ("defaultMode", "skipDangerousModePermissionPrompt")
 # User-owned lane fields carried across an update; everything else comes from
 # the bundle so lane definitions can evolve.
-CARRIED_LANE_FIELDS = ("preferred", "model", "fallbacks")
+CARRIED_LANE_FIELDS = ("preferred", "model", "fallbacks", "preferredOnly", "preferredEffort")
+PREFERRED_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 MODEL_CACHE_NAME = "provider-models-cache.json"
 LEGACY_MODEL_CACHE_NAME = "omniroute-models-cache.json"
 
@@ -1890,6 +1891,10 @@ def carry_lane_choices(bundle_fleet: dict, existing: dict, *, drop_shipped_pins:
                 values = [item for item in value if isinstance(item, str) and item]
                 if values:
                     target[field] = values
+            elif field == "preferredOnly" and value is True:
+                target[field] = True
+            elif field == "preferredEffort" and value in PREFERRED_EFFORTS:
+                target[field] = value
     # Lanes the user added (e.g. via /fleet-setup) are theirs and stay; the
     # installer renders their agents with the generator after committing.
     bundle_names = set(bundle_fleet.get("lanes", {}))
@@ -1907,6 +1912,9 @@ def carry_lane_choices(bundle_fleet: dict, existing: dict, *, drop_shipped_pins:
     excluded = [item for item in existing.get("excludedModels") or [] if isinstance(item, str) and item.strip()]
     if excluded:
         result["excludedModels"] = excluded
+    reserved = [item for item in existing.get("reservedModels") or [] if isinstance(item, str) and item.strip()]
+    if reserved:
+        result["reservedModels"] = reserved
     return result
 
 
@@ -2906,15 +2914,20 @@ def rebased_fleet(live: dict, profile: dict | None) -> dict:
     for name, config in result["lanes"].items():
         if not isinstance(config, dict):
             continue
-        for field in CARRIED_LANE_FIELDS:
-            config.pop(field, None)
         saved = saved_lanes.get(name)
+        for field in CARRIED_LANE_FIELDS:
+            # Effort names no model, so a provider without a saved choice for
+            # this lane keeps it, as `agentfleet add` does.
+            if field != "preferredEffort" or isinstance(saved, dict):
+                config.pop(field, None)
         if isinstance(saved, dict):
             config.update({field: copy.deepcopy(saved[field]) for field in CARRIED_LANE_FIELDS if field in saved})
     tiers = (profile or {}).get("modelTiers")
     result["modelTiers"] = copy.deepcopy(tiers) if isinstance(tiers, dict) else {}
     excluded = (profile or {}).get("excludedModels")
     result["excludedModels"] = [item for item in excluded if isinstance(item, str)] if isinstance(excluded, list) else []
+    reserved = (profile or {}).get("reservedModels")
+    result["reservedModels"] = [item for item in reserved if isinstance(item, str)] if isinstance(reserved, list) else []
     return result
 
 
@@ -3483,8 +3496,15 @@ def profile_data(
             # Keep the user's preferences so the startup reconcile can restore
             # them once the gateway answers again.
             for name, config in carried.get("lanes", {}).items():
-                if isinstance(config, dict) and config.get("preferred") and isinstance(fleet["lanes"].get(name), dict):
+                if not isinstance(config, dict) or not isinstance(fleet["lanes"].get(name), dict):
+                    continue
+                if config.get("preferred"):
                     fleet["lanes"][name]["preferred"] = copy.deepcopy(config["preferred"])
+                for field in ("preferredOnly", "preferredEffort"):
+                    if field in config:
+                        fleet["lanes"][name][field] = copy.deepcopy(config[field])
+            if carried.get("reservedModels"):
+                fleet["reservedModels"] = copy.deepcopy(carried["reservedModels"])
             template_profile = copy.deepcopy(template)
             template_profile["modelPicker"] = {"options": copy.deepcopy(NATIVE_PICKER), "replaceBuiltInOptions": True}
             template_profile["model"] = "default"

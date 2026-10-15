@@ -675,6 +675,12 @@ def excluded_models(fleet: object) -> set[str]:
     return {strip_known_suffix(item) for item in values or () if isinstance(item, str) and item.strip()}
 
 
+def reserved_models(fleet: object) -> set[str]:
+    """Models only a lane's own ``preferred`` list may use, suffix-insensitive."""
+    values = fleet.get("reservedModels") if isinstance(fleet, dict) else None
+    return {strip_known_suffix(item) for item in values or () if isinstance(item, str) and item.strip()}
+
+
 def is_excluded(model: object, excluded: set[str]) -> bool:
     return isinstance(model, str) and strip_known_suffix(model) in excluded
 

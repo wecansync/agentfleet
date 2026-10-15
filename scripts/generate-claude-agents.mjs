@@ -629,19 +629,19 @@ function getRoleSpec(role, access) {
       trigger: 'Implement code: build a feature, fix a bug, refactor, migrate, or change behavior across files.',
       tools: writableTools, color: "green", maxTurns: 100,
       description: "Implementation with focused verification",
-      prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the applicable focused gates. Never commit, push, merge, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`
+      prompt: `Implement the assigned change in the working tree. Stay inside the brief's file and behavior scope, match surrounding conventions, and run the check the brief names, or the applicable focused gates. Fix what fails in your own change before you report; report a failure only when fixing it would leave the brief's scope. Never commit, push, merge, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files, commands with exit codes, measured outcomes, and unresolved risks.`
     },
     ui: {
       trigger: 'Build or change user-facing interface code: components, screens, styling, accessibility, responsive or localized layout.',
       tools: writableTools, color: "pink", maxTurns: 100,
       description: "UI implementation and verification",
-      prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run focused UI tests or builds. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files and measured evidence.`
+      prompt: `Implement the assigned UI change with the project's design, accessibility, localization, and responsive conventions. Stay inside the brief's scope and run the check the brief names, or focused UI tests or builds, and fix what fails in your own change before you report. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report touched files and measured evidence.`
     },
     tests: {
       trigger: 'Test work: write new tests, fix failing tests, or investigate a flaky suite.',
       tools: writableTools, color: "yellow", maxTurns: 90,
       description: "Test implementation and failure analysis",
-      prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`
+      prompt: `Implement or strengthen the assigned tests. Prove the test can fail for the intended defect, avoid tautologies, and run the narrowest honest gate before broader validation. Fix failures your own tests cause before you report. Never commit, push, pull, switch or create branches, deploy, publish, or start nested agents. Report commands, exit codes, and exact counts.`
     },
     docs: {
       trigger: 'Document: write or update a README, guide, API reference, runbook, or changelog.',
@@ -704,7 +704,16 @@ function renderAgent(lane, config, sourceHash, picker) {
   }
   const tools = baseTools || "";
   const lifecycle = agentBrain ? MEMORY_LIFECYCLE : "";
-  return `---\nname: ${agentName}\ndescription: ${yamlString(descriptionFor(lane, config.model, role, config))}\nmodel: ${yamlString(config.model)}\n${fallbackLine}effort: ${config.effort || "high"}\ntools: ${tools}\nbackground: true\nomitClaudeMd: true\ncolor: ${spec.color}\nmaxTurns: ${spec.maxTurns}\n---\n\n<!-- ${marker}; source-sha256: ${sourceHash} -->\n\n# Fleet lane: ${lane}\n\nYou are the native Claude Code subagent for global fleet lane \`${lane}\`. The main agent owns decomposition, integration, final gates, and outward-facing actions. You own only the bounded assignment in your invocation.\n\n${spec.prompt}\n\nThe main agent must put every applicable project instruction, gate, and handoff requirement in the brief because this generated agent omits CLAUDE.md to keep context bounded and avoid delegated handoff writes.${lifecycle} If the brief lacks a decision required to continue safely, stop and report the gap instead of expanding scope. If the work turns out larger than the brief implies, finish and check one complete part, then stop and report what is done and what remains; never run out of turns without a report. Keep the report short: lead with the outcome, then one line per file, check, or finding; do not restate the brief or narrate your steps.\n`;
+  return `---\nname: ${agentName}\ndescription: ${yamlString(descriptionFor(lane, config.model, role, config))}\nmodel: ${yamlString(config.model)}\n${fallbackLine}effort: ${laneEffort(config)}\ntools: ${tools}\nbackground: true\nomitClaudeMd: true\ncolor: ${spec.color}\nmaxTurns: ${spec.maxTurns}\n---\n\n<!-- ${marker}; source-sha256: ${sourceHash} -->\n\n# Fleet lane: ${lane}\n\nYou are the native Claude Code subagent for global fleet lane \`${lane}\`. The main agent owns decomposition, integration, final gates, and outward-facing actions. You own only the bounded assignment in your invocation.\n\n${spec.prompt}\n\nThe main agent must put every applicable project instruction, gate, and handoff requirement in the brief because this generated agent omits CLAUDE.md to keep context bounded and avoid delegated handoff writes.${lifecycle} If the brief lacks a decision required to continue safely, stop and report the gap instead of expanding scope. If the work turns out larger than the brief implies, finish and check one complete part, then stop and report what is done and what remains; never run out of turns without a report. Keep the report short: lead with the outcome, then one line per file, check, or finding; do not restate the brief or narrate your steps.\n`;
+}
+
+// A level the user chose for the lane (claude-fleet-setup --effort, or a team
+// preset) outranks the bundle's default for it.
+const EFFORT_LEVELS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+function laneEffort(config) {
+  if (EFFORT_LEVELS.has(config.preferredEffort)) return config.preferredEffort;
+  return config.effort || "high";
 }
 
 function candidatesFor(config) {

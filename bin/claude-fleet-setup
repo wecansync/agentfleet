@@ -199,10 +199,16 @@ def gateway_active(home: Path) -> bool:
     return bool(env.get("ANTHROPIC_BASE_URL") and env.get("ANTHROPIC_AUTH_TOKEN"))
 
 
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+
+
 def update_fleet_choices(home: Path, config_home: Path, prefer: list[str], tiers: list[str], lock_timeout: float,
-                         exclude: list[str] | None = None, include: list[str] | None = None) -> None:
-    """Record explicit lane preferences and model tier labels in both fleet
-    mirrors. Reconciliation then applies them against the live catalog."""
+                         exclude: list[str] | None = None, include: list[str] | None = None,
+                         reserve: list[str] | None = None, unreserve: list[str] | None = None,
+                         prefer_only: list[str] | None = None, effort: list[str] | None = None) -> None:
+    """Record explicit lane preferences, reserved models, per-lane effort and
+    model tier labels in both fleet mirrors. Reconciliation then applies them
+    against the live catalog."""
     from provider_catalog import TIER_RANK
     mirrors = [home / ".claude" / "fleet.json", config_home / "delegate-skills" / "config.json"]
     present = [path for path in mirrors if path.is_file()]
@@ -240,31 +246,80 @@ def update_fleet_choices(home: Path, config_home: Path, prefer: list[str], tiers
                                 config["preferred"] = remaining
                             else:
                                 config.pop("preferred", None)
+                                config.pop("preferredOnly", None)
                             print(f"  fleet-{lane}: dropped {model} from its preference")
         if listed:
             fleet["excludedModels"] = sorted(dict.fromkeys(listed))
         else:
             fleet.pop("excludedModels", None)
         excluded = excluded_models(fleet)
-        for item in prefer:
-            lane, _, models = item.partition("=")
+        def lane_name(item: str) -> tuple[str, str]:
+            lane, _, rest = item.partition("=")
             lane = lane.strip().removeprefix("fleet-")
             if lane not in lanes:
                 raise SystemExit(f"unknown lane: {lane} (lanes: {', '.join(lanes)})")
+            return lane, rest
+
+        def checked_models(models: str, verb: str) -> list[str]:
             values = [model.strip() for model in models.split(",") if model.strip()]
             blocked = [model for model in values if strip_known_suffix(model) in excluded]
             if blocked:
                 raise SystemExit(f"{', '.join(blocked)} is excluded; run --include first")
+            if verb == "reserve" and values and not gateway_active(home):
+                raise SystemExit("reserving models needs a gateway profile; the native profile gives each lane opus, sonnet, or haiku by its tier")
             foreign = [model for model in values if model.removesuffix("[1m]") not in ("opus", "sonnet", "haiku")]
             if foreign and not gateway_active(home):
-                raise SystemExit(f"the native profile serves only opus, sonnet, and haiku; cannot prefer {', '.join(foreign)}")
+                raise SystemExit(f"the native profile serves only opus, sonnet, and haiku; cannot {verb} {', '.join(foreign)}")
+            return values
+
+        reserved = [item for item in fleet.get("reservedModels") or [] if isinstance(item, str) and item.strip()]
+        for item in unreserve or []:
+            for model in (value.strip() for value in item.split(",") if value.strip()):
+                kept = [value for value in reserved if strip_known_suffix(value) != strip_known_suffix(model)]
+                print(f"{model}: {'no longer reserved' if len(kept) < len(reserved) else 'was not reserved'}")
+                reserved = kept
+        for item in reserve or []:
+            for model in checked_models(item, "reserve"):
+                if strip_known_suffix(model) not in {strip_known_suffix(value) for value in reserved}:
+                    reserved.append(model)
+                print(f"{model}: reserved (serves only lanes that name it)")
+        if reserved:
+            fleet["reservedModels"] = reserved
+        else:
+            fleet.pop("reservedModels", None)
+
+        def prefer_lane(item: str, only: bool) -> None:
+            lane, models = lane_name(item)
+            values = checked_models(models, "prefer")
+            config = lanes[lane]
+            config.pop("preferredOnly", None)
             if values:
-                lanes[lane]["preferred"] = values
-                lanes[lane]["model"] = values[0]
-                print(f"fleet-{lane}: prefers {', '.join(values)}")
+                config["preferred"] = values
+                config["model"] = values[0]
+                if only:
+                    config["preferredOnly"] = True
+                    print(f"fleet-{lane}: uses only {', '.join(values)}")
+                else:
+                    print(f"fleet-{lane}: prefers {', '.join(values)}")
             else:
-                lanes[lane].pop("preferred", None)
+                config.pop("preferred", None)
                 print(f"fleet-{lane}: preference cleared (ranked by tier)")
+
+        for item in prefer:
+            prefer_lane(item, False)
+        for item in prefer_only or []:
+            prefer_lane(item, True)
+        for item in effort or []:
+            lane, level = lane_name(item)
+            level = level.strip().lower()
+            if not level:
+                lanes[lane].pop("preferredEffort", None)
+                print(f"fleet-{lane}: effort override cleared")
+            elif level in EFFORT_LEVELS:
+                lanes[lane]["preferredEffort"] = level
+                print(f"fleet-{lane}: effort {level}")
+            else:
+                raise SystemExit(f"invalid effort '{level}' (use {', '.join(EFFORT_LEVELS)})")
         labels = fleet.setdefault("modelTiers", {})
         for item in tiers:
             model, _, tier = item.partition("=")
@@ -347,10 +402,15 @@ def refresh_catalog_cache(home: Path, policy_file: Path | None) -> bool:
     return True
 
 
-def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file: Path) -> None:
+def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file: Path, always_sync: bool = False) -> None:
+    """Reconcile the fleet, then regenerate the agent files. With always_sync
+    the agents are regenerated even when reconciliation cannot run or changed
+    no lane model, as for a per-lane effort change."""
     settings_file = home / ".claude" / "settings.json"
     settings = read_json(settings_file, {})
     if not isinstance(settings, dict):
+        if always_sync:
+            sync_fleet_agents(home, config_home)
         return
 
     catalog_cache = home / ".claude" / "cache" / "provider-models-cache.json"
@@ -361,6 +421,8 @@ def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file
         reconcile_script = home / ".claude" / "fleet-reconcile.py"
 
     if not reconcile_script.is_file():
+        if always_sync:
+            sync_fleet_agents(home, config_home)
         return
     import subprocess
     if not gateway:
@@ -368,6 +430,8 @@ def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file
         # their tier, which also gives newly added lanes a model.
         reconcile_native(home, config_home, reconcile_script)
     elif not catalog_cache.is_file():
+        if always_sync:
+            sync_fleet_agents(home, config_home)
         return
     cmd = [
         sys.executable,
@@ -388,8 +452,11 @@ def run_setup_reconciliation_and_sync(home: Path, config_home: Path, policy_file
                 pass
     except OSError:
         pass
+    sync_fleet_agents(home, config_home)
 
-    # Synchronize agents
+
+def sync_fleet_agents(home: Path, config_home: Path) -> None:
+    import subprocess
     fleet_sync = home / ".local" / "bin" / ("claude-fleet-sync.cmd" if os.name == "nt" else "claude-fleet-sync")
     if not fleet_sync.is_file():
         fleet_sync = SCRIPTS / "generate-claude-agents.mjs"
@@ -1369,6 +1436,10 @@ def main() -> int:
     parser.add_argument("--archive-skills", help="comma-separated skill names or categories (core, delegates, engineering, other, all) to archive")
     parser.add_argument("--restore-skills", help="comma-separated skill names or categories to restore from archive")
     parser.add_argument("--prefer", action="append", default=[], metavar="LANE=MODEL[,MODEL]", help="pin a lane's preferred models in order (repeatable); 'LANE=' clears it")
+    parser.add_argument("--prefer-only", action="append", default=[], metavar="LANE=MODEL[,MODEL]", help="as --prefer, but the lane uses only these models (repeatable); 'LANE=' clears it")
+    parser.add_argument("--effort", action="append", default=[], metavar="LANE=LEVEL", help="set a lane's effort to low, medium, high, xhigh, or max (repeatable); 'LANE=' clears it")
+    parser.add_argument("--reserve", action="append", default=[], metavar="MODEL[,MODEL]", help="serve these models only to lanes that name them in --prefer (repeatable)")
+    parser.add_argument("--unreserve", action="append", default=[], metavar="MODEL[,MODEL]", help="undo --reserve for these models (repeatable)")
     parser.add_argument("--tier", action="append", default=[], metavar="MODEL=TIER", help="label a model cheap, fast, balanced, or deep (repeatable); 'MODEL=' clears it")
     parser.add_argument("--exclude", action="append", default=[], metavar="MODEL[,MODEL]", help="never assign these models to any lane (repeatable); they stay in the model picker")
     parser.add_argument("--include", action="append", default=[], metavar="MODEL[,MODEL]", help="undo --exclude for these models (repeatable)")
@@ -1508,9 +1579,11 @@ def main() -> int:
             print(f"  - {item['name']} ({item['category']})")
         did_action = True
 
-    if args.prefer or args.tier or args.exclude or args.include:
-        update_fleet_choices(home, config_home, args.prefer, args.tier, args.lock_timeout, args.exclude, args.include)
-        run_setup_reconciliation_and_sync(home, config_home, path)
+    lane_choices = args.reserve or args.unreserve or args.prefer_only or args.effort
+    if args.prefer or args.tier or args.exclude or args.include or lane_choices:
+        update_fleet_choices(home, config_home, args.prefer, args.tier, args.lock_timeout, args.exclude, args.include,
+                             args.reserve, args.unreserve, args.prefer_only, args.effort)
+        run_setup_reconciliation_and_sync(home, config_home, path, always_sync=bool(lane_choices))
         return 0
 
     if args.reconcile:

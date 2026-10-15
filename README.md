@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.7.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.8.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -199,7 +199,7 @@ existing installs.
 
 | Style | Behavior |
 |---|---|
-| `balanced` (default) | Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, broad sweeps whose detail it won't need, and independent reviews of risky changes. The prompt hook adds no routing suggestion. |
+| `balanced` (default) | Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, long well-specified tasks, broad sweeps whose detail it won't need, and independent reviews of risky changes (security, data loss, migrations). The prompt hook adds no routing suggestion. |
 | `direct` | Claude uses a lane only when you ask for one. |
 | `fleet` | The 2.3 behavior: Claude delegates by default. |
 
@@ -209,6 +209,25 @@ agentfleet config work-style balanced
 
 AgentFleet writes the policy for your chosen style to
 `~/.claude/rules/agentfleet.md`, which Claude Code loads automatically.
+
+### Reviews, fixes and retries
+
+From 2.8.0, in every style that uses lanes:
+
+- Claude reviews each lane's changes itself and reruns the check the lane names.
+  A review lane runs only for security, data-loss or migration changes, or when
+  you ask, and at most once per change. `fleet-review-deep` runs only when you
+  ask for it.
+- Claude fixes small findings itself. Larger ones go back to the lane that wrote
+  the code, continued with SendMessage so it keeps what it has read, instead of
+  to a new lane that reads everything again.
+- A long, well-specified task goes to one implementation lane in parts; Claude
+  continues the same lane for each part.
+- A lane that failed is re-dispatched once. If it fails again, or AgentFleet
+  reports that the gateway is failing, Claude does the work itself and tells you.
+
+A project can add its own risky areas in its `CLAUDE.md`, for example "installer
+changes count as risky: have them reviewed on a lane".
 
 ### Ask first
 
@@ -262,7 +281,10 @@ Lanes use less reasoning effort than in 2.3. `implement`, `review`,
 `triage-static`, `research-codebase`, and `research-web` run at `medium`. `plan`
 and the `-deep` lanes stay at `xhigh`. An update applies the new values
 automatically. A lane that is running out of turns now stops and reports what
-is done and what remains, instead of ending without a report.
+is done and what remains, instead of ending without a report. From 2.8.0 the
+lane-guard mod also warns a lane at 70% and again at 90% of its turn limit, so it
+finishes the part it is on and reports before it is cut off. Set a lane's effort
+yourself with `claude-fleet-setup --effort LANE=LEVEL` or a team preset.
 
 ---
 
@@ -366,6 +388,15 @@ claude-fleet-setup --tier my-model-id=
 claude-fleet-setup --exclude my-model-id
 claude-fleet-setup --include my-model-id
 
+# Use only these models for a lane, first as its model, the rest as fallbacks
+# (no ranked fill-ins); 'LANE=' clears it:
+claude-fleet-setup --prefer-only fleet-implement=codex-luna,claude-sonnet-5.5
+# Reserve an expensive model: it serves only lanes that name it:
+claude-fleet-setup --reserve codex-astra
+claude-fleet-setup --unreserve codex-astra
+# Set a lane's reasoning effort (low, medium, high, xhigh, max); 'LANE=' clears it:
+claude-fleet-setup --effort fleet-plan=high
+
 # Set auto-compact percentage (20-95 or 'off'):
 claude-fleet-setup --compact-percent 70
 # Override with an absolute compaction window (turns compact-percent to 'off'):
@@ -416,6 +447,19 @@ Example `team.json`:
 `workStyle` and `agentBrain` are accepted from 2.4.0, `askFirst` and
 `tokenWeather` from 2.5.0, and `agentBrainInstall` from 2.6.0. A preset never
 runs the instruction check.
+
+From 2.8.0 a preset can also set the team's models. `lanes` gives each listed
+lane its models (the first is its model, the rest its fallbacks, nothing else)
+and optionally its effort; `reservedModels` keeps a model off every lane that
+does not list it. Model names can leave out the `[1m]` suffix; AgentFleet matches
+them to the gateway's IDs. Lanes the preset leaves out keep their own models.
+
+```json
+{"format":"agentfleet.preset.v1","reservedModels":["codex-astra"],"lanes":{"implement":{"models":["codex-luna","claude-sonnet-5.5"],"effort":"high"},"review":{"models":["claude-opus-5.5","codex-sol"]},"review-deep":{"models":["codex-astra","claude-opus-5.5"],"effort":"xhigh"}}}
+```
+
+`agentfleet configure --export` writes these keys too, for lanes pinned with
+`--prefer-only` or given an effort.
 
 `agentfleet config` shows every feature, including work-style and agent-brain.
 The shared preferences live in `~/.claude/agentfleet/config.json`:
@@ -489,7 +533,7 @@ check, and background auto-updates never run it.
 
 Reviewer lanes (`fleet-review`, `fleet-review-alt`, `fleet-review-deep`, `fleet-security-review`) run in **CHECK mode** by default: they have `Bash`, `Edit`, and `Write` tools to execute test suites, linters, builds, and read-only checks, but do not edit files.
 
-To allow a reviewer to apply corrections, the brief must explicitly state **FIX MODE** and list the target files it may modify. A reviewer in FIX MODE requires disjoint file scopes from any other active writable lane. A lane must never review its own fixes; dispatch fixes to `fleet-review-alt` or another independent reviewer. `fleet-diagnose-static` receives `Bash` to reproduce failures, but never has edit tools.
+To allow a reviewer to apply corrections, the brief must explicitly state **FIX MODE** and list the target files it may modify. A reviewer in FIX MODE requires disjoint file scopes from any other active writable lane. A lane must never review its own fixes; the main session reviews them. `fleet-diagnose-static` receives `Bash` to reproduce failures, but never has edit tools.
 
 Global reviewer access is configured via `agentfleet config reviewer-access`:
 - `full` (default): reviewers receive `Bash`, `Edit`, and `Write` (CHECK mode by default, edits in FIX MODE).
@@ -720,7 +764,8 @@ your user permissions and are not sandboxed.
   - Destructive SQL: `DROP`, `TRUNCATE`, `ALTER TABLE … DROP`, and unconstrained `DELETE`/`UPDATE` without a `WHERE` clause across DB CLI tools and MCP servers.
   - Dangerous file removal: `rm -rf` targeting root, home, parent directories, `.git`, or wildcard.
   - Model failover: while a lane's own model is down (see [Outages and lane reports](#outages-and-lane-reports)), new runs of that lane start on the first of its fallback models that works, marked `(failover: <model>)` in the task description.
-  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover.
+  - Turn-limit warnings (from lane-guard 1.2.0): at 70% of a lane's `maxTurns` it tells the lane to finish the part it is on, run its check and report; at 90%, to report now. The lane reads the warning after a tool result; you do not see it.
+  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover and the turn-limit warnings.
 - **token-weather** (v0.1.0-agentfleet.1), Anthropic's sample mod (Apache-2.0),
   forecasts how full the context window is above the prompt. It draws below the
   other mods' bands and never replaces them. On by default from 2.5.0; an update
@@ -810,8 +855,9 @@ claude-fleet-setup --compaction 300000   # absolute token override (disables per
 
 On a gateway profile, each lane in `~/.claude/fleet.json` has a model and up to three fallback models, ranked from your provider's live models. `/fleet-setup` can pin a lane to your own list instead, for example `fleet-implement` on `claude-haiku-5.5`, then `codex-luna`, then a Gemini model; the first is the lane's model and the rest are its fallbacks in that order. Native profiles have no fallbacks. When a lane run fails with an API error 429 (quota), 5xx or 529 (overloaded):
 - **Model outages**: AgentFleet records that model as down in `~/.claude/agentfleet/outages.json`: for 60 minutes after a 429, 15 minutes after other errors, or until a later run on it succeeds.
-- **Same-lane failover**: with the `lane-guard` mod on (the default), the lane keeps working. New runs start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane. In the example above, if `claude-haiku-5.5` runs out of quota, the next `fleet-implement` run uses `codex-luna`, and the Gemini model if `codex-luna` is down too.
+- **Same-lane failover**: with the `lane-guard` mod on (the default), the lane keeps working. New runs start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane, once; if that run fails too, Claude does the work itself. In the example above, if `claude-haiku-5.5` runs out of quota, the next `fleet-implement` run uses `codex-luna`, and the Gemini model if `codex-luna` is down too.
 - **Another lane**: only when every model of a lane is down, or `lane-guard` is off, does the prompt hook name a lane with a working model instead. In the `fleet` work style a request routed to that lane is sent to the alternative while the outage lasts.
+- **Gateway outages**: when models from two or more vendors fail within 10 minutes, the gateway itself is failing and switching models will not help. The prompt hook says so once and tells Claude to do the work itself, without dispatching lanes, until the outage expires.
 - **Status**: the fleet-status band shows which model a lane switched to, and `/fleet-status` lists the models that are down.
 - **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), and API errors, allowing the main agent to verify lane actions before merging.
 - **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.

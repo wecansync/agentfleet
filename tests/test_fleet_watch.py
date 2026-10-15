@@ -232,8 +232,10 @@ class FleetWatchTests(unittest.TestCase):
         # No model of the lane is left: only now does another lane take over.
         self._failed_run("f3", "implement", "Build it (failover: gemini)", 503, now + timedelta(seconds=10))
         lines = fleet_watch.on_prompt(self.payload(), self.home)
-        self.assertTrue(any("fleet-implement (gemini) failed with 503" in line and "dispatch fleet-implement-alt instead" in line
-                            for line in lines), lines)
+        # luna and gemini are two vendors failing within ten minutes: a gateway outage,
+        # which replaces this scan's per-lane line.
+        self.assertTrue(any("the gateway is failing for several models (luna, gemini)" in line for line in lines), lines)
+        self.assertFalse(any("fleet-implement (gemini) failed with 503" in line for line in lines), lines)
         lane = fleet_watch.current_outages(self.home)["lanes"]["implement"]
         self.assertEqual((lane["model"], lane["alternative"]), ("gemini", "implement-alt"))
 
@@ -366,6 +368,87 @@ class FleetWatchTests(unittest.TestCase):
         context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("failing (503", context)
         self.assertIn("Dispatch `fleet-ui`", context)
+
+    def test_two_vendors_failing_together_is_one_gateway_outage(self):
+        self._fleet({"docs": {"model": "claude-opus-5.5"}, "implement": {"model": "codex-sol[1m]"}})
+        self.assertEqual(fleet_watch._vendor("codex-sol[1m]"), "codex")
+        self.assertEqual(fleet_watch._vendor("claude-opus-5.5"), "claude")
+        now = datetime.now(timezone.utc)
+        self._failed_run("g1", "docs", "Write docs", 503, now)
+        self._failed_run("g2", "implement", "Build it", 503, now + timedelta(seconds=5))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        outage_lines = [line for line in lines if "AgentFleet outage" in line]
+        self.assertEqual(len(outage_lines), 1, lines)
+        self.assertIn("the gateway is failing for several models", outage_lines[0])
+        self.assertIn("do the work yourself instead of dispatching fleet lanes, and tell the user", outage_lines[0])
+        gateway = fleet_watch.current_outages(self.home)["gateway"]
+        self.assertEqual(sorted(gateway["models"]), ["claude-opus-5.5", "codex-sol[1m]"])
+        self.assertEqual(gateway["status"], 503)
+        raw = json.loads((self.home / ".claude" / "agentfleet" / "outages.json").read_text(encoding="utf-8"))
+        self.assertIn("gateway", raw)
+        self.assertIn("lanes", raw)
+        # The next scan finds nothing new, so the notice is not repeated.
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertFalse(any("gateway is failing" in line for line in lines), lines)
+        self.assertIn("gateway", fleet_watch.current_outages(self.home))
+
+    def test_one_vendor_failing_gets_the_once_wording_and_no_gateway(self):
+        self._fleet({
+            "implement": {"model": "claude-opus-5.5"},
+            "implement-alt": {"model": "claude-sonnet-4.6", "altOf": "implement"},
+        })
+        self._failed_run("s1", "implement", "Build it", 503, datetime.now(timezone.utc))
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertTrue(any("fleet-implement (claude-opus-5.5) failed with 503" in line
+                            and "dispatch fleet-implement-alt instead, once; if that fails too, do the work yourself" in line
+                            for line in lines), lines)
+        self.assertFalse(any("gateway is failing" in line for line in lines), lines)
+        self.assertNotIn("gateway", fleet_watch.current_outages(self.home))
+
+    def test_failures_more_than_ten_minutes_apart_are_not_a_gateway_outage(self):
+        self._fleet({"docs": {"model": "claude-opus-5.5"}, "implement": {"model": "codex-sol[1m]"}})
+        now = datetime.now(timezone.utc)
+        self._failed_run("w1", "docs", "Write docs", 503, now - timedelta(minutes=11))
+        self._failed_run("w2", "implement", "Build it", 503, now)
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertFalse(any("gateway is failing" in line for line in lines), lines)
+        self.assertNotIn("gateway", fleet_watch.current_outages(self.home))
+
+    def test_quota_429s_from_two_vendors_are_not_a_gateway_outage(self):
+        self._fleet({"docs": {"model": "claude-opus-5.5"}, "implement": {"model": "codex-sol[1m]"}})
+        now = datetime.now(timezone.utc)
+        self._failed_run("q1", "docs", "Write docs", 429, now)
+        self._failed_run("q2", "implement", "Build it", 429, now)
+        lines = fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertFalse(any("gateway is failing" in line for line in lines), lines)
+        self.assertNotIn("gateway", fleet_watch.current_outages(self.home))
+
+    def test_gateway_outage_expires_and_routing_avoids_lanes_meanwhile(self):
+        store = self.home / ".claude" / "agentfleet"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "config.json").write_text(json.dumps({"format": "agentfleet.config.v1", "workStyle": "fleet"}), encoding="utf-8")
+        self._fleet({"docs": {"model": "sonnet"}, "ui": {"model": "opus"}, "implement": {"model": "haiku"}})
+        now = datetime.now(timezone.utc)
+        def stamp(when):
+            return when.isoformat().replace("+00:00", "Z")
+        gateway = {"at": stamp(now), "until": stamp(now + timedelta(minutes=5)), "status": 503,
+                   "models": ["claude-opus-5.5", "codex-sol[1m]"]}
+        (store / "outages.json").write_text(json.dumps({"format": "agentfleet.outages.v1", "lanes": {}, "models": {}, "gateway": gateway}), encoding="utf-8")
+        self.assertIn("gateway", fleet_watch.current_outages(self.home))
+        env = {**os.environ, "CLAUDE_FLEET_HOME": str(self.home), "PYTHONDONTWRITEBYTECODE": "1"}
+        result = subprocess.run([sys.executable, str(ROUTE)], input=json.dumps(self.payload("Update the README for this feature")), text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Routing: the gateway is failing until", context)
+        self.assertIn("do this yourself instead of dispatching a fleet lane", context)
+        self.assertNotIn("Dispatch `", context)
+        # Once the gateway deadline has passed, the outage is dropped and routing dispatches again.
+        gateway["until"] = stamp(now - timedelta(minutes=1))
+        (store / "outages.json").write_text(json.dumps({"format": "agentfleet.outages.v1", "lanes": {}, "models": {}, "gateway": gateway}), encoding="utf-8")
+        self.assertNotIn("gateway", fleet_watch.current_outages(self.home))
+        result = subprocess.run([sys.executable, str(ROUTE)], input=json.dumps(self.payload("Update the README for this feature")), text=True, capture_output=True, env=env)
+        context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Dispatch `fleet-docs`", context)
 
     def test_learning_opt_in_heads_tools_domains_commands_redaction_and_off(self):
         main = [
