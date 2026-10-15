@@ -47,6 +47,10 @@ elif argv[:2] == ["plugin", "install"]:
     command = "plugin_install"
 elif argv[:2] == ["plugin", "disable"]:
     command = "plugin_disable"
+elif argv[:3] == ["plugin", "marketplace", "update"]:
+    command = "marketplace_update"
+elif argv[:2] == ["plugin", "update"]:
+    command = "plugin_update"
 else:
     sys.exit(2)
 
@@ -84,6 +88,15 @@ elif command == "plugin_disable":
     for item in plugins:
         if item.get("id") == argv[2]:
             item["enabled"] = False
+    state_path.write_text(json.dumps(state))
+elif command == "plugin_update":
+    # Like the real CLI: take the catalog's version, keep the enabled state.
+    market = next(item for item in state.get("marketplaces", []) if item.get("name") == "agentfleet")
+    name = argv[2].split("@")[0]
+    manifest = json.loads((Path(market["path"]) / name / ".claude-plugin" / "plugin.json").read_text())
+    for item in state.get("plugins", []):
+        if item.get("id") == argv[2]:
+            item["version"] = manifest["version"]
     state_path.write_text(json.dumps(state))
 sys.exit(0)
 '''
@@ -255,6 +268,98 @@ class ModInstallerTests(unittest.TestCase):
         self.assertFalse(any(call["argv"][:3] == ["plugin", "marketplace", "add"] or
                              call["argv"][:2] == ["plugin", "install"] for call in new_calls), new_calls)
         self.assertEqual(len(new_calls), 0, "a registered marketplace requires no further CLI checks")
+
+    def installed_with_stale_mods(self, versions: dict[str, str], *, recorded: bool = False) -> Path:
+        """An install made before 2.7.2: registered, plugins at older versions,
+        and no record of the synced mod versions."""
+        home = self.home_for()
+        first = self.install(home)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        state = json.loads(self.state_path.read_text())
+        shipped = {path.parent.parent.name: json.loads(path.read_text())["version"]
+                   for path in (home / ".claude" / "agentfleet" / "mods").glob("*/.claude-plugin/plugin.json")}
+        for item in state["plugins"]:
+            name = item["id"].split("@")[0]
+            item["version"] = versions.get(name, shipped[name])
+        self.state_path.write_text(json.dumps(state))
+        self.log_path.write_text("", encoding="utf-8")
+        if not recorded:
+            meta_path = home / ".claude" / ".claude-agents-config-install.json"
+            meta = json.loads(meta_path.read_text())
+            meta.pop("modsVersions", None)
+            meta_path.write_text(json.dumps(meta))
+        return home
+
+    def test_fresh_registration_records_the_synced_mod_versions(self):
+        home = self.home_for()
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        versions = self.metadata(home).get("modsVersions")
+        self.assertEqual(versions["brain"], json.loads((ROOT / "mods/brain/.claude-plugin/plugin.json").read_text())["version"])
+        self.assertEqual(set(versions), {"fleet-status", "lane-guard", "token-weather", "brain", "fast-jev-compaction"})
+
+    def test_update_brings_stale_installed_mods_to_the_catalog_versions(self):
+        home = self.installed_with_stale_mods({"brain": "1.0.0", "fleet-status": "1.0.0"})
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        argv = [call["argv"] for call in self.calls()]
+        self.assertEqual(argv, [
+            ["--version"],
+            ["plugin", "list", "--json"],
+            ["plugin", "marketplace", "update", "agentfleet"],
+            ["plugin", "update", MOD_ID],
+            ["plugin", "update", BRAIN_ID],
+        ])
+        brain = json.loads((ROOT / "mods/brain/.claude-plugin/plugin.json").read_text())["version"]
+        self.assertIn(f"brain 1.0.0 to {brain}", result.stdout)
+        self.assertIn("Restart Claude Code to use them.", result.stdout)
+        self.assertEqual(self.metadata(home)["modsVersions"]["brain"], brain)
+        # Recorded: the next update makes no CLI calls.
+        self.log_path.write_text("", encoding="utf-8")
+        again = self.install(home)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_update_keeps_a_disabled_stale_mod_disabled(self):
+        home = self.installed_with_stale_mods({"brain": "1.0.0"})
+        state = json.loads(self.state_path.read_text())
+        for item in state["plugins"]:
+            if item["id"] == BRAIN_ID:
+                item["enabled"] = False
+        self.state_path.write_text(json.dumps(state))
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        argv = [call["argv"] for call in self.calls()]
+        self.assertIn(["plugin", "update", BRAIN_ID], argv)
+        self.assertFalse(any(args[:2] in (["plugin", "enable"], ["plugin", "install"]) for args in argv), argv)
+        brain = next(item for item in json.loads(self.state_path.read_text())["plugins"] if item["id"] == BRAIN_ID)
+        self.assertFalse(brain["enabled"])
+
+    def test_current_mods_are_only_recorded_without_update_calls(self):
+        home = self.installed_with_stale_mods({})
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call["argv"] for call in self.calls()], [["--version"], ["plugin", "list", "--json"]])
+        self.assertNotIn("Updated mods", result.stdout)
+        self.assertIn("brain", self.metadata(home)["modsVersions"])
+
+    def test_failed_mod_update_is_nonfatal_and_retried_next_time(self):
+        home = self.installed_with_stale_mods({"brain": "1.0.0"})
+        state = json.loads(self.state_path.read_text())
+        state["exit_codes"] = {"plugin_update": 1}
+        self.state_path.write_text(json.dumps(state))
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(f"Could not update {BRAIN_ID}", result.stdout)
+        self.assertNotIn("modsVersions", self.metadata(home))
+        state = json.loads(self.state_path.read_text())
+        state.pop("exit_codes")
+        self.state_path.write_text(json.dumps(state))
+        self.log_path.write_text("", encoding="utf-8")
+        retry = self.install(home)
+        self.assertEqual(retry.returncode, 0, retry.stderr + retry.stdout)
+        self.assertIn(["plugin", "update", BRAIN_ID], [call["argv"] for call in self.calls()])
+        self.assertIn("modsVersions", self.metadata(home))
 
     def test_existing_disabled_plugin_is_not_installed_or_enabled(self):
         self.set_fake_state(new_state(plugins=[{"id": MOD_ID, "enabled": False}]))

@@ -3,6 +3,12 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.7.2] - 2026-10-15
+
+### Fixed
+
+- Updates now reach installed mods. Claude Code runs each mod from a copy it makes at install time, and updates only rewrote AgentFleet's mod folder, so mods kept the version from their first install: an install from 2.5.0 still ran fleet-status 1.0.0 and lane-guard 1.0.0 without its model failover, and `/brain` without its pane. After writing the mod files, an update now runs `claude plugin update` for each installed mod whose version changed and says which it updated. Disabled mods stay disabled, and an update whose mods did not change runs no Claude Code commands. Restart Claude Code after the update to load them.
+
 ## [2.7.1] - 2026-10-15
 
 ### Fixed
@@ -370,6 +376,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.7.2]: https://github.com/wecansync/claude-agents-config/pull/39
 [2.7.1]: https://github.com/wecansync/claude-agents-config/pull/38
 [2.7.0]: https://github.com/wecansync/claude-agents-config/pull/37
 [2.6.2]: https://github.com/wecansync/claude-agents-config/pull/36

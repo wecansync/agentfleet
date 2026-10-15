@@ -134,7 +134,10 @@ that break them will not be merged.
 
 The version is in `VERSION` and follows semantic versioning. Any change to a
 bundle file requires a version bump in the PR because published releases are
-immutable. Maintainers build and deploy releases; contributors do not:
+immutable. A change under `mods/<name>/` also needs a bump of that mod's
+`version` in `.claude-plugin/plugin.json`: updates refresh an installed mod
+only when its version changed. Maintainers build and deploy releases;
+contributors do not:
 
 ```bash
 # For reference only — maintainers run these, not contributors:
