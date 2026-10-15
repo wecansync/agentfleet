@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.7.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.7.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,18 +431,25 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.7.0</span>
+        <span class="release-version" data-latest-version>v2.7.1</span>
         <span class="release-date" data-latest-date>October 15, 2026</span>
       </div>
-      <p>A <code class="il">/brain</code> command for agent-brain, and no more cloud question at the start of a session.</p>
+      <p><code class="il">/brain</code> shows your memories, in a pane you can scroll.</p>
       <ul class="release-list">
-        <li>The new <code class="il">brain</code> mod adds <code class="il">/brain</code>: token usage for this session, today and this week, and the project's latest memories when agent-brain memory is active.</li>
-        <li>agent-brain 0.5.1 no longer asks at the start of a session whether to link the project to agent-brain cloud. <code class="il">agent-brain config link-offer on</code> brings the question back.</li>
+        <li><code class="il">/brain</code> opens a pane with usage at the top and the project's memories below, critical ones first. Arrow keys move, Enter shows a memory in full.</li>
+        <li>agent-brain 0.5.2 lists memories 50 at a time, so a long list no longer fills Claude's context.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.7.0</span><span class="release-date">October 15, 2026</span><span class="version-summary">A <code class="il">/brain</code> command for agent-brain, and no more cloud question at the start of a session.</span></summary>
+        <ul class="release-list">
+          <li>The new <code class="il">brain</code> mod adds <code class="il">/brain</code>: token usage for this session, today and this week, and the project's latest memories when agent-brain memory is active.</li>
+          <li>agent-brain 0.5.1 no longer asks at the start of a session whether to link the project to agent-brain cloud. <code class="il">agent-brain config link-offer on</code> brings the question back.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.6.2</span><span class="release-date">October 14, 2026</span><span class="version-summary">Installing over an existing gateway setup now fixes it instead of stopping.</span></summary>
         <ul class="release-list">

@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.7.1] - 2026-10-15
+
+### Fixed
+
+- `/brain` shows the project's memories. Before, it asked agent-brain for every memory at once (247 KB for 280 entries), the result didn't reach the mod, and the section was left out without a word. It now asks for the critical memories and the 30 newest, shows each memory's text without agent-brain's escape characters, and says so when memories exist but can't be loaded. Needs agent-brain 0.5.2, which AgentFleet's daily update installs; with an older agent-brain, `/brain` asks you to run `agent-brain update`.
+
+### Changed
+
+- `/brain` opens a scrollable pane: usage at the top, then the memories, critical ones first. ↑/↓ move, Enter shows a memory in full, Esc closes. Where a pane can't open, it prints the same summary as text.
+- agent-brain installs from agentbrain.wecansync.com are 0.5.2: `agent-brain memory list` and Claude's `memory_list` tool show 50 memories per page instead of all of them, which keeps a long memory list from filling Claude's context.
+
 ## [2.7.0] - 2026-10-15
 
 ### Added
@@ -359,6 +370,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.7.1]: https://github.com/wecansync/claude-agents-config/pull/38
 [2.7.0]: https://github.com/wecansync/claude-agents-config/pull/37
 [2.6.2]: https://github.com/wecansync/claude-agents-config/pull/36
 [2.6.1]: https://github.com/wecansync/claude-agents-config/pull/35
