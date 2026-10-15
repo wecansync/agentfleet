@@ -1845,6 +1845,16 @@ def _agent_brain_update_run(paths: Paths) -> None:
     if version is None:
         return
     _append_log(log_path, f"[{_now_iso()}] agent-brain updated to {version}\n")
+    # A newer agent-brain may write its hooks differently (0.5.5 changed them
+    # for Windows), so let it rewrite the hooks that run this copy.
+    # The preference is read again: `config agent-brain off` may have run
+    # since this update started, and its hooks must not come back.
+    target = agent_brain.managed_binary(paths.home)
+    if (provider_catalog.load_preferences(paths.home)["agentBrain"] is not False
+            and agent_brain.hooks_run(paths.home, target)):
+        code, output = agent_brain.connect(paths.home, target)
+        if code != 0:
+            _append_log(log_path, f"[{_now_iso()}] agent-brain could not refresh its Claude Code hooks: {output}\n")
     result = {"version": version, "ok": True, "time": _now_iso()}
     _update_auto_update_state(paths, lambda state: state.update(agentBrainResult=result, agentBrainReported=False),
                               timeout=LOCK_TIMEOUT, required=True)

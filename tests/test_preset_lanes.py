@@ -185,8 +185,12 @@ class FleetSetupFlagTests(unittest.TestCase):
         bindir = Path(self.tmp.name) / "bin"
         bindir.mkdir()
         cli = bindir / "claude"
-        cli.write_text("#!" + sys.executable + "\nprint('[]')\n")
-        cli.chmod(0o755)
+        cli.write_text("print('[]')\n", encoding="utf-8")
+        if os.name == "nt":
+            (bindir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            cli.write_text("#!" + sys.executable + "\nprint('[]')\n", encoding="utf-8")
+            cli.chmod(0o755)
         node = shutil.which("node")
         env = {"PATH": os.pathsep.join([str(bindir), *([str(Path(node).parent)] if node else [])]), "HOME": str(self.home),
                "XDG_CONFIG_HOME": str(self.config), "PYTHONDONTWRITEBYTECODE": "1"}
@@ -214,9 +218,16 @@ class PresetApplyTests(unittest.TestCase):
         bindir = self.home / "bin"
         bindir.mkdir()
         cli = bindir / "claude"
-        cli.write_text("#!" + sys.executable + "\nprint('[]')\n")
-        cli.chmod(0o755)
+        cli.write_text("print('[]')\n", encoding="utf-8")
+        if os.name == "nt":
+            (bindir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            cli.write_text("#!" + sys.executable + "\nprint('[]')\n", encoding="utf-8")
+            cli.chmod(0o755)
         env = {"HOME": str(self.home), "PATH": str(bindir)}
+        if os.name == "nt":
+            env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            env["USERPROFILE"] = str(self.home)
         patcher = patch.dict(os.environ, env, clear=True)
         patcher.start()
         self.addCleanup(patcher.stop)

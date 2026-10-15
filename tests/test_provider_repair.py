@@ -2153,6 +2153,7 @@ class AgentFleetTwoTests(unittest.TestCase):
             self.assertEqual(remaining.get("outputStyle"), "explanatory", "uninstall leaves the user's own value alone")
 
 
+    @unittest.skipIf(os.name == "nt", "pty.fork, os.execve, and waitpid are POSIX-only")
     def test_first_run_wizard_gateway_flow_with_tier_edit(self):
         try:
             import pty

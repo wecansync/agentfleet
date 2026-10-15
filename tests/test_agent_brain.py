@@ -4,8 +4,11 @@ their manifest, archives cannot write outside the binary, updates only move
 forward, and agent-brain gets no credentials from the caller."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import http.server
+import importlib.machinery
+import importlib.util
 import io
 import json
 import os
@@ -297,6 +300,28 @@ class AgentBrainTests(unittest.TestCase):
         write("/usr/local/bin/agent-brain hook stop")
         self.assertTrue(agent_brain.connected(self.home))
 
+    def test_hooks_run_matches_the_executable_in_either_slash_form(self):
+        settings = self.home / ".claude" / "settings.json"
+        def write(command):
+            settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}}), encoding="utf-8")
+        binary = Path("/opt/tools/agent-brain")
+        self.assertFalse(agent_brain.hooks_run(self.home, binary))
+        write("/usr/local/bin/agent-brain hook stop")
+        self.assertFalse(agent_brain.hooks_run(self.home, binary))
+        # Another executable whose path starts with this one's.
+        write("/opt/tools/agent-brain-old hook stop")
+        self.assertFalse(agent_brain.hooks_run(self.home, binary))
+        write("/opt/tools/agent-brain hook stop")
+        self.assertTrue(agent_brain.hooks_run(self.home, binary))
+        write("'/opt/tools/agent-brain' hook stop")
+        self.assertTrue(agent_brain.hooks_run(self.home, binary))
+        # Hooks written by agent-brain before 0.5.5 on Windows use backslashes.
+        write("\\opt\\tools\\agent-brain hook stop")
+        self.assertTrue(agent_brain.hooks_run(self.home, binary))
+        # AgentFleet's own marked copies never count.
+        write("/opt/tools/agent-brain hook stop # claude-agents-config:agent-brain")
+        self.assertFalse(agent_brain.hooks_run(self.home, binary))
+
     def test_find_binary_prefers_path_then_the_standard_folder(self):
         self.assertIsNone(agent_brain.find_binary(self.home))
         self.target.parent.mkdir(parents=True)
@@ -312,7 +337,7 @@ class AgentBrainTests(unittest.TestCase):
             self.assertEqual(agent_brain.find_binary(self.home), other)
 
 
-@unittest.skipUnless(POSIX, "the fake agent-brain is a script")
+@unittest.skipUnless(POSIX, "the fake agent-brain is a Python script, which Windows cannot run as agent-brain.exe")
 class AgentBrainCliTests(unittest.TestCase):
     """`agentfleet config agent-brain on` and the daily background update."""
 
@@ -325,15 +350,25 @@ class AgentBrainCliTests(unittest.TestCase):
         self.server = ReleaseServer()
         self.addCleanup(self.server.close)
         self.log = self.root / "calls.jsonl"
-        self.target = self.home / ".local" / "bin" / "agent-brain"
+        self.target = agent_brain.managed_binary(self.home)
         # A fake claude first on PATH, and no real agent-brain.
         fake_bin = self.root / "fake-bin"
         fake_bin.mkdir()
-        (fake_bin / "claude").write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
-        (fake_bin / "claude").chmod(0o755)
-        self.env = {"PATH": str(fake_bin) + os.pathsep + os.defpath, "HOME": str(self.home), "LANG": "C.UTF-8",
+        fake_claude = fake_bin / "claude"
+        if os.name == "nt":
+            fake_claude.write_text("import json\nprint('[]')\n", encoding="utf-8")
+            (fake_bin / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            fake_claude.write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
+            fake_claude.chmod(0o755)
+        self.env = {"PATH": str(fake_bin) + os.pathsep + os.defpath, "HOME": str(self.home),
                     "PYTHONDONTWRITEBYTECODE": "1", agent_brain.BASE_URL_ENV: self.server.url,
                     "ANTHROPIC_AUTH_TOKEN": "sk-" + "1234567890" * 2}
+        if os.name == "nt":
+            self.env.update({name: os.environ[name] for name in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP") if name in os.environ})
+            self.env["USERPROFILE"] = str(self.home)
+        else:
+            self.env["LANG"] = "C.UTF-8"
 
     def cli(self, *args: str, **extra: str):
         return subprocess.run([PYTHON, "-B", str(AGENTFLEET), "--home", str(self.home), *args],
@@ -388,6 +423,55 @@ class AgentBrainCliTests(unittest.TestCase):
         self.server.publish_binary("0.6.0", fake_binary("0.6.0"))
         self.hook()
         self.assertEqual(self.target.read_bytes(), fake_binary("0.5.0"))
+
+    def write_hooks(self, binary: Path):
+        command = f"{binary} hook stop"
+        (self.home / ".claude" / "settings.json").write_text(
+            json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}}), encoding="utf-8")
+
+    def test_update_lets_the_new_agent_brain_rewrite_hooks_that_run_it(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(fake_binary("0.4.0", self.log))
+        self.target.chmod(0o755)
+        self.write_hooks(self.target)
+        self.server.publish_binary("0.5.0", fake_binary("0.5.0", self.log))
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(self.target.read_bytes(), fake_binary("0.5.0", self.log))
+        self.assertEqual(self.calls(), [["install", "--assistant", "claude-code"]])
+
+    def test_update_does_not_reconnect_after_agent_brain_was_turned_off(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(fake_binary("0.4.0", self.log))
+        self.target.chmod(0o755)
+        self.write_hooks(self.target)
+        self.server.publish_binary("0.5.0", fake_binary("0.5.0", self.log))
+        # `config agent-brain off` ran while this update was downloading.
+        real_update = agent_brain.update
+        def update_then_turn_off(home):
+            version = real_update(home)
+            agent_brain.provider_catalog.write_preferences(home, {"agentBrain": False})
+            return version
+        # bin/agentfleet has no .py suffix, so name its loader explicitly.
+        loader = importlib.machinery.SourceFileLoader("agent_brain_cli_agentfleet", str(AGENTFLEET))
+        spec = importlib.util.spec_from_file_location(loader.name, AGENTFLEET, loader=loader)
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        paths = cli.Paths(argparse.Namespace(home=str(self.home), config_home=None, prefix=None))
+        with mock.patch.dict(os.environ, {agent_brain.BASE_URL_ENV: self.server.url}), \
+                mock.patch.object(cli.agent_brain, "update", update_then_turn_off):
+            cli._agent_brain_update_run(paths)
+        self.assertEqual(self.target.read_bytes(), fake_binary("0.5.0", self.log))
+        self.assertEqual(self.calls(), [])
+
+    def test_update_leaves_hooks_that_run_another_agent_brain(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(fake_binary("0.4.0", self.log))
+        self.target.chmod(0o755)
+        self.write_hooks(Path("/usr/local/bin/agent-brain"))
+        self.server.publish_binary("0.5.0", fake_binary("0.5.0", self.log))
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(self.target.read_bytes(), fake_binary("0.5.0", self.log))
+        self.assertEqual(self.calls(), [])
 
     def test_session_start_skips_when_auto_update_or_agent_brain_is_off(self):
         self.target.parent.mkdir(parents=True)

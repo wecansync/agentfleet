@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.8.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.8.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -144,6 +144,16 @@ configuration wizard still asks about new options, so add
 
 `AGENTFLEET_MODS=0` also opts out of mods; `agentfleet update` honors the
 variable. See [Mods](#mods) for requirements and optional plugins.
+
+To check a Windows machine, download and run the check script in PowerShell.
+It prints versions, `agentfleet doctor`, `agent-brain status`, and the result of
+each AgentFleet and agent-brain hook run through Git Bash, as Claude Code runs
+them; it runs no other hooks.
+
+```powershell
+irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1
+powershell -ExecutionPolicy Bypass -File .\windows-check.ps1
+```
 
 ---
 

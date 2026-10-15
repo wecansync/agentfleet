@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.8.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.8.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,21 +431,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.8.0</span>
+        <span class="release-version" data-latest-version>v2.8.1</span>
         <span class="release-date" data-latest-date>October 15, 2026</span>
       </div>
-      <p>Lanes cost fewer tokens.</p>
+      <p>agent-brain works on Windows.</p>
       <ul class="release-list">
-        <li>Claude reviews lane work itself; a review lane runs only for security, data-loss or migration changes, or when you ask.</li>
-        <li>Fixes go back to the lane that wrote the code, which keeps what it has read, and a failed lane is re-dispatched only once.</li>
-        <li>Lanes get a warning near their turn limit, so they report instead of being cut off.</li>
-        <li>When the gateway itself is failing, Claude works directly instead of retrying lanes.</li>
-        <li>Teams can pin each lane's models and effort in a preset, and reserve an expensive model for the lanes that name it.</li>
+        <li>When the daily update installs a newer agent-brain, AgentFleet lets it rewrite its Claude Code hooks, so Windows machines get agent-brain 0.5.5's fixed hooks without any command.</li>
+        <li>A check script for Windows machines: <code class="il">irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1</code>.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.8.0</span><span class="release-date">October 15, 2026</span><span class="version-summary">Lanes cost fewer tokens.</span></summary>
+        <ul class="release-list">
+          <li>Claude reviews lane work itself; a review lane runs only for security, data-loss or migration changes, or when you ask.</li>
+          <li>Fixes go back to the lane that wrote the code, which keeps what it has read, and a failed lane is re-dispatched only once.</li>
+          <li>Lanes get a warning near their turn limit, so they report instead of being cut off.</li>
+          <li>When the gateway itself is failing, Claude works directly instead of retrying lanes.</li>
+          <li>Teams can pin each lane's models and effort in a preset, and reserve an expensive model for the lanes that name it.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.7.2</span><span class="release-date">October 15, 2026</span><span class="version-summary">Updates now reach your installed mods.</span></summary>
         <ul class="release-list">

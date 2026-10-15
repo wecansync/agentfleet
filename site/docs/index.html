@@ -1170,6 +1170,13 @@ claude plugin install fleet-status@agentfleet</code></pre>
         <p>With lane-guard on, the lane fails over to its next working model by itself; re-dispatch the failed task to the same lane once. When every model of the lane is down, use the alternative lane the prompt hook names, once. If that fails too, or the hook says the gateway is failing, do the work in the main session. Check <code class="il">/fleet-status</code> or <code class="il">/fleet-tasks</code> for which models are down. An outage lasts 60 minutes after a 429 and 15 minutes after other errors, or ends early when a run on that model succeeds; it never changes the lane's models in <code class="il">fleet.json</code>.</p>
         <h3 id="ts-windows-path" class="anchor-heading">Windows hook path is refused<a class="anchor-link" href="#ts-windows-path" aria-label="Link to this section">#</a></h3>
         <p>Windows hook commands refuse install paths containing <code class="il">$</code> or a backtick. Use a path without those characters. Version 2.2.0's <code class="il">.cmd</code> shims do not search the current directory for helpers; <code class="il">.ps1</code> shims carry a UTF-8 BOM for Windows PowerShell.</p>
+        <h3 id="ts-windows-check" class="anchor-heading">Checking a Windows machine<a class="anchor-link" href="#ts-windows-check" aria-label="Link to this section">#</a></h3>
+        <p>Claude Code runs hooks in Git Bash on Windows. To see whether AgentFleet's and agent-brain's hooks work there, download the check script and run it in PowerShell. It prints versions, <code class="il">agentfleet doctor</code>, <code class="il">agent-brain status</code>, and the result of each AgentFleet and agent-brain hook; it runs no other hooks. agent-brain before 0.5.5 wrote hooks that fail in Git Bash; <code class="il">agent-brain install</code> rewrites them.</p>
+        <div class="code-wrap">
+          <pre><code>irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1
+powershell -ExecutionPolicy Bypass -File .\windows-check.ps1</code></pre>
+          <button class="copy-btn" type="button" aria-label="Copy Windows check commands">Copy</button>
+        </div>
 
         <h3 id="ts-path" class="anchor-heading">Commands not found after install<a class="anchor-link" href="#ts-path" aria-label="Link to this section">#</a></h3>
         <p>The CLI wrappers are installed to <code class="il">~/.local/bin/</code>. If your shell does not include that directory in <code class="il">PATH</code>, add it:</p>

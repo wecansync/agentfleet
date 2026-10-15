@@ -89,10 +89,11 @@ sys.exit(0)
 def write_fake_claude(directory: Path) -> Path:
     script = directory / "claude"
     script.write_text(FAKE_CLAUDE, encoding="utf-8")
-    script.chmod(0o755)
     if os.name == "nt":
         # PATH lookup on Windows finds claude.CMD, not the extensionless script.
         (directory / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
+    else:
+        script.chmod(0o755)
     return script
 
 
@@ -127,7 +128,10 @@ class Install220Tests(unittest.TestCase):
         node = shutil.which("node")
         if node:
             self.node_bin = node_dir_for_path(self.node_bin, Path(node).resolve())
-        self.system_path = [path for path in ("/usr/bin", "/bin") if Path(path).is_dir()]
+        if os.name == "nt":
+            self.system_path = [os.path.join(os.environ.get("SYSTEMROOT", r"C:\Windows"), "System32")]
+        else:
+            self.system_path = [path for path in ("/usr/bin", "/bin") if Path(path).is_dir()]
         self.set_fake_state()
 
     def set_fake_state(self, state: dict | None = None):

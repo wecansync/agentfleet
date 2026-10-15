@@ -32,7 +32,8 @@ class WorkStyleTests(unittest.TestCase):
         fake_bin.mkdir()
         claude = fake_bin / ("claude.cmd" if os.name == "nt" else "claude")
         if os.name == "nt":
-            claude.write_text("@echo []\n", encoding="utf-8")
+            (fake_bin / "claude.py").write_text("print('[]')\n", encoding="utf-8")
+            claude.write_text(f'@"{sys.executable}" "%~dp0claude.py" %*\n', encoding="utf-8")
         else:
             claude.write_text("#!/bin/sh\necho '[]'\n", encoding="utf-8")
             claude.chmod(0o755)
@@ -314,8 +315,11 @@ class WorkStyleTests(unittest.TestCase):
         brain_bin = self.root / "brain-bin"
         brain_bin.mkdir()
         brain = brain_bin / ("agent-brain.cmd" if os.name == "nt" else "agent-brain")
-        brain.write_text("@exit /b 0\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
-        if os.name != "nt":
+        if os.name == "nt":
+            (brain_bin / "agent-brain.py").write_text("pass\n", encoding="utf-8")
+            brain.write_text(f'@"{sys.executable}" "%~dp0agent-brain.py" %*\n', encoding="utf-8")
+        else:
+            brain.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
             brain.chmod(0o755)
         env = dict(self.env, PATH=str(brain_bin) + os.pathsep + self.env["PATH"])
         provider_catalog.preferences_path(self.home).unlink(missing_ok=True)
