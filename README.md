@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.7.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.7.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -762,7 +762,8 @@ claude plugin install fleet-status@agentfleet
 claude plugin install lane-guard@agentfleet
 ```
 
-Updates, including automatic ones, rewrite mod files in place for the next
+Updates, including automatic ones, rewrite the mod files and then update each
+installed mod whose version changed (`claude plugin update`), for the next
 Claude Code session. They never re-register, so disabled or uninstalled mods
 stay that way. Opt out with `--no-mods` or `AGENTFLEET_MODS=0`; the choice is
 remembered, and `agentfleet update` honors the variable. `--mods` opts back in.

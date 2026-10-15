@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.7.1",
+  "version": "2.7.2",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "2962792e3a6bae737cedc2730208726b0702adb95ee114d1cf0726fec68b9c10",
+      "sha256": "da3ea2a5c7d1a0bd6519a9e76eb61d7479e773f88875d3e357eea25f40e7bf52",
       "mode": "0o644"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "2604aca231726d77ec058a90916cd3f377b7d8766d2cb7595c94aeb2a97c65b5",
+      "sha256": "6737e9496bc36d1a22446ab7d81b30dde087dca54b5f934fa48bd9b758b96f28",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "899c6c26f87ba63c4c65362ee6c171c4ad94c1667cc764d56a5131c6fd908751",
+      "sha256": "85c4064338be0494453c2c1c0c5e61696c6dc4eadd19e21634d643f9eedcda4d",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "9927e4392d0216300aa135317885771db7cb72706f05e6a3c1e9ff63194b8cae",
+      "sha256": "e6a1eb883b99b3cc3741f764ebdc3b434bb8f52f84e43bb1c6cab7fac66cdbc1",
       "mode": "0o644"
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "cd064dca0c3a78ddb2c17187b3e64e8b748d31f82fd97719ebec5d5175de420a",
+      "sha256": "09c936a2984a4a55ef8b404fa204b4cf0425e281c7fc7c30e8d9a7ddcbeced34",
       "mode": "0o755"
     },
     {
@@ -599,7 +599,7 @@
     },
     {
       "path": "tests/test_mods.py",
-      "sha256": "ad83b778d5e2b82ae08451ae6cbfe72f226a48a4ca1aab2ab85d6f5576cff519",
+      "sha256": "0d2e2d6c06a6fed35718af4445fb37d525e675e56184a01051160d6afe0e7486",
       "mode": "0o644"
     },
     {

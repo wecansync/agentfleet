@@ -321,6 +321,87 @@ def claude_json(executable: str, home: Path, *args: str) -> object | None:
         return None
 
 
+def mods_versions_record(meta: dict) -> dict[str, str] | None:
+    """The plugin versions an earlier run synced, carried into the new metadata."""
+    value = meta.get("modsVersions")
+    if not isinstance(value, dict):
+        return None
+    return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str)} or None
+
+
+def shipped_mod_versions(mods_dir: Path) -> dict[str, str]:
+    """The version of each plugin the agentfleet catalog lists, by name."""
+    try:
+        catalog = json.loads((mods_dir / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError):
+        return {}
+    versions: dict[str, str] = {}
+    for item in catalog.get("plugins", []) if isinstance(catalog, dict) else []:
+        name = item.get("name") if isinstance(item, dict) else None
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
+            continue
+        try:
+            manifest = json.loads((mods_dir / name / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, UnicodeError):
+            continue
+        version = manifest.get("version") if isinstance(manifest, dict) else None
+        if isinstance(version, str) and version:
+            versions[name] = version
+    return versions
+
+
+def update_stale_mods(executable: str, home: Path, mods_dir: Path, plugins: list) -> bool:
+    """Bring installed agentfleet plugins up to the catalog's versions.
+
+    Claude Code runs each plugin from a copy it made at install time, so a newer
+    catalog alone changes nothing. `plugin update` replaces the copy and keeps a
+    disabled plugin disabled. Answers whether every installed plugin is current."""
+    shipped = shipped_mod_versions(mods_dir)
+    stale = []
+    for item in plugins:
+        plugin_id = item.get("id") if isinstance(item, dict) else None
+        if not isinstance(plugin_id, str) or not plugin_id.endswith("@agentfleet"):
+            continue
+        name = plugin_id[: -len("@agentfleet")]
+        installed = item.get("version")
+        if isinstance(installed, str) and name in shipped and installed != shipped[name]:
+            stale.append((plugin_id, name, installed, shipped[name]))
+    if not stale:
+        return True
+    result = run_claude(executable, home, "plugin", "marketplace", "update", "agentfleet")
+    if result is None or result.returncode != 0:
+        print("Could not refresh the agentfleet mod catalog; run: claude plugin marketplace update agentfleet")
+        return False
+    updated, failed = [], []
+    for plugin_id, name, installed, version in stale:
+        result = run_claude(executable, home, "plugin", "update", plugin_id)
+        if result is None or result.returncode != 0:
+            failed.append(plugin_id)
+        else:
+            updated.append(f"{name} {installed} to {version}")
+    if updated:
+        print("Updated mods: " + ", ".join(updated) + ". Restart Claude Code to use them.")
+    if failed:
+        print("Could not update " + ", ".join(failed) + "; run: claude plugin update <mod>@agentfleet")
+    return not failed
+
+
+def refresh_installed_mods(home: Path, mods_dir: Path) -> None:
+    """On an update, bring the installed agentfleet plugins to the catalog's
+    versions. The versions last synced are recorded, so an update whose mods did
+    not change makes no Claude Code CLI calls."""
+    meta = old_metadata(home)
+    shipped = shipped_mod_versions(mods_dir)
+    if not mods_owned(meta) or not shipped or meta.get("modsVersions") == shipped:
+        return
+    executable = claude_executable()
+    if not executable or not claude_version_ok(executable, home) or cmd_shim_unsafe(executable, str(mods_dir)):
+        return
+    plugins = claude_json(executable, home, "plugin", "list", "--json")
+    if isinstance(plugins, list) and update_stale_mods(executable, home, mods_dir, plugins):
+        update_mods_metadata(home, {"modsVersions": shipped})
+
+
 def manual_mod_commands(mods_dir: Path) -> str:
     return (f'claude plugin marketplace add "{mods_dir}" and '
             'claude plugin install fleet-status@agentfleet and '
@@ -397,6 +478,7 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
     if not isinstance(plugins, list):
         print_mod_manual(mods_dir)
         return True, False
+    current = update_stale_mods(executable, home, mods_dir, plugins)
     meta = old_metadata(home)
     raw_installed = meta.get("modsInstalled")
     if market is None:
@@ -437,7 +519,10 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
             print("Added the brain mod: /brain shows agent-brain token usage and the latest project memories. Turn it off with /plugin.")
         if name not in installed:
             installed.append(name)
-    update_mods_metadata(home, {"modsInstalled": installed})
+    changes: dict[str, object] = {"modsInstalled": installed}
+    if current:
+        changes["modsVersions"] = shipped_mod_versions(mods_dir)
+    update_mods_metadata(home, changes)
     return True, True
 
 
@@ -2900,6 +2985,7 @@ def managed_specs(
     mods_state: str | None = None,
     mods_marketplace: bool = False,
     mods_installed: list[str] | None = None,
+    mods_versions: dict[str, str] | None = None,
 ) -> dict[Path, tuple[bytes, int, str]]:
     claude = home / ".claude"
     fleet = config_root / "delegate-skills"
@@ -2987,6 +3073,8 @@ def managed_specs(
         metadata["modsMarketplace"] = True
     if mods_installed is not None:
         metadata["modsInstalled"] = list(mods_installed)
+    if mods_versions:
+        metadata["modsVersions"] = dict(mods_versions)
     add(metadata_path, json_bytes(metadata), 0o600, "home:.claude/.claude-agents-config-install.json")
     return specs
 
@@ -3754,6 +3842,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
     specs = managed_specs(
         bundle, home, config_root, bin_dir, settings_bytes, fleet_bytes, agent_bytes, {}, version, profile,
         journal, gateway_owned, permission_owned, policy_data, mods_state, mods_marketplace, mods_installed,
+        mods_versions_record(previous),
     )
     meta = old_metadata(home)
     conflicts = check_parent_conflicts(specs, meta, bundle, args.force_owned)
@@ -3867,6 +3956,11 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             changes["modsState"] = "registered"
         if changes:
             update_mods_metadata(home, changes)
+    else:
+        try:
+            refresh_installed_mods(home, mods_dir_for_home(home))
+        except Exception as exc:  # noqa: BLE001 - updating mods must never fail an install
+            print(f"Could not update the AgentFleet mods ({exc.__class__.__name__}); run: agentfleet update")
     if "lane-guard" not in (old_metadata(home).get("modsInstalled") or []):
         try:
             access = provider_catalog.load_preferences(home)["reviewerAccess"]

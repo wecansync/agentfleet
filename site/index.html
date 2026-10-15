@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.7.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.7.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 15, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,18 +431,24 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.7.1</span>
+        <span class="release-version" data-latest-version>v2.7.2</span>
         <span class="release-date" data-latest-date>October 15, 2026</span>
       </div>
-      <p><code class="il">/brain</code> shows your memories, in a pane you can scroll.</p>
+      <p>Updates now reach your installed mods.</p>
       <ul class="release-list">
-        <li><code class="il">/brain</code> opens a pane with usage at the top and the project's memories below, critical ones first. Arrow keys move, Enter shows a memory in full.</li>
-        <li>agent-brain 0.5.2 lists memories 50 at a time, so a long list no longer fills Claude's context.</li>
+        <li>Claude Code kept running each mod as it was first installed, so mod fixes never arrived. An update now updates each installed mod whose version changed and says which; restart Claude Code to load them. Disabled mods stay disabled.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.7.1</span><span class="release-date">October 15, 2026</span><span class="version-summary"><code class="il">/brain</code> shows your memories, in a pane you can scroll.</span></summary>
+        <ul class="release-list">
+          <li><code class="il">/brain</code> opens a pane with usage at the top and the project's memories below, critical ones first. Arrow keys move, Enter shows a memory in full.</li>
+          <li>agent-brain 0.5.2 lists memories 50 at a time, so a long list no longer fills Claude's context.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.7.0</span><span class="release-date">October 15, 2026</span><span class="version-summary">A <code class="il">/brain</code> command for agent-brain, and no more cloud question at the start of a session.</span></summary>
         <ul class="release-list">
