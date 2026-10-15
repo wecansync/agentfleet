@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.6.2",
+  "version": "2.7.0",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "817d20ccd5e6ee1c2bc41bfac68018de99bd9e46b09e4bbe0deba58870aba0f1",
+      "sha256": "87ba20112377834ca584981ff98a0f25a734dc3da2fb1c1996eb8fd451a49d42",
       "mode": "0o644"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "6c8818ee16b5cde1fabcfda370c9e483fc51bf9121d28e03d2da59b1c99218e8",
+      "sha256": "2604aca231726d77ec058a90916cd3f377b7d8766d2cb7595c94aeb2a97c65b5",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "f72e1fc8861143531881366faea7739acdf3b8290c27c2beafdde91ba018d32a",
+      "sha256": "f38b6866d608be9c7aa98c0431e6025da58feda2175274b72e05dbabfc89605d",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "8fde0552368c64879b3f23c72df5308bcee45ab7c4226ad2d18efd12d1f2e960",
+      "sha256": "362148d7721ad4a1bb64981ff8d604ef7f4d22267ea8845042f54f90940f24fd",
       "mode": "0o644"
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "06ff8ef203bc8ec363ab8a722f130ebba1b7dad1396c9108ea440c17a9428bbc",
+      "sha256": "cd064dca0c3a78ddb2c17187b3e64e8b748d31f82fd97719ebec5d5175de420a",
       "mode": "0o755"
     },
     {
@@ -204,7 +204,37 @@
     },
     {
       "path": "mods/.claude-plugin/marketplace.json",
-      "sha256": "c4eebc49000e6d2dc96aa83fe9f5f901d80d1126fb767d1b0c829e84d34cc658",
+      "sha256": "081be60d69d6b5355e54251dfeead59c91f6073bad4df03b4b8168f02fc1a9ce",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/.claude-plugin/plugin.json",
+      "sha256": "a3e28b60d26f89bf024773682d3cce4bb31f16fd6a8c276710a606da47ab87a1",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/README.md",
+      "sha256": "3b3118616cc50946a3e1a30c8ebe1cd6ba50f143e5db56191a5c18cf16d47e66",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/hooks/brain.ts",
+      "sha256": "f5d766e4f378cfdcba8ef4da9ef83f3dfb5a113d8f6167d8658c03bf8ae54e36",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/hooks/hooks.json",
+      "sha256": "529fd7aa9b22d012870c0a106899b65f6a37eac022c7ffb77898042038e03167",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/hooks/register.tsx",
+      "sha256": "7ec49b7ae73c3d7c80c7c35e5e16426a4f71ae19c09117dc93a2bfcf052f3614",
+      "mode": "0o644"
+    },
+    {
+      "path": "mods/brain/tests/brain.test.ts",
+      "sha256": "4e28e68dddf7588cef06030f6c144317642741dc07991a0e00d4ee6bce4abc48",
       "mode": "0o644"
     },
     {
@@ -534,7 +564,7 @@
     },
     {
       "path": "tests/test_install_220.py",
-      "sha256": "a486afd94eb3f3098346ecc4c53080665533f748fdd40f03502f2044fc523c5e",
+      "sha256": "b755e624343db3fed1aa69c317a36318646eca64ff30382080e3e7a34ecdddca",
       "mode": "0o644"
     },
     {
@@ -564,7 +594,7 @@
     },
     {
       "path": "tests/test_mods.py",
-      "sha256": "1acf074f0522231a4c05ce695cc776fb8dd8938352095de19281d8833113ff18",
+      "sha256": "ad83b778d5e2b82ae08451ae6cbfe72f226a48a4ca1aab2ab85d6f5576cff519",
       "mode": "0o644"
     },
     {

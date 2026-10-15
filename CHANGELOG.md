@@ -3,6 +3,16 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.7.0] - 2026-10-15
+
+### Added
+
+- The `brain` mod, installed by default: `/brain` shows agent-brain's token usage for this session (with its lane runs), today and this week, and, when agent-brain memory is active for the project, the latest memories with critical ones first. It reads agent-brain's local data through its MCP server, so it starts no process and asks for no permission. Usage needs agent-brain 0.5.1 or later; AgentFleet's daily agent-brain update brings it. Turn the mod off with `/plugin`.
+
+### Changed
+
+- agent-brain installs from agentbrain.wecansync.com are 0.5.1, which no longer asks at the start of a session whether to link the project to agent-brain cloud. The question is off by default; `agent-brain config link-offer on` turns it back on.
+
 ## [2.6.2] - 2026-10-14
 
 ### Fixed

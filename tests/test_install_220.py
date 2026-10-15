@@ -234,7 +234,7 @@ class Install220Tests(unittest.TestCase):
 
         meta = self.metadata(home)
         self.assertEqual(meta.get("modsState"), "registered")
-        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
+        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
 
     def test_lane_guard_added_once_on_update_from_210_style_metadata(self):
         home = self.home_for()
@@ -262,7 +262,7 @@ class Install220Tests(unittest.TestCase):
         self.assertIn(["plugin", "install", "lane-guard@agentfleet"], [c["argv"] for c in self.calls()])
 
         meta_after = self.metadata(home)
-        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
+        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
 
         # Second update: lane-guard must not be installed again
         self.log_path.write_text("")
@@ -290,7 +290,7 @@ class Install220Tests(unittest.TestCase):
         calls = [c["argv"] for c in self.calls()]
         self.assertIn(["plugin", "install", "token-weather@agentfleet"], calls)
         self.assertNotIn(["plugin", "install", "lane-guard@agentfleet"], calls)
-        self.assertEqual(self.metadata(home).get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather"])
+        self.assertEqual(self.metadata(home).get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
 
         # The user removes it: later updates leave it removed.
         state = json.loads(self.state_path.read_text())

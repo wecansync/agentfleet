@@ -18,6 +18,7 @@ INSTALLER = ROOT / "bin" / "install.py"
 MOD_ID = "fleet-status@agentfleet"
 GUARD_ID = "lane-guard@agentfleet"
 WEATHER_ID = "token-weather@agentfleet"
+BRAIN_ID = "brain@agentfleet"
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
 import json
 import os
@@ -210,7 +211,7 @@ class ModInstallerTests(unittest.TestCase):
         for rel in expected:
             self.assertEqual((mods_dir / rel).read_bytes(), (source_mods / rel).read_bytes(), rel)
         self.assertEqual({Path(path).parts[0] for path in expected if Path(path).parts[0] != ".claude-plugin"},
-                         {"fleet-status", "lane-guard", "token-weather", "fast-jev-compaction"})
+                         {"fleet-status", "lane-guard", "token-weather", "brain", "fast-jev-compaction"})
         self.assertFalse(any("tests" in path.parts for path in mods_dir.rglob("*")), "plugin test directories are not installed")
         for path in mods_dir.rglob("*"):
             if path.is_file() and os.name == "posix":
@@ -225,12 +226,23 @@ class ModInstallerTests(unittest.TestCase):
             ["plugin", "install", MOD_ID],
             ["plugin", "install", GUARD_ID],
             ["plugin", "install", WEATHER_ID],
+            ["plugin", "install", BRAIN_ID],
         ])
         self.assertTrue(all(call["HOME"] == str(home) for call in calls))
         self.assertEqual(json.loads(self.state_path.read_text())["plugins"],
-                         [{"id": MOD_ID, "enabled": True}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}])
+                         [{"id": MOD_ID, "enabled": True}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}, {"id": BRAIN_ID, "enabled": True}])
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
+
+    def test_fresh_registration_installs_brain_and_prints_its_message(self):
+        home = self.home_for()
+        result = self.install(home)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("plugin", [call["argv"][0] for call in self.calls()])
+        self.assertIn(["plugin", "install", BRAIN_ID], [call["argv"] for call in self.calls()])
+        self.assertIn("Added the brain mod: /brain shows agent-brain token usage and the latest project memories. Turn it off with /plugin.",
+                      result.stdout + result.stderr)
+        self.assertIn({"id": BRAIN_ID, "enabled": True}, json.loads(self.state_path.read_text())["plugins"])
 
     def test_second_install_does_not_repeat_marketplace_or_plugin_registration(self):
         home = self.home_for()
@@ -255,7 +267,7 @@ class ModInstallerTests(unittest.TestCase):
         self.assertFalse(any(args[:2] == ["plugin", "disable"] for args in argv))
         # The disabled plugin stays disabled; only the missing defaults are added.
         self.assertEqual(json.loads(self.state_path.read_text())["plugins"],
-                         [{"id": MOD_ID, "enabled": False}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}])
+                         [{"id": MOD_ID, "enabled": False}, {"id": GUARD_ID, "enabled": True}, {"id": WEATHER_ID, "enabled": True}, {"id": BRAIN_ID, "enabled": True}])
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
 
@@ -287,7 +299,7 @@ class ModInstallerTests(unittest.TestCase):
         later = self.install(home, fake=True)
         self.assertEqual(later.returncode, 0, later.stderr + later.stdout)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
-        self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
+        self.assertEqual([call["argv"] for call in self.calls()][-4:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID], ["plugin", "install", BRAIN_ID]])
 
     def test_unsupported_claude_version_is_skipped_without_record(self):
         self.set_fake_state(new_state(version="2.1.200 (Claude Code)"))
@@ -319,7 +331,7 @@ class ModInstallerTests(unittest.TestCase):
                 override = self.install(home, "--mods", mods=mods_env)
                 self.assertEqual(override.returncode, 0, override.stderr + override.stdout)
                 self.assertEqual(self.metadata(home).get("modsState"), "registered")
-                self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
+                self.assertEqual([call["argv"] for call in self.calls()][-4:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID], ["plugin", "install", BRAIN_ID]])
 
     def test_dry_run_makes_no_claude_calls(self):
         home = self.home_for()
@@ -393,7 +405,7 @@ class ModInstallerTests(unittest.TestCase):
         later = self.install(home)
         self.assertEqual(later.returncode, 0, later.stderr + later.stdout)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
-        self.assertEqual([call["argv"] for call in self.calls()][-3:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID]])
+        self.assertEqual([call["argv"] for call in self.calls()][-4:], [["plugin", "install", MOD_ID], ["plugin", "install", GUARD_ID], ["plugin", "install", WEATHER_ID], ["plugin", "install", BRAIN_ID]])
 
     def test_failed_plugin_install_still_records_marketplace_ownership_for_uninstall(self):
         home = self.home_for()
@@ -471,6 +483,7 @@ class ModInstallerTests(unittest.TestCase):
         self.assertIn(["plugin", "install", MOD_ID], argv)
         self.assertIn(["plugin", "install", GUARD_ID], argv, "a re-added catalog gets every default mod back")
         self.assertIn(["plugin", "install", WEATHER_ID], argv)
+        self.assertIn(["plugin", "install", BRAIN_ID], argv)
         self.assertEqual(self.metadata(home).get("modsState"), "registered")
         self.assertTrue(self.metadata(home).get("modsMarketplace"))
 

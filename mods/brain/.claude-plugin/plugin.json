@@ -1,0 +1,8 @@
+{
+  "name": "brain",
+  "version": "1.0.0",
+  "description": "A /brain command: agent-brain token usage and the latest project memories.",
+  "author": { "name": "WeCanSync" },
+  "homepage": "https://agentfleet.wecansync.com",
+  "license": "MIT"
+}

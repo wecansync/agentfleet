@@ -325,7 +325,8 @@ def manual_mod_commands(mods_dir: Path) -> str:
     return (f'claude plugin marketplace add "{mods_dir}" and '
             'claude plugin install fleet-status@agentfleet and '
             'claude plugin install lane-guard@agentfleet and '
-            'claude plugin install token-weather@agentfleet')
+            'claude plugin install token-weather@agentfleet and '
+            'claude plugin install brain@agentfleet')
 
 
 def marketplace_is_ours(item: dict, mods_dir: Path) -> bool:
@@ -364,6 +365,7 @@ DEFAULT_MODS = (
     ("fleet-status", "fleet-status@agentfleet"),
     ("lane-guard", "lane-guard@agentfleet"),
     ("token-weather", "token-weather@agentfleet"),
+    ("brain", "brain@agentfleet"),
 )
 DEFAULT_MOD_NAMES = tuple(name for name, _ in DEFAULT_MODS)
 
@@ -431,6 +433,8 @@ def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
             print("Added the lane-guard mod: fleet lanes can no longer commit, push, deploy, run migrations or destructive SQL, or revert the working tree. Turn it off with /plugin.")
         if name == "token-weather":
             print("Added the token-weather mod: a forecast of how full the context window is, above the prompt. Turn it off with /plugin or agentfleet configure.")
+        if name == "brain":
+            print("Added the brain mod: /brain shows agent-brain token usage and the latest project memories. Turn it off with /plugin.")
         if name not in installed:
             installed.append(name)
     update_mods_metadata(home, {"modsInstalled": installed})

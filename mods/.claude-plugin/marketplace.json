@@ -20,6 +20,11 @@
       "description": "A live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
     },
     {
+      "name": "brain",
+      "source": "./brain",
+      "description": "A /brain command: agent-brain token usage and the latest project memories."
+    },
+    {
       "name": "fast-jev-compaction",
       "source": "./fast-jev-compaction",
       "description": "Optional: verbatim compaction guided by TypeSafe Jev for the main conversation (needs a TypeSafe API key; sends conversation text to TypeSafe). By tamaratran, MIT."
