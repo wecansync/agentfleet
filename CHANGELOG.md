@@ -3,6 +3,12 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.8.2] - 2026-10-15
+
+### Fixed
+
+- An update kept a lane's chosen effort in `fleet.json` but wrote the bundle's effort into the lane itself, so an effort set with `claude-fleet-setup --effort` or a team preset was lost after every update until the lanes were next regenerated. The `wecansync` preset's `plan` lane, for example, ran at `xhigh` again instead of `high`. Updates now write the chosen effort.
+
 ## [2.8.1] - 2026-10-15
 
 ### Fixed
@@ -412,6 +418,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.8.2]: https://github.com/wecansync/claude-agents-config/pull/42
 [2.8.1]: https://github.com/wecansync/claude-agents-config/pull/41
 [2.8.0]: https://github.com/wecansync/claude-agents-config/pull/40
 [2.7.2]: https://github.com/wecansync/claude-agents-config/pull/39
