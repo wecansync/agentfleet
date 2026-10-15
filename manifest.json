@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.8.1",
+  "version": "2.8.2",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "d4e2f06592364ef14f36b04ac32c78fbb7ab437377a617f96703d9b682f3bcc8",
+      "sha256": "d0b99beea7af230fe6602b8da6ef56e26890c0e4d069ae29e1338c2b89e3a908",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "a77bc7da5bbfa03a7b0e66ebbc221bf18b95fc87208f32fefa4f66e4303069ca",
+      "sha256": "60d36e8a22cf32b14f23e478588882324b395f68ea7036a901cfbf2f79bc34cf",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "c94b6101b82efbf24da807958404613ad9bd7ecfd875f596f8286fa9638e4aa5",
+      "sha256": "00d9235ed59ffb6f6771ed263216be6baf0be8f0408dc4bf6f59a14917d654ba",
       "mode": "0o644"
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "302c7113be7042ee550d0039bd86ee51c65480933d18f25962f7b92ac04750e4",
+      "sha256": "55b06f27b826717ab78c127661a59286a59656f25480d2102a00525712e8ee7b",
       "mode": "0o755"
     },
     {
@@ -584,7 +584,7 @@
     },
     {
       "path": "tests/test_install_240.py",
-      "sha256": "b73dbe8cc01eed2936f56cb6f5eebf126ade103d38ddc3a9b57c10b2ef62a0ba",
+      "sha256": "818bc8f255eb320d944eb243185eaf9d853a47bc03f05aa10d77742d7424115e",
       "mode": "0o644"
     },
     {

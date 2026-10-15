@@ -258,6 +258,19 @@ class Install240Tests(unittest.TestCase):
         self.assertIn("\neffort: medium\n", (self.claude / "agents" / "fleet-tests.md").read_text(encoding="utf-8"))
         self.assertIn("\neffort: xhigh\n", (self.claude / "agents" / "fleet-plan.md").read_text(encoding="utf-8"))
 
+    def test_update_keeps_an_effort_the_user_chose(self):
+        self.install_native()
+        fleet_path = self.claude / "fleet.json"
+        fleet = json.loads(fleet_path.read_text(encoding="utf-8"))
+        fleet["lanes"]["plan"]["preferredEffort"] = "high"
+        fleet_path.write_text(json.dumps(fleet, indent=2) + "\n", encoding="utf-8")
+        self.update()
+        installed = json.loads(fleet_path.read_text(encoding="utf-8"))
+        self.assertEqual(installed["lanes"]["plan"]["preferredEffort"], "high")
+        self.assertIn("\neffort: high\n", (self.claude / "agents" / "fleet-plan.md").read_text(encoding="utf-8"))
+        self.assertIn("\neffort: medium\n", (self.claude / "agents" / "fleet-tests.md").read_text(encoding="utf-8"))
+        self.doctor()
+
     # -- agent-brain ------------------------------------------------------------------
     def test_agent_brain_lanes_follow_the_preference_and_the_installer_writes_no_hooks(self):
         self.agent_brain_on_path()

@@ -2444,6 +2444,7 @@ def agent_for_profile(
     old_models: set[str],
     fallbacks: object = None,
     agent_brain: bool = False,
+    effort: object = None,
 ) -> bytes:
     """Specialise a bundle agent template exactly as claude-fleet-sync would
     render it, so a later ``claude-fleet-sync --check`` finds no drift."""
@@ -2474,6 +2475,10 @@ def agent_for_profile(
             text = re.sub(r"^fallbackModel: .*\n", "", text, count=1, flags=re.MULTILINE)
     elif fallback_line:
         text = re.sub(r"^(model: .*\n)", r"\1" + fallback_line, text, count=1, flags=re.MULTILINE)
+    # An effort the user or a team preset chose (preferredEffort) outranks
+    # the bundle's, as in the generator's laneEffort().
+    if effort in PREFERRED_EFFORTS:
+        text = re.sub(r"^effort: .*\n", f"effort: {effort}\n", text, count=1, flags=re.MULTILINE)
     has_memory = MEMORY_TOOLS_SUFFIX in text
     if agent_brain and not has_memory:
         text = re.sub(r"^(tools: .*)\n", lambda match: match.group(1) + MEMORY_TOOLS_SUFFIX + "\n", text, count=1, flags=re.MULTILINE)
@@ -3839,6 +3844,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             old_models,
             fleet.get("lanes", {}).get(lane, {}).get("fallbacks"),
             agent_brain=(fleet.get("integrations") or {}).get("agentBrain") is True,
+            effort=fleet.get("lanes", {}).get(lane, {}).get("preferredEffort"),
         )
     bundle_lanes = set(load_json(bundle / "config/delegate-fleet.json", "fleet configuration").get("lanes", {}))
     templated = {name.removeprefix("fleet-").removesuffix(".md") for name in agent_bytes}
