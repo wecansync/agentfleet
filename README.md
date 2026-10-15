@@ -8,15 +8,15 @@ Anthropic-compatible gateway whose models are discovered from `GET /v1/models`.
 It also installs a routing hook, a model-sync startup hook, a context-budget
 hook, a privacy-safe status line, a short delegation policy in
 `~/.claude/rules/agentfleet.md`, the `/fleet-setup` and `/fleet-suggest` skills,
-and a local Claude Code mods catalog with `fleet-status`, `lane-guard` and
-`token-weather` on by default. Everything lives under your home directory; no root or admin access is
+and a local Claude Code mods catalog with `fleet-status`, `lane-guard`,
+`token-weather` and `brain` on by default. Everything lives under your home directory; no root or admin access is
 required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 
 By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.6.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.7.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -631,7 +631,7 @@ install command (or an update) keeps the gateway you switched to.
   an optional fallback model chain (at most three entries, for provider
   unavailability or overload only).
 - `~/.claude/agentfleet/mods/` — the local `agentfleet` plugin catalog.
-  `fleet-status`, `lane-guard` and `token-weather` are installed and on by
+  `fleet-status`, `lane-guard`, `token-weather` and `brain` are installed and on by
   default; `fast-jev-compaction` is opt-in. See [Mods](#mods).
 - `~/.claude/settings.json` — merged settings. Unrelated permissions, hooks,
   plugins, and environment values are preserved. Mode 0600 because it can
@@ -726,6 +726,10 @@ your user permissions and are not sandboxed.
   other mods' bands and never replaces them. On by default from 2.5.0; an update
   adds it once and never re-adds it after you remove it. Turn it off with
   `/plugin` or `agentfleet configure`.
+- **brain**: adds a `/brain` command that shows agent-brain token usage and, when
+  agent-brain memory is active for the project, the project's latest memories.
+  On by default from 2.7.0; an update adds it once and never re-adds it after you
+  remove it. Turn it off with `/plugin`.
 
 ### Optional mods
 
