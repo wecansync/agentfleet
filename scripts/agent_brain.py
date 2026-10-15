@@ -292,21 +292,38 @@ def update(home: Path) -> str | None:
     return version
 
 
-def connected(home: Path) -> bool:
-    """Whether settings.json runs agent-brain hooks it wrote itself."""
+def _own_hook_commands(home: Path) -> list[str]:
+    """The settings.json hook commands agent-brain wrote itself."""
     try:
         settings = json.loads((home / ".claude" / "settings.json").read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError):
-        return False
+        return []
     hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    commands = []
     for groups in (hooks.values() if isinstance(hooks, dict) else ()):
         for group in groups if isinstance(groups, list) else ():
             for hook in (group.get("hooks") or ()) if isinstance(group, dict) else ():
                 command = hook.get("command") if isinstance(hook, dict) else None
                 if (isinstance(command, str) and "agent-brain" in command and " hook " in command
                         and "claude-agents-config:" not in command):
-                    return True
-    return False
+                    commands.append(command)
+    return commands
+
+
+def connected(home: Path) -> bool:
+    """Whether settings.json runs agent-brain hooks it wrote itself."""
+    return bool(_own_hook_commands(home))
+
+
+def hooks_run(home: Path, binary: Path) -> bool:
+    """Whether agent-brain's own hooks run this executable. On Windows the
+    path may be written with either slash, depending on the version that wrote it."""
+    def norm(text: str) -> str:
+        text = text.replace("\\", "/")
+        return text.casefold() if os.name == "nt" else text
+    # The whole path, so /x/agent-brain does not match /x/agent-brain-old.
+    wanted = re.compile(r"(?:^|['\"\s])" + re.escape(norm(str(binary))) + r"(?:['\"\s]|$)")
+    return any(wanted.search(norm(command)) for command in _own_hook_commands(home))
 
 
 def _run(home: Path, binary: Path, *args: str, timeout: float = 120) -> tuple[int, str]:

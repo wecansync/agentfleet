@@ -40,11 +40,14 @@ class ConfigureTests(unittest.TestCase):
         bindir = self.home / "bin"
         bindir.mkdir()
         cli = bindir / "claude"
-        cli.write_text("#!" + sys.executable + "\nimport json,os,sys\nfrom pathlib import Path\np=Path(os.environ['HOME'])/'plugins.json'\ns=json.loads(p.read_text()) if p.exists() else []\nwith open(Path(os.environ['HOME'])/'commands.log','a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\nif sys.argv[1:]==['plugin','list','--json']: print(json.dumps(s))\nelse:\n ident=sys.argv[-1]; action=sys.argv[-2]\n s=[v for v in s if v['id']!=ident]+[{'id':ident,'enabled':action!='disable'}]\n p.write_text(json.dumps(s))\n")
-        cli.chmod(0o755)
+        cli_source = "import json,os,sys\nfrom pathlib import Path\np=Path(os.environ['HOME'])/'plugins.json'\ns=json.loads(p.read_text()) if p.exists() else []\nwith open(Path(os.environ['HOME'])/'commands.log','a') as f: f.write(json.dumps(sys.argv[1:])+'\\n')\nif sys.argv[1:]==['plugin','list','--json']: print(json.dumps(s))\nelse:\n ident=sys.argv[-1]; action=sys.argv[-2]\n s=[v for v in s if v['id']!=ident]+[{'id':ident,'enabled':action!='disable'}]\n p.write_text(json.dumps(s))\n"
+        cli.write_text(cli_source, encoding="utf-8")
         if os.name == "nt":
             # PATH lookup on Windows finds claude.CMD, not the extensionless script.
             (bindir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            cli.write_text("#!" + sys.executable + "\n" + cli_source, encoding="utf-8")
+            cli.chmod(0o755)
         self.env = {**os.environ, "HOME": str(self.home), "PATH": str(bindir), "FAKE_STATE": str(self.home / "plugins.json"), "FAKE_LOG": str(self.home / "commands.log")}
         self.env.pop("TYPESAFE_API_KEY", None)
         self.env_patch = patch.dict(os.environ, self.env, clear=True)

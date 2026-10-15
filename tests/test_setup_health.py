@@ -226,8 +226,7 @@ class SetupHealthTests(unittest.TestCase):
         bin_dir.mkdir(parents=True, exist_ok=True)
         fake_claude = bin_dir / "claude"
 
-        script_content = """#!/usr/bin/env python3
-import json
+        script_content = """import json
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -253,10 +252,12 @@ agent-brain-memory: /usr/local/bin/agent-brain mcp - ✔ Connected
 sys.exit(1)
 """
         fake_claude.write_text(script_content, encoding="utf-8")
-        fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         if os.name == "nt":
             # PATH lookup on Windows finds claude.CMD, not the extensionless script.
             (bin_dir / "claude.cmd").write_text(f'@"{sys.executable}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            fake_claude.write_text("#!/usr/bin/env python3\n" + script_content, encoding="utf-8")
+            fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
         env = dict(os.environ)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"

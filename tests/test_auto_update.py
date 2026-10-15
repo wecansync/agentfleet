@@ -104,12 +104,15 @@ class _LatestServer:
                     }
                     if record_file:
                         record_file.write_text(json.dumps(record))
-                    # Write a stub sh script that records env
-                    body = (
-                        b"#!/bin/sh\n"
-                        b"env > \"$HOME/.claude/agentfleet/install-env.txt\"\n"
-                        b"exit 0\n"
-                    )
+                    # A stub installer that leaves install-env.txt behind, so a
+                    # test can tell whether the installer ran.
+                    if self.path == "/install.ps1":
+                        body = (b"Get-ChildItem env: | Out-File -LiteralPath "
+                                b"(Join-Path $env:HOME '.claude/agentfleet/install-env.txt')\r\nexit 0\r\n")
+                    else:
+                        body = (b"#!/bin/sh\n"
+                                b"env > \"$HOME/.claude/agentfleet/install-env.txt\"\n"
+                                b"exit 0\n")
                     self.send_response(200)
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()

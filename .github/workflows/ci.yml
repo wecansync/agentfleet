@@ -1,0 +1,88 @@
+name: CI
+
+'on':
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run every Python test module in a clean environment
+        run: python .github/scripts/run_tests.py
+
+  windows:
+    name: Windows tests and install smoke test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run every Python test module in a clean environment
+        run: python .github/scripts/run_tests.py
+      - name: Build release from checkout
+        run: python packaging/build-release.py --ref HEAD --out dist
+      - name: Install release through the PowerShell bootstrap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $scratch = Join-Path $env:RUNNER_TEMP 'agentfleet-install-smoke'
+          $homeDir = Join-Path $scratch 'home'
+          $localAppData = Join-Path $scratch 'local-app-data'
+          $fakeBin = Join-Path $scratch 'fake-bin'
+          New-Item -ItemType Directory -Force -Path $homeDir, $localAppData, $fakeBin | Out-Null
+          Set-Content -LiteralPath (Join-Path $fakeBin 'claude.cmd') -Value '@echo off' -Encoding ascii
+          Add-Content -LiteralPath (Join-Path $fakeBin 'claude.cmd') -Value 'exit /b 0' -Encoding ascii
+          $env:PATH = "$fakeBin;$env:PATH"
+          $env:HOME = $homeDir
+          $env:USERPROFILE = $homeDir
+          $env:LOCALAPPDATA = $localAppData
+          $env:XDG_CONFIG_HOME = (Join-Path $homeDir '.config')
+          $env:AGENTFLEET_BASE_URL = 'http://127.0.0.1:18763'
+
+          $server = Start-Process -FilePath python -ArgumentList @('-m', 'http.server', '18763', '--bind', '127.0.0.1', '--directory', (Join-Path $root 'dist')) -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              try {
+                Invoke-WebRequest -Uri "$env:AGENTFLEET_BASE_URL/releases/latest.json" -UseBasicParsing | Out-Null
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $ready) { throw 'release server did not start' }
+
+            & (Join-Path $root 'site/install.ps1') --provider native --no-wizard --no-configure --no-mods
+            if ($LASTEXITCODE -ne 0) { throw "PowerShell bootstrap failed with exit code $LASTEXITCODE" }
+
+            $doctor = Join-Path $homeDir '.local/bin/claude-agents-doctor.cmd'
+            if (-not (Test-Path -LiteralPath $doctor)) { throw "installed doctor wrapper not found: $doctor" }
+            $output = & $doctor --check --home $homeDir --prefix (Join-Path $homeDir '.local') --config-home (Join-Path $homeDir '.config') 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            Write-Output $output
+            if ($code -ne 0 -or $output -notmatch 'claude-agents-doctor: PASS' -or $output -match 'claude-agents-doctor: FAIL') {
+              throw "installed doctor did not PASS (exit $code)"
+            }
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }

@@ -128,13 +128,15 @@ class Install240Tests(unittest.TestCase):
         self.brain_log = Path(self.raw.name) / "agent-brain-calls.jsonl"
         script = self.fake_bin / "agent-brain"
         script.write_text(
-            "#!" + PYTHON + "\nimport json, os, sys\n"
+            "import json, os, sys\n"
             f"with open({str(self.brain_log)!r}, 'a', encoding='utf-8') as log:\n"
             "    log.write(json.dumps({'argv': sys.argv[1:], 'token': 'ANTHROPIC_AUTH_TOKEN' in os.environ}) + '\\n')\n",
             encoding="utf-8")
-        script.chmod(0o755)
         if os.name == "nt":
             (self.fake_bin / "agent-brain.cmd").write_text(f'@"{PYTHON}" "%~dp0agent-brain" %*\n', encoding="utf-8")
+        else:
+            script.write_text("#!" + PYTHON + "\n" + script.read_text(encoding="utf-8"), encoding="utf-8")
+            script.chmod(0o755)
         self.env["PATH"] = str(self.fake_bin) + os.pathsep + self.env["PATH"]
 
     def brain_calls(self) -> list[dict]:
@@ -278,7 +280,6 @@ class Install240Tests(unittest.TestCase):
         self.assertIs(fleet["integrations"]["agentBrain"], False)
         self.doctor()
 
-    @unittest.skipUnless(os.name == "posix", "the fake agent-brain is a script")
     def test_update_hands_pre_260_agent_brain_hooks_to_agent_brain(self):
         self.agent_brain_on_path()
         self.install_native()
@@ -291,7 +292,6 @@ class Install240Tests(unittest.TestCase):
         self.assertEqual(self.brain_calls(), [{"argv": ["install", "--assistant", "claude-code"], "token": False}])
         self.doctor()
 
-    @unittest.skipUnless(os.name == "posix", "the fake agent-brain is a script")
     def test_update_with_agent_brain_off_only_drops_the_old_hooks(self):
         self.agent_brain_on_path()
         self.install_native()

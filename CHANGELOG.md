@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.8.1] - 2026-10-15
+
+### Fixed
+
+- When the daily update installs a newer agent-brain, AgentFleet now lets it rewrite its Claude Code hooks. agent-brain 0.5.5 fixes its hooks on Windows, where they never ran, and this brings existing installs onto the fixed form without running `agent-brain install` yourself. Only hooks that run the agent-brain AgentFleet updates are rewritten; a failure goes to the auto-update log.
+
+### Added
+
+- `https://agentfleet.wecansync.com/windows-check.ps1` checks a Windows machine: versions, `agentfleet doctor`, `agent-brain status`, and every AgentFleet and agent-brain hook run through Git Bash the way Claude Code runs them. It runs no other hooks.
+- The test suite runs on Windows, and a CI workflow runs it on Linux and Windows and installs a release with `install.ps1`.
+
 ## [2.8.0] - 2026-10-15
 
 Lanes cost fewer tokens: fewer review runs, fixes that keep their context, lanes that report before they run out of turns, and no re-dispatch loops while a gateway is down.
@@ -401,6 +412,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.8.1]: https://github.com/wecansync/claude-agents-config/pull/41
 [2.8.0]: https://github.com/wecansync/claude-agents-config/pull/40
 [2.7.2]: https://github.com/wecansync/claude-agents-config/pull/39
 [2.7.1]: https://github.com/wecansync/claude-agents-config/pull/38

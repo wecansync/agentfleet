@@ -222,20 +222,21 @@ class PreferencesTests(unittest.TestCase):
         fake_bin.mkdir()
         fake_log = self.root / "fake-claude.log"
         fake = fake_bin / "claude"
-        fake.write_text(
-            "#!/usr/bin/env python3\n"
+        fake_source = (
             "import json, os, sys\n"
             f"log = {str(fake_log)!r}\n"
             "with open(log, 'a', encoding='utf-8') as stream:\n"
             "    stream.write(json.dumps({'argv': sys.argv[1:], 'credentials': [name for name in ('ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'TYPESAFE_API_KEY') if name in os.environ]}) + '\\n')\n"
             "if sys.argv[1:] == ['plugin', 'list', '--json']:\n"
-            "    print(json.dumps([{'id': 'fast-jev-compaction@agentfleet', 'enabled': True}]))\n",
-            encoding="utf-8",
+            "    print(json.dumps([{'id': 'fast-jev-compaction@agentfleet', 'enabled': True}]))\n"
         )
-        fake.chmod(0o755)
+        fake.write_text(fake_source, encoding="utf-8")
         if os.name == "nt":
             # PATH lookup on Windows finds claude.CMD, not the extensionless script.
             (fake_bin / "claude.cmd").write_text(f'@"{PYTHON}" "%~dp0claude" %*\n', encoding="utf-8")
+        else:
+            fake.write_text("#!/usr/bin/env python3\n" + fake_source, encoding="utf-8")
+            fake.chmod(0o755)
         metadata = self.home / ".claude" / ".claude-agents-config-install.json"
         metadata.write_text(json.dumps({"modsMarketplace": True}), encoding="utf-8")
         env = dict(self.env)
