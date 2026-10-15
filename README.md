@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.7.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.7.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -726,8 +726,9 @@ your user permissions and are not sandboxed.
   other mods' bands and never replaces them. On by default from 2.5.0; an update
   adds it once and never re-adds it after you remove it. Turn it off with
   `/plugin` or `agentfleet configure`.
-- **brain**: adds a `/brain` command that shows agent-brain token usage and, when
-  agent-brain memory is active for the project, the project's latest memories.
+- **brain**: adds a `/brain` command that opens a scrollable pane with agent-brain
+  token usage and, when agent-brain memory is active for the project, the project's
+  memories, critical ones first (↑/↓ to move, Enter to read one in full, Esc to close).
   On by default from 2.7.0; an update adds it once and never re-adds it after you
   remove it. Turn it off with `/plugin`.
 
