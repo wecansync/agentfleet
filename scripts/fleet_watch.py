@@ -112,6 +112,9 @@ TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "refusal"}
 OUTAGE_MINUTES = 15
 # A 429 is usually an exhausted quota, which lasts longer than an overload.
 QUOTA_OUTAGE_MINUTES = 60
+# Server errors from two or more vendors within this many minutes mean the
+# gateway itself is failing, not one model.
+GATEWAY_WINDOW_MINUTES = 10
 # The lane-guard mod marks a lane it switched to another model this way; keep
 # the format in step with mods/lane-guard/hooks/failover.ts.
 FAILOVER_SUFFIX = re.compile(r"\s*\(failover: ([^()\s]{1,100})\)\s*$")
@@ -1399,22 +1402,72 @@ def _current_rows(rows: object, key) -> dict[str, dict]:
     return current
 
 
+def _vendor(model: str) -> str:
+    """The vendor of a model id: "codex-sol[1m]" is codex, "claude-opus-5.5" is claude."""
+    base = re.sub(r"\[[^\]]*\]$", "", model.strip())
+    return base.split("-", 1)[0].lower()
+
+
+def _gateway_outage(failures: dict[str, dict], now: datetime) -> dict | None:
+    """The gateway is failing when server errors (not quota 429s) from two or
+    more vendors were recorded within the last GATEWAY_WINDOW_MINUTES."""
+    recent: dict[str, dict] = {}
+    for model, entry in failures.items():
+        status = _as_int(entry.get("status"))
+        at = _parse_time(entry.get("at"))
+        until = _parse_time(entry.get("until"))
+        if not 500 <= status <= 599 or at is None or until is None or until <= now:
+            continue
+        if now - at > timedelta(minutes=GATEWAY_WINDOW_MINUTES):
+            continue
+        recent[model] = {"at": at, "until": until, "status": status}
+    if len({_vendor(model) for model in recent} - {""}) < 2:
+        return None
+    ordered = sorted(recent, key=lambda model: recent[model]["at"])
+    first = recent[ordered[0]]
+    return {
+        "at": _iso(first["at"]),
+        "until": _iso(max(entry["until"] for entry in recent.values())),
+        "status": first["status"],
+        "models": ordered,
+    }
+
+
+def _current_gateway(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+    at = _parse_time(value.get("at"))
+    until = _parse_time(value.get("until"))
+    if at is None or until is None or until <= _utcnow():
+        return None
+    models = value.get("models")
+    names = [model for model in models if isinstance(model, str) and model] if isinstance(models, list) else []
+    return {"at": _iso(at), "until": _iso(until), "status": _as_int(value.get("status")), "models": names}
+
+
 def current_outages(home: Path) -> dict:
     """Return the outages file with entries whose retry deadline has passed
     removed. ``lanes`` lists lanes with no working model (dispatch another
-    lane); ``models`` lists failed models (lane-guard switches lanes off them)."""
+    lane); ``models`` lists failed models (lane-guard switches lanes off them);
+    ``gateway``, when present, means the gateway itself is failing."""
     value = _load_json(_store(home) / "outages.json", {})
     value = value if isinstance(value, dict) else {}
-    return {
+    outages = {
         "format": OUTAGE_FORMAT,
         "lanes": _current_rows(value.get("lanes"), _clean_lane),
         "models": _current_rows(value.get("models"), _model_key),
     }
+    gateway = _current_gateway(value.get("gateway"))
+    if gateway:
+        outages["gateway"] = gateway
+    return outages
 
 
-def _write_outages(home: Path, lanes: dict, models: dict | None = None) -> None:
+def _write_outages(home: Path, lanes: dict, models: dict | None = None, gateway: dict | None = None) -> None:
     path = _store(home) / "outages.json"
-    payload = {"format": OUTAGE_FORMAT, "lanes": lanes, "models": models or {}}
+    payload: dict = {"format": OUTAGE_FORMAT, "lanes": lanes, "models": models or {}}
+    if gateway:
+        payload["gateway"] = gateway
     _atomic_write(path, (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
@@ -1515,7 +1568,10 @@ def _outage_line(lane: str, row: dict, alternative: str | None) -> str:
     until_text = until.strftime("%H:%M UTC") if until else "unknown time"
     model = _clean_text(row.get("model", "unknown model"), 100) or "unknown model"
     status = _as_int(row.get("status"))
-    dispatch = f"Until {until_text}, dispatch fleet-{alternative} instead." if alternative else f"Until {until_text}, retry later."
+    if alternative:
+        dispatch = f"Until {until_text}, dispatch fleet-{alternative} instead, once; if that fails too, do the work yourself."
+    else:
+        dispatch = f"Until {until_text}, do the work yourself."
     return _clean_text(f"AgentFleet outage: fleet-{lane} ({model}) failed with {status} at {at_text}. {dispatch}", MAX_CONTEXT_LINE)
 
 
@@ -1527,7 +1583,22 @@ def _failover_line(lane: str, model: str, row: dict, switch_to: str) -> str:
     status = _as_int(row.get("status"))
     return _clean_text(
         f"AgentFleet outage: fleet-{lane}'s model {model} failed with {status} at {at_text}. "
-        f"Until {until_text}, fleet-{lane} runs on {switch_to} instead; re-dispatch the failed task to fleet-{lane}.",
+        f"Until {until_text}, fleet-{lane} runs on {switch_to} instead; re-dispatch the failed task to fleet-{lane} once. "
+        f"If it fails again, do the work yourself.",
+        MAX_CONTEXT_LINE,
+    )
+
+
+def _gateway_line(gateway: dict) -> str:
+    since = _parse_time(gateway.get("at"))
+    until = _parse_time(gateway.get("until"))
+    since_text = since.strftime("%H:%M UTC") if since else "unknown time"
+    until_text = until.strftime("%H:%M UTC") if until else "unknown time"
+    names = [_clean_text(model, 100) for model in gateway.get("models", [])[:4]]
+    listed = ", ".join(name for name in names if name) or "unknown models"
+    return _clean_text(
+        f"AgentFleet outage: the gateway is failing for several models ({listed}) since {since_text}. "
+        f"Until {until_text}, do the work yourself instead of dispatching fleet lanes, and tell the user.",
         MAX_CONTEXT_LINE,
     )
 
@@ -1844,6 +1915,21 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
     # A failed lane keeps working when lane-guard can switch it to another of
     # its models; only a lane with none left is an outage that sends work to
     # another lane.
+    # Several vendors failing at once is a gateway outage: one line replaces
+    # this scan's per-lane lines, and dispatching lanes stops until it clears.
+    gateway = stored_outages.get("gateway")
+    gateway_started = False
+    failing = _gateway_outage(model_data, _utcnow())
+    if failing and gateway is None:
+        gateway = failing
+        gateway_started = True
+    elif failing:
+        # Already announced: extend it rather than repeat the notice.
+        merged = list(gateway.get("models", []))
+        merged += [model for model in failing["models"] if model not in merged]
+        ends = [_parse_time(gateway.get("until")), _parse_time(failing["until"])]
+        gateway = {**gateway, "until": _iso(max(end for end in ends if end is not None)), "models": merged}
+    line_mark = len(lines)
     failover = failover_enabled(home) if lane_failures else False
     for lane_name, entry in lane_failures.items():
         model = entry["model"]
@@ -1866,9 +1952,12 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
             outage["alternative"] = alternative_lane(home, lane_name, outage_data, model_data)
             if lane_name not in old_outages:
                 lines.append(_outage_line(lane_name, outage, outage["alternative"]))
+    if gateway_started:
+        del lines[line_mark:]
+        lines.append(_gateway_line(gateway))
     live = current_outages(home)
-    if outage_data != live.get("lanes", {}) or model_data != live.get("models", {}):
-        _write_outages(home, outage_data, model_data)
+    if outage_data != live.get("lanes", {}) or model_data != live.get("models", {}) or gateway != live.get("gateway"):
+        _write_outages(home, outage_data, model_data, gateway)
 
     _learn_main(home, session, payload, session_id, str(payload.get("cwd") or ""), budget, deadline)
     return _bounded_context(lines)

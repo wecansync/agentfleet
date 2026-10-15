@@ -3,6 +3,31 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.8.0] - 2026-10-15
+
+Lanes cost fewer tokens: fewer review runs, fixes that keep their context, lanes that report before they run out of turns, and no re-dispatch loops while a gateway is down.
+
+### Changed
+
+- Reviews: Claude reviews each lane's changes itself and reruns the check the lane names. A review lane runs only for security, data-loss or migration changes, or when you ask, and at most once per change; `fleet-review-deep` runs only when you ask for it. Before, every large job ended in a review lane and risky ones in two, and each fix was reviewed again.
+- Fixes: Claude fixes small findings itself and sends larger ones back to the lane that wrote the code, continued with SendMessage so it keeps what it has read, instead of to a new lane that reads everything again.
+- Long tasks go to one implementation lane in parts; Claude continues the same lane for each part.
+- A lane that failed is re-dispatched once. If it fails again, or AgentFleet reports that the gateway is failing, Claude does the work itself and tells you.
+- "Installer" is no longer on the built-in list of risky changes; a project that wants installer changes reviewed on a lane says so in its `CLAUDE.md`.
+- Implementation, UI and test lanes run the check the brief names and fix what fails in their own change before they report.
+- `fleet-review-alt` and `fleet-review-deep` describe themselves as lanes for when you ask, so Claude stops picking them on its own.
+- A model in a lane's preference list that differs from the gateway's ID only by its `[1m]` suffix now matches that model. Before, the entry was skipped and the lane used its next preference.
+
+### Added
+
+- lane-guard 1.2.0 warns a lane at 70% and again at 90% of its turn limit, so it finishes the part it is on, runs its check and reports, instead of being cut off without a report. The lane reads the warning after a tool result; you do not see it.
+- Gateway outages: when models from two or more vendors fail within 10 minutes, the prompt hook says the gateway is failing and tells Claude to work directly until the outage expires, instead of naming another model to retry on.
+- `claude-fleet-setup --reserve MODEL` keeps a model, such as an expensive reviewer, off every lane that does not name it: tier ranking never picks it as a lane's model or a fallback. `--unreserve` undoes it.
+- `claude-fleet-setup --prefer-only LANE=MODEL[,MODEL]` pins a lane to exactly these models, the first as its model and the rest as fallbacks, with no ranked fill-ins.
+- `claude-fleet-setup --effort LANE=LEVEL` sets a lane's reasoning effort (low, medium, high, xhigh or max).
+- Team presets can set models: `lanes` gives listed lanes their models and effort, and `reservedModels` reserves models. `agentfleet configure --export` writes both. Model names can leave out the `[1m]` suffix.
+- Reserved models and pinned lanes survive updates and profile switches.
+
 ## [2.7.2] - 2026-10-15
 
 ### Fixed
@@ -376,6 +401,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.8.0]: https://github.com/wecansync/claude-agents-config/pull/40
 [2.7.2]: https://github.com/wecansync/claude-agents-config/pull/39
 [2.7.1]: https://github.com/wecansync/claude-agents-config/pull/38
 [2.7.0]: https://github.com/wecansync/claude-agents-config/pull/37

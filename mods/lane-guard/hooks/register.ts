@@ -1,8 +1,10 @@
 import type { AgentSpawnInput, CoreEngineInterface, On, Register, ToolCallInput } from 'claude-code';
+import { addNote, budgetNote, recordCall, turnLimit } from './budget.js';
 import { claudeDirectory, failoverModel, laneName, markDescription, SOURCE_LIMIT_BYTES } from './failover.js';
 import { forbiddenReason, mcpForbidden, redactSecrets } from './rules.js';
 
 const agentTypeCache = new Map<string, string>();
+const turnLimitCache = new Map<string, number | null>();
 
 function hasGitDirSegment(filePath: string): boolean {
   if (!filePath || typeof filePath !== 'string') return false;
@@ -21,12 +23,8 @@ function checkGitEdit(e: any): boolean {
   return false;
 }
 
-async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny: string } | null> {
-  if (!e.agentId) {
-    return null;
-  }
-
-  let type = agentTypeCache.get(e.agentId);
+async function agentType($: CoreEngineInterface, agentId: string): Promise<string | undefined> {
+  let type = agentTypeCache.get(agentId);
   if (!type) {
     try {
       const list = await $.agent.list();
@@ -35,11 +33,20 @@ async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny:
           agentTypeCache.set(info.id, info.type);
         }
       }
-      type = agentTypeCache.get(e.agentId);
+      type = agentTypeCache.get(agentId);
     } catch {
       // Agent list failed; type remains undefined
     }
   }
+  return type;
+}
+
+async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny: string } | null> {
+  if (!e.agentId) {
+    return null;
+  }
+
+  const type = await agentType($, e.agentId);
 
   // If agent type is resolved and it is NOT a fleet lane, allow
   if (type && !type.startsWith('fleet-')) {
@@ -103,6 +110,31 @@ async function readSource($: CoreEngineInterface, path: string): Promise<string 
   }
 }
 
+// A lane's maxTurns from its agent file, read once per type.
+async function laneTurnLimit($: CoreEngineInterface, type: string): Promise<number | null> {
+  if (turnLimitCache.has(type)) return turnLimitCache.get(type) ?? null;
+  const base = claudeDirectory($.plugin.root);
+  const limit = base && laneName(type) ? turnLimit(await readSource($, `${base}/agents/${type}.md`)) : null;
+  turnLimitCache.set(type, limit);
+  return limit;
+}
+
+// Count a fleet lane's call and, as it nears its maxTurns, add a note to the
+// result. Any failure here returns the result as it came.
+async function withBudgetNote($: CoreEngineInterface, e: ToolCallInput, result: any): Promise<any> {
+  try {
+    if (!e.agentId) return result;
+    const type = await agentType($, e.agentId);
+    if (!type || !type.startsWith('fleet-')) return result;
+    const budget = recordCall(e.agentId);
+    if (result.deny !== undefined) return result;
+    const note = budgetNote(budget, await laneTurnLimit($, type));
+    return note ? addNote(result, note) : result;
+  } catch {
+    return result;
+  }
+}
+
 // Start a fleet lane on another of its models while its own model is down.
 // Returns the rewrite, or null to leave the spawn as the caller made it.
 async function failover($: CoreEngineInterface, e: AgentSpawnInput): Promise<Partial<AgentSpawnInput> | null> {
@@ -144,6 +176,7 @@ export const register: Register = (on: On) => {
     } catch {
       denied = null;
     }
-    return denied ?? next(e);
+    const result = denied ?? (await next(e));
+    return withBudgetNote($, e, result);
   });
 };

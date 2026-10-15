@@ -1,6 +1,6 @@
 # lane-guard
 
-Claude Code mod for AgentFleet that guards fleet subagent lanes from running destructive or publishing commands, and keeps a lane working when its model is down.
+Claude Code mod for AgentFleet that guards fleet subagent lanes from running destructive or publishing commands, keeps a lane working when its model is down, and warns a lane before it runs out of turns.
 
 ## What It Blocks
 
@@ -83,6 +83,15 @@ It leaves a run alone when the caller chose a model, for forks and workflow agen
 
 It reads only `fleet.json`, the project's `fleet.local.json` and `agentfleet/outages.json`. It skips any of these files whose path goes through a symlink, so if your Claude folder or project is reached through one, failover (or the pin) may be skipped and runs start on their own model as before.
 
+## Turn Limit Warnings
+
+A fleet lane that reaches the `maxTurns` in its agent file is cut off without reporting, and its work is lost. `lane-guard` counts each fleet lane's tool calls and, after a call returns, adds a note the lane reads after the tool result (you do not see it):
+
+- At 70% of its turns (rounded up), once: finish the part it is on, run its check, and report what is done, what remains, and the files it changed, without starting another part.
+- At 90% of its turns, once: report now, even if unfinished.
+
+The limit is the `maxTurns` in `<claude folder>/agents/<type>.md`, read once per lane type. Parallel calls in one turn each count, so a note may come a turn early. Blocked calls count but get no note. No note is added when the limit cannot be read (a missing file, no `maxTurns`, or a path through a symlink), and the main conversation and agents that are not fleet lanes are never counted. A failure while working out a note returns the tool's result as it was.
+
 ## Main Conversation Is Never Blocked
 
 `lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked. When a subagent's type cannot be resolved, a matching command is blocked rather than allowed. The `PowerShell` tool is checked like `Bash`, and secrets in the logged command are redacted.
@@ -112,4 +121,4 @@ If you need to disable `lane-guard`:
 
 Or run Claude Code with the plugin disabled via settings or plugin arguments.
 
-Turning it off also turns off model failover: when a lane's model fails, AgentFleet then names another lane instead.
+Turning it off also turns off model failover (when a lane's model fails, AgentFleet then names another lane instead) and the turn limit warnings.

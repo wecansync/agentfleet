@@ -26,6 +26,10 @@ Everything outside `site/`, `packaging/`, `dist/`, `.github/` and `.claude/` is 
 - `agents/fleet-*.md` must equal the generator's output, and `mods/lane-guard/tests/cases.ts` must mirror `cases.json`. Update both when you change their source.
 - AgentFleet's policy is `config/agentfleet.md`, rendered to `~/.claude/rules/agentfleet.md`. The installer never writes the user's `~/.claude/CLAUDE.md`.
 
+## Risky changes
+
+Changes to the installer (`bin/install.py`), the update path (`bin/agentfleet` update and auto-update) and migrations of users' files count as risky here: have them reviewed on a lane whose model did not write them.
+
 ## Git workflow
 
 - Branch from `main` and open a PR for each change. Never push to `main` directly.

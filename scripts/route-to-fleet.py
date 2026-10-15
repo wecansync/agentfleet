@@ -340,20 +340,36 @@ if work_style in ("direct", "balanced"):
 
 outage = None
 alternative = None
+gateway = None
 if fleet_watch is not None:
     try:
         home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
         lane_key = lane[len("fleet-"):] if lane.startswith("fleet-") else lane
-        outage = fleet_watch.current_outages(home).get("lanes", {}).get(lane_key)
-        if outage:
+        stored = fleet_watch.current_outages(home)
+        gateway = stored.get("gateway")
+        outage = stored.get("lanes", {}).get(lane_key)
+        if outage and not gateway:
             alternative = fleet_watch.alternative_lane(home, lane)
             if alternative and not alternative.startswith("fleet-"):
                 alternative = f"fleet-{alternative}"
     except Exception:
         outage = None
         alternative = None
+        gateway = None
 
 shape = original_lane.replace("fleet-", "")
+if gateway:
+    try:
+        until_text = datetime.fromisoformat(gateway.get("until", "").replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%H:%M UTC")
+    except (AttributeError, TypeError, ValueError):
+        until_text = "unknown time"
+    context = (
+        f"Routing: the gateway is failing until {until_text}; do this yourself instead of dispatching a fleet lane. "
+    )
+    context += "Say in one line that the fleet is down and that you did the work yourself. "
+    record("routed", prompt, original_lane)
+    emit_context(watcher_lines + [context])
+    sys.exit(0)
 if outage:
     status = outage.get("status", "unknown")
     try:

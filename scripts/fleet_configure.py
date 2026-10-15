@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 import agent_brain
@@ -151,6 +152,38 @@ FEATURES = (
 )
 
 
+# Preset keys that are not questions: they are applied through claude-fleet-setup
+# and never asked, so they are never recorded in wizard.json.
+FLEET_KEYS = ("reservedModels", "lanes")
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+LANE_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
+
+
+def valid_model_list(value, limit=None):
+    # A comma would split one id in two on the claude-fleet-setup command line.
+    return (isinstance(value, list) and (limit is None or 0 < len(value) <= limit)
+            and all(isinstance(m, str) and m.strip() and "," not in m and not m.strip().startswith("-") for m in value))
+
+
+def validate_lanes(lanes):
+    if not isinstance(lanes, dict):
+        raise ValueError("invalid value for lanes")
+    for name, lane in lanes.items():
+        if not isinstance(name, str) or not LANE_NAME.fullmatch(name):
+            raise ValueError("invalid lane name: " + ascii(name))
+        if not isinstance(lane, dict):
+            raise ValueError("invalid value for lane " + name)
+        for field in lane:
+            if field not in ("models", "effort"):
+                raise ValueError(f"unknown field for lane {name}: " + ascii(field))
+        if "models" not in lane and "effort" not in lane:
+            raise ValueError(f"lane {name} needs models or effort")
+        if "models" in lane and not valid_model_list(lane["models"], 4):
+            raise ValueError(f"invalid models for lane {name}")
+        if "effort" in lane and lane["effort"] not in EFFORT_LEVELS:
+            raise ValueError(f"invalid effort for lane {name} (use {', '.join(EFFORT_LEVELS)})")
+
+
 def validate_preset(data):
     if not isinstance(data, dict):
         raise ValueError("preset must be an object")
@@ -163,11 +196,68 @@ def validate_preset(data):
     for key, value in data.items():
         if key == "format":
             continue
+        if key == "reservedModels":
+            if not valid_model_list(value):
+                raise ValueError("invalid value for reservedModels")
+            continue
+        if key == "lanes":
+            validate_lanes(value)
+            continue
         if key not in known:
             raise ValueError("unknown preset field: " + ascii(key))
         if not known[key].valid(value):
             raise ValueError("invalid value for " + key)
     return {k: v for k, v in data.items() if k != "format"}
+
+
+def fleet_map(paths):
+    """The newer of the two fleet mirrors, as the setup tool reads it."""
+    found = [p for p in (paths.fleet, paths.legacy_fleet) if p.is_file()]
+    found.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return read_json(found[0]) if found else {}
+
+
+def export_fleet_keys(paths):
+    """reservedModels and the per-lane choices recorded in the fleet map."""
+    fleet = fleet_map(paths)
+    out = {}
+    reserved = [m for m in fleet.get("reservedModels") or [] if isinstance(m, str) and m.strip()]
+    if reserved:
+        out["reservedModels"] = reserved
+    lanes = {}
+    for name, config in (fleet.get("lanes") or {}).items():
+        if not isinstance(config, dict):
+            continue
+        entry = {}
+        preferred = config.get("preferred")
+        if config.get("preferredOnly") is True and isinstance(preferred, list) and preferred:
+            entry["models"] = preferred
+        if config.get("preferredEffort") in EFFORT_LEVELS:
+            entry["effort"] = config["preferredEffort"]
+        if entry:
+            lanes[name] = entry
+    if lanes:
+        out["lanes"] = lanes
+    return out
+
+
+def apply_fleet_keys(api, paths, values):
+    """One claude-fleet-setup run for the preset's reserved models and lanes."""
+    args = []
+    if values.get("reservedModels"):
+        args += ["--reserve", ",".join(values["reservedModels"])]
+    for name, lane in (values.get("lanes") or {}).items():
+        if "models" in lane:
+            args += ["--prefer-only", f"{name}={','.join(lane['models'])}"]
+        if "effort" in lane:
+            args += ["--effort", f"{name}={lane['effort']}"]
+    if not args:
+        return 0
+    try:
+        return api.run_tool(paths, "claude-fleet-setup.py", [*args, "--reconcile"])
+    except SystemExit as exc:
+        # run_tool has already printed why when it stops on a missing tool.
+        return exc.code if isinstance(exc.code, int) and exc.code else 1
 
 
 def has_key(paths):
@@ -276,6 +366,7 @@ def run(api, paths, args):
                 return 2
         if args.export:
             values = {f.key: f.read(api, paths) for f in FEATURES if f.key not in ACTIONS}
+            values.update(export_fleet_keys(paths))
             api.atomic_write(Path(args.export).expanduser(), api.json_bytes({"format": "agentfleet.preset.v1", **values}), 0o644)
             return 0
         if args.preset:
@@ -359,6 +450,11 @@ def run(api, paths, args):
             if key not in asked:
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
+        if args.preset and any(key in values for key in FLEET_KEYS):
+            code = apply_fleet_keys(api, paths, values)
+            if code:
+                print("agentfleet configure: could not apply reservedModels or lanes from the preset", file=sys.stderr)
+                return 1
         # While installing agent-brain is still open, so is connecting it.
         still_skipped = [] if install_pending() else [
             key for key in AGENT_BRAIN_KEYS if key not in asked and not agent_brain_applies(paths, key)]

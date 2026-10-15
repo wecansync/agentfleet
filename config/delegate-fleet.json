@@ -72,7 +72,7 @@
       "effort": "high",
       "readOnly": true,
       "altOf": "review",
-      "description": "Independent second reviewer on a different model. Use for risky changes that deserve two reviews, or when the primary review lane must be avoided."
+      "description": "Independent second reviewer on a different model. Use only when the user asks for a second review, or when the primary review lane must be avoided."
     },
     "review-deep": {
       "implementer": "claude",
@@ -81,7 +81,7 @@
       "effort": "xhigh",
       "readOnly": true,
       "strongest": true,
-      "description": "Frontier reviewer for very hard reviews. Use only when the user names it, when the change crosses a security or trust boundary, touches installer, migration, or concurrency paths, risks data loss, or when primary findings conflict."
+      "description": "Frontier reviewer, usually the most expensive model. Use only when the user asks for it by name."
     },
     "tests": {
       "implementer": "claude",

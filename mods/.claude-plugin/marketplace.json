@@ -12,7 +12,7 @@
     {
       "name": "lane-guard",
       "source": "./lane-guard",
-      "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts, and starts a lane on another of its models while its own model is down."
+      "description": "Blocks fleet subagents from commits, pushes, deploys, migrations, destructive SQL, and working-tree reverts; starts a lane on another of its models while its own model is down; and warns a lane near its turn limit so it reports before it is cut off."
     },
     {
       "name": "token-weather",

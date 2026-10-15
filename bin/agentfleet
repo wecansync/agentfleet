@@ -60,6 +60,9 @@ PROFILE_ENV_KEYS = (
 )
 PROFILE_TOP_KEYS = ("model", "advisorModel", "modelPicker", "autoCompactWindow")
 LANE_KEYS = ("model", "fallbacks", "preferred")
+# Lane fields a profile keeps: the model choice plus the user's pin flag and effort.
+LANE_CHOICE_KEYS = LANE_KEYS + ("preferredOnly", "preferredEffort")
+PREFERRED_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 NATIVE_PICKER = [
     {"model": "default", "label": "Default", "description": "Claude Code's default model for your account"},
     {"model": "opus", "label": "Opus", "description": "Claude Opus through your Claude login"},
@@ -271,11 +274,12 @@ def snapshot(paths: Paths, settings: dict, fleet: dict, name: str) -> tuple[dict
         "settings": {key: settings[key] for key in PROFILE_TOP_KEYS if key in settings},
         "env": {key: env[key] for key in PROFILE_ENV_KEYS if key in env},
         "lanes": {
-            lane: {key: config[key] for key in LANE_KEYS if key in config}
+            lane: {key: config[key] for key in LANE_CHOICE_KEYS if key in config}
             for lane, config in fleet.get("lanes", {}).items() if isinstance(config, dict)
         },
         "modelTiers": fleet.get("modelTiers", {}) if isinstance(fleet.get("modelTiers"), dict) else {},
         "excludedModels": [item for item in fleet.get("excludedModels") or [] if isinstance(item, str)],
+        "reservedModels": [item for item in fleet.get("reservedModels") or [] if isinstance(item, str)],
     }
     if profile["kind"] == "gateway":
         try:
@@ -329,7 +333,7 @@ def load_profile(paths: Paths, name: str) -> tuple[dict, str | None]:
 def native_profile(fleet: dict, paths: Paths, current_settings: dict | None = None) -> dict:
     resolved = reconcile_module(paths).native_fleet(fleet)
     chosen = {
-        lane: {key: config[key] for key in LANE_KEYS if key in config}
+        lane: {key: config[key] for key in LANE_CHOICE_KEYS if key in config}
         for lane, config in resolved.get("lanes", {}).items() if isinstance(config, dict)
     }
     native_settings = {
@@ -361,6 +365,7 @@ def native_profile(fleet: dict, paths: Paths, current_settings: dict | None = No
         "lanes": chosen,
         "modelTiers": fleet.get("modelTiers", {}),
         "excludedModels": [],
+        "reservedModels": [],
     }
 
 
@@ -435,9 +440,16 @@ def apply_profile(paths: Paths, profile: dict, token: str | None) -> bool:
         # and preference lists are replaced wholesale, never merged.
         target.pop("fallbacks", None)
         target.pop("preferred", None)
-        for key in LANE_KEYS:
-            if key in values:
-                target[key] = values[key]
+        target.pop("preferredOnly", None)
+        target.pop("preferredEffort", None)
+        for key in LANE_CHOICE_KEYS:
+            if key not in values:
+                continue
+            if key == "preferredOnly" and values[key] is not True:
+                continue
+            if key == "preferredEffort" and values[key] not in PREFERRED_EFFORTS:
+                continue
+            target[key] = values[key]
     if isinstance(profile.get("modelTiers"), dict):
         fleet["modelTiers"] = profile["modelTiers"]
     # Exclusions name one provider's models, so they travel with the profile.
@@ -447,6 +459,14 @@ def apply_profile(paths: Paths, profile: dict, token: str | None) -> bool:
             fleet["excludedModels"] = excluded
         else:
             fleet.pop("excludedModels", None)
+    # Reserved models are named per provider too, so they follow the profile;
+    # a profile saved before 2.8.0 has none.
+    saved_reserved = profile.get("reservedModels")
+    reserved = [item for item in saved_reserved if isinstance(item, str) and item.strip()] if isinstance(saved_reserved, list) else []
+    if reserved:
+        fleet["reservedModels"] = reserved
+    else:
+        fleet.pop("reservedModels", None)
     policy = target_policy
     if policy is None:
         try:
@@ -734,10 +754,11 @@ def cmd_add(paths: Paths, args: argparse.Namespace) -> int:
         # pins, exclusions, and tier labels name models it does not have.
         fresh = copy.deepcopy(fleet)
         fresh.pop("excludedModels", None)
+        fresh.pop("reservedModels", None)
         fresh["modelTiers"] = {}
         for config in fresh.get("lanes", {}).values():
             if isinstance(config, dict):
-                for key in LANE_KEYS:
+                for key in LANE_KEYS + ("preferredOnly",):
                     config.pop(key, None)
         resolved, picker, pending, catalog = reconcile.resolve_fleet(fresh, {}, rows, policy)
         missing = [item for item in pending if "no live approved candidate" in item]
@@ -765,10 +786,11 @@ def cmd_add(paths: Paths, args: argparse.Namespace) -> int:
             "savedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "settings": profile_settings,
             "env": env,
-            "lanes": {lane: {key: config[key] for key in LANE_KEYS if key in config}
+            "lanes": {lane: {key: config[key] for key in LANE_CHOICE_KEYS if key in config}
                       for lane, config in resolved.get("lanes", {}).items() if isinstance(config, dict)},
             "modelTiers": {},
             "excludedModels": [],
+            "reservedModels": [],
             "policy": policy,
         }
         version = installed_version(paths)

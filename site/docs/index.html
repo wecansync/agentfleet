@@ -269,7 +269,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           </div>
         </div>
         <p>A preset path is relative to the current directory.</p>
-        <p>Already installed? On macOS/Linux, run <code class="il">AGENTFLEET_PRESET=team.json agentfleet update</code>. On Windows PowerShell, run <code class="il">$env:AGENTFLEET_PRESET="team.json"; agentfleet update; Remove-Item Env:AGENTFLEET_PRESET</code>. From 2.3.0, <code class="il">agentfleet configure --preset team.json</code> also applies a preset. Presets supply no credentials. From 2.4.0 a preset can also set <code class="il">workStyle</code> and <code class="il">agentBrain</code>; it can never run the instruction check. The wizard can save your TypeSafe key with hidden input into <code class="il">~/.claude/settings.json</code> (env <code class="il">TYPESAFE_API_KEY</code>), where commands Claude runs can read it. For private storage, leave it empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure. Never paste keys in chat.</p>
+        <p>Already installed? On macOS/Linux, run <code class="il">AGENTFLEET_PRESET=team.json agentfleet update</code>. On Windows PowerShell, run <code class="il">$env:AGENTFLEET_PRESET="team.json"; agentfleet update; Remove-Item Env:AGENTFLEET_PRESET</code>. From 2.3.0, <code class="il">agentfleet configure --preset team.json</code> also applies a preset. Presets supply no credentials. From 2.4.0 a preset can also set <code class="il">workStyle</code> and <code class="il">agentBrain</code>; it can never run the instruction check. From 2.8.0 it can set the team's models: <code class="il">lanes</code> gives each listed lane its models (the first is its model, the rest its fallbacks, nothing else) and optionally its effort, and <code class="il">reservedModels</code> keeps a model off every lane that does not list it. See <a href="#tuning-reserve">Reserving a model</a>. The wizard can save your TypeSafe key with hidden input into <code class="il">~/.claude/settings.json</code> (env <code class="il">TYPESAFE_API_KEY</code>), where commands Claude runs can read it. For private storage, leave it empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure. Never paste keys in chat.</p>
         <p>Verify with <code class="il">agentfleet config</code>, <code class="il">/fleet-status</code>, and <code class="il">/jev</code> when JEV is enabled. Roll back an install or update with <code class="il">agentfleet rollback</code>.</p>
       </section>
 
@@ -370,7 +370,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <table>
             <thead><tr><th>Style</th><th>Behavior</th></tr></thead>
             <tbody>
-              <tr><td><code class="il">balanced</code> (default)</td><td>Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, broad sweeps whose detail it won't need, and independent reviews of risky changes. The prompt hook adds no routing suggestion.</td></tr>
+              <tr><td><code class="il">balanced</code> (default)</td><td>Claude works directly. It decides whether to use lanes after reading the relevant code, not from how the request is worded, and says in one line whether it will split the work. It uses lanes for independent parts that change different files, long well-specified tasks, broad sweeps whose detail it won't need, and independent reviews of risky changes (security, data loss, migrations). The prompt hook adds no routing suggestion.</td></tr>
               <tr><td><code class="il">direct</code></td><td>Claude uses a lane only when you ask for one.</td></tr>
               <tr><td><code class="il">fleet</code></td><td>The 2.3 behavior: Claude delegates by default.</td></tr>
             </tbody>
@@ -380,6 +380,15 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <pre><code>agentfleet config work-style balanced</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy work style command">Copy</button>
         </div>
+        <h3 id="work-style-reviews" class="anchor-heading">Reviews, fixes and retries<a class="anchor-link" href="#work-style-reviews" aria-label="Link to this section">#</a></h3>
+        <p>From 2.8.0, in every style that uses lanes:</p>
+        <ul>
+          <li>Claude reviews each lane's changes itself and reruns the check the lane names. A review lane runs only for security, data-loss or migration changes, or when you ask, and at most once per change. <code class="il">fleet-review-deep</code> runs only when you ask for it.</li>
+          <li>Claude fixes small findings itself. Larger ones go back to the lane that wrote the code, continued with SendMessage so it keeps what it has read, instead of to a new lane that reads everything again.</li>
+          <li>A long, well-specified task goes to one implementation lane in parts; Claude continues the same lane for each part.</li>
+          <li>A lane that failed is re-dispatched once. If it fails again, or AgentFleet reports that the gateway is failing, Claude does the work itself and tells you.</li>
+        </ul>
+        <p>A project can add its own risky areas in its <code class="il">CLAUDE.md</code>, for example "installer changes count as risky: have them reviewed on a lane".</p>
         <p>AgentFleet writes the policy for your chosen style to <code class="il">~/.claude/rules/agentfleet.md</code>, which Claude Code loads automatically. It is 300 to 500 words depending on the style, down from about 1,400 in 2.3, plus about 300 for the ask-first section and 200 for the branch check.</p>
         <h3 id="ask-first" class="anchor-heading">Ask first<a class="anchor-link" href="#ask-first" aria-label="Link to this section">#</a></h3>
         <p>With <code class="il">ask-first</code> on (the default), the policy adds a short "How to approach a task" section. Claude still does small, clear tasks straight away. For larger, unclear or risky ones it:</p>
@@ -410,7 +419,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <button class="copy-btn" type="button" aria-label="Copy branch-check command">Copy</button>
         </div>
         <h3 id="work-style-effort" class="anchor-heading">Lane effort and stopping<a class="anchor-link" href="#work-style-effort" aria-label="Link to this section">#</a></h3>
-        <p>Lanes use less reasoning effort than in 2.3. <code class="il">implement</code>, <code class="il">review</code>, <code class="il">review-alt</code>, <code class="il">security-review</code>, and <code class="il">diagnose-static</code> run at <code class="il">high</code>. <code class="il">tests</code>, <code class="il">triage-static</code>, <code class="il">research-codebase</code>, and <code class="il">research-web</code> run at <code class="il">medium</code>. <code class="il">plan</code> and the <code class="il">-deep</code> lanes stay at <code class="il">xhigh</code>. An update applies the new values automatically. A lane that is running out of turns now stops and reports what is done and what remains, instead of ending without a report.</p>
+        <p>Lanes use less reasoning effort than in 2.3. <code class="il">implement</code>, <code class="il">review</code>, <code class="il">review-alt</code>, <code class="il">security-review</code>, and <code class="il">diagnose-static</code> run at <code class="il">high</code>. <code class="il">tests</code>, <code class="il">triage-static</code>, <code class="il">research-codebase</code>, and <code class="il">research-web</code> run at <code class="il">medium</code>. <code class="il">plan</code> and the <code class="il">-deep</code> lanes stay at <code class="il">xhigh</code>. An update applies the new values automatically. A lane that is running out of turns now stops and reports what is done and what remains, instead of ending without a report. From 2.8.0 the <a href="#lane-guard">lane-guard mod</a> also warns a lane at 70% and again at 90% of its turn limit, so it finishes the part it is on and reports before it is cut off. Set a lane's effort yourself with <code class="il">claude-fleet-setup --effort LANE=LEVEL</code> or a team preset.</p>
       </section>
 
       <section id="lanes">
@@ -493,11 +502,11 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           </div>
           <div class="lane-card">
             <div class="lane-name-row"><span class="lane-name">fleet-review-alt</span><span class="tag tag-rw">Check / Fix</span></div>
-            <p class="lane-desc">Independent second reviewer on a different model. Use for risky changes that deserve two reviews. Tier: deep.</p>
+            <p class="lane-desc">Independent second reviewer on a different model. Used only when you ask for a second review, or when the primary review lane must be avoided. Tier: deep.</p>
           </div>
           <div class="lane-card">
             <div class="lane-name-row"><span class="lane-name">fleet-review-deep</span><span class="tag tag-rw">Check / Fix</span></div>
-            <p class="lane-desc">Frontier reviewer for the hardest reviews: security boundaries, installer/migration/concurrency paths, data-loss risk, or conflicting primary findings. Tier: deep.</p>
+            <p class="lane-desc">Frontier reviewer, usually the most expensive model. Used only when you ask for it by name. Tier: deep.</p>
           </div>
         </div>
       </section>
@@ -560,7 +569,16 @@ claude-fleet-setup --prefer fleet-implement=my-primary-model,my-fallback-model
 # Clear the pin so the lane returns to tier ranking:
 claude-fleet-setup --prefer fleet-implement=</code></pre>
         </div>
-        <p>A pinned lane uses your models in your order, and any remaining fallback slots are filled by tier ranking, so a lane pinned to one model still has somewhere to go if that model is unavailable.</p>
+        <p>A pinned lane uses your models in your order, and any remaining fallback slots are filled by tier ranking, so a lane pinned to one model still has somewhere to go if that model is unavailable. To use only your list, with no ranked fill-ins, pin it with <code class="il">--prefer-only</code>:</p>
+        <div class="code-wrap">
+          <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy prefer-only examples">Copy</button></div>
+          <pre><code># First model is the lane's model, the rest its fallbacks, nothing else:
+claude-fleet-setup --prefer-only fleet-implement=codex-luna,claude-sonnet-5.5
+
+# Set the lane's reasoning effort (low, medium, high, xhigh, max); 'LANE=' clears it:
+claude-fleet-setup --effort fleet-implement=high</code></pre>
+        </div>
+        <p>Model names can leave out the <code class="il">[1m]</code> suffix; AgentFleet matches them to the gateway's IDs.</p>
         <aside class="callout note"><span class="callout-label">Note</span><p>On a Claude subscription only <code class="il">opus</code>, <code class="il">sonnet</code>, and <code class="il">haiku</code> can be used as preferred model values.</p></aside>
         <h3 id="tuning-exclude" class="anchor-heading">Keeping a model out of the fleet<a class="anchor-link" href="#tuning-exclude" aria-label="Link to this section">#</a></h3>
         <div class="code-wrap">
@@ -572,6 +590,16 @@ claude-fleet-setup --exclude my-model-id
 claude-fleet-setup --include my-model-id</code></pre>
         </div>
         <p>An excluded model stays in Claude Code's <code class="il">/model</code> picker; it just never serves a lane. Excluding a model also removes it from any lane pins, and pinning an excluded model is refused until you include it again. Exclusions are stored as <code class="il">excludedModels</code> in <code class="il">~/.claude/fleet.json</code> and survive updates.</p>
+        <h3 id="tuning-reserve" class="anchor-heading">Reserving a model<a class="anchor-link" href="#tuning-reserve" aria-label="Link to this section">#</a></h3>
+        <div class="code-wrap">
+          <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy reserve examples">Copy</button></div>
+          <pre><code># Serve only the lanes that name this model (for example an expensive reviewer):
+claude-fleet-setup --reserve codex-astra
+
+# Let tier ranking use it again:
+claude-fleet-setup --unreserve codex-astra</code></pre>
+        </div>
+        <p>Catalogs list no prices, so ranking cannot tell an expensive model from a cheap one. A reserved model is never picked by ranking, as a lane's model or a fallback; it serves only lanes whose pin names it, such as <code class="il">claude-fleet-setup --prefer-only fleet-review-deep=codex-astra,claude-opus-5.5</code>. Reservations are stored as <code class="il">reservedModels</code> in <code class="il">~/.claude/fleet.json</code> and survive updates and profile switches.</p>
         <h3 id="tuning-tier" class="anchor-heading">Labelling a model's tier<a class="anchor-link" href="#tuning-tier" aria-label="Link to this section">#</a></h3>
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy tier label examples">Copy</button></div>
@@ -701,6 +729,9 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --prefer LANE=MODEL[,MODEL]</code><p>Pin a lane to one or more preferred models in order. Repeatable. <code class="il">LANE=</code> clears the pin.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --exclude MODEL[,MODEL]</code><p>Never assign these models to any lane (they stay in the model picker). Repeatable.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --include MODEL[,MODEL]</code><p>Undo <code class="il">--exclude</code> for these models. Repeatable.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --prefer-only LANE=MODEL[,MODEL]</code><p>Use only these models for the lane, in order, with no ranked fill-ins; <code class="il">LANE=</code> clears it. Repeatable.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --reserve MODEL[,MODEL]</code><p>Keep these models for lanes that name them. Repeatable; <code class="il">--unreserve</code> undoes it.</p></div>
+          <div class="cmd-ref-item"><code class="il">claude-fleet-setup --effort LANE=LEVEL</code><p>Set the lane's reasoning effort: low, medium, high, xhigh or max; <code class="il">LANE=</code> clears it. Repeatable.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --tier MODEL=TIER</code><p>Label a model's capability tier. Repeatable. <code class="il">MODEL=</code> clears the label.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --archive-agents &lt;categories&gt;</code><p>Archive agent files by comma-separated category: <code class="il">engineering</code>, <code class="il">game_dev</code>, <code class="il">niche_ops</code>, <code class="il">other</code>, or <code class="il">all</code>. Also accepts specific filenames.</p></div>
           <div class="cmd-ref-item"><code class="il">claude-fleet-setup --restore-agents &lt;categories&gt;</code><p>Restore archived agents by category or filename.</p></div>
@@ -947,7 +978,7 @@ claude-fleet-setup --compaction 200000</code></pre>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks dangerous recursive or forced deletions targeting root, home, parent directories, repository metadata, or a bare wildcard.</li>
         </ul>
         <p>Read-only git inspections, tests, builds, linters, SELECT queries, migration status checks, and normal build cleanup remain allowed. A blocked lane must report the command to the main agent instead.</p>
-        <p>lane-guard also handles <a href="#outages">model failover</a>: while a lane's own model is down, a new run of that lane starts on the first of its fallback models that works, and the task description ends in <code class="il">(failover: &lt;model&gt;)</code>. Turning lane-guard off turns this off too. For this it reads <code class="il">~/.claude/fleet.json</code>, <code class="il">~/.claude/agentfleet/outages.json</code> and the project's <code class="il">.claude/fleet.local.json</code>, each only as a regular file under 1 MB; it writes nothing.</p>
+        <p>lane-guard also handles <a href="#outages">model failover</a>: while a lane's own model is down, a new run of that lane starts on the first of its fallback models that works, and the task description ends in <code class="il">(failover: &lt;model&gt;)</code>. Turning lane-guard off turns this off too. From lane-guard 1.2.0 it also warns a lane near its turn limit: at 70% of the lane's <code class="il">maxTurns</code> it tells the lane to finish the part it is on, run its check and report, and at 90% to report now. The lane reads the warning after a tool result; you do not see it. For failover it reads <code class="il">~/.claude/fleet.json</code>, <code class="il">~/.claude/agentfleet/outages.json</code> and the project's <code class="il">.claude/fleet.local.json</code>, each only as a regular file under 1 MB; it writes nothing.</p>
         <aside class="callout note"><span class="callout-label">Note</span><p>This is a targeted command guard, not a sandbox or a guarantee against every destructive action. Lane instructions still apply. Disable it through <code class="il">/plugin</code>: select lane-guard, then Disable.</p></aside>
       </section>
 
@@ -956,8 +987,9 @@ claude-fleet-setup --compaction 200000</code></pre>
         <p>On a gateway profile, each lane in <code class="il">~/.claude/fleet.json</code> has a model and up to three fallback models, ranked from your provider's live models. <a href="#fleet-setup">/fleet-setup</a> can pin a lane to your own list instead, for example <code class="il">fleet-implement</code> on <code class="il">claude-haiku-5.5</code>, then <code class="il">codex-luna</code>, then a Gemini model; the first is the lane's model and the rest are its fallbacks in that order. Native profiles have no fallbacks.</p>
         <p><code class="il">fleet_watch.py</code> watches local subagent activity. When a lane run fails with an API error 429 (quota), 5xx or 529 (overloaded), it records that model as down in <code class="il">~/.claude/agentfleet/outages.json</code>: for 60 minutes after a 429, 15 minutes after other errors, or until a later run on it succeeds.</p>
         <ul class="req-list">
-          <li><strong>Same-lane failover:</strong> with <a href="#lane-guard">lane-guard</a> on (the default), new runs of the lane start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane. In the example above, if <code class="il">claude-haiku-5.5</code> runs out of quota, the next <code class="il">fleet-implement</code> run uses <code class="il">codex-luna</code>, and the Gemini model if <code class="il">codex-luna</code> is down too.</li>
+          <li><strong>Same-lane failover:</strong> with <a href="#lane-guard">lane-guard</a> on (the default), new runs of the lane start on the first of its fallback models that is not down, and the prompt hook tells Claude to re-dispatch the failed task to the same lane, once; if that run fails too, Claude does the work itself. In the example above, if <code class="il">claude-haiku-5.5</code> runs out of quota, the next <code class="il">fleet-implement</code> run uses <code class="il">codex-luna</code>, and the Gemini model if <code class="il">codex-luna</code> is down too.</li>
           <li><strong>Another lane:</strong> only when every model of a lane is down, or lane-guard is off, does the prompt hook name a lane with a working model instead. In the <code class="il">fleet</code> work style a request routed to that lane is sent to the alternative while the outage lasts.</li>
+          <li><strong>Gateway outages:</strong> when models from two or more vendors fail within 10 minutes, the gateway itself is failing and switching models will not help. The prompt hook says so once and tells Claude to do the work itself, without dispatching lanes, until the outage expires.</li>
           <li><strong>Status:</strong> the fleet-status band shows which model a lane switched to, and <code class="il">/fleet-status</code> lists the models that are down.</li>
         </ul>
         <p>Per-lane reports in <code class="il">~/.claude/agentfleet/lane-reports.jsonl</code> record changed files, forbidden commands, API errors, and reported token counts. They are local records, not automatic permission to rerun a blocked command. Use <code class="il">/fleet-status</code> for outages or <code class="il">/fleet-tasks</code> for recent lane activity.</p>
@@ -1135,7 +1167,7 @@ claude plugin install fleet-status@agentfleet</code></pre>
         <h3 id="ts-health" class="anchor-heading">Plugin or MCP health warnings<a class="anchor-link" href="#ts-health" aria-label="Link to this section">#</a></h3>
         <p>Run <code class="il">claude-fleet-setup --audit</code>, <code class="il">/fleet-setup</code>, or <code class="il">agentfleet status</code> to inspect the warning. <code class="il">claude-fleet-setup --audit --no-health</code> skips these checks; it does not repair a plugin or MCP server. Configure credentials outside chat.</p>
         <h3 id="ts-outage" class="anchor-heading">A lane is marked failing<a class="anchor-link" href="#ts-outage" aria-label="Link to this section">#</a></h3>
-        <p>With lane-guard on, the lane fails over to its next working model by itself; re-dispatch the failed task to the same lane. When every model of the lane is down, use the alternative lane the prompt hook names. Check <code class="il">/fleet-status</code> or <code class="il">/fleet-tasks</code> for which models are down. An outage lasts 60 minutes after a 429 and 15 minutes after other errors, or ends early when a run on that model succeeds; it never changes the lane's models in <code class="il">fleet.json</code>.</p>
+        <p>With lane-guard on, the lane fails over to its next working model by itself; re-dispatch the failed task to the same lane once. When every model of the lane is down, use the alternative lane the prompt hook names, once. If that fails too, or the hook says the gateway is failing, do the work in the main session. Check <code class="il">/fleet-status</code> or <code class="il">/fleet-tasks</code> for which models are down. An outage lasts 60 minutes after a 429 and 15 minutes after other errors, or ends early when a run on that model succeeds; it never changes the lane's models in <code class="il">fleet.json</code>.</p>
         <h3 id="ts-windows-path" class="anchor-heading">Windows hook path is refused<a class="anchor-link" href="#ts-windows-path" aria-label="Link to this section">#</a></h3>
         <p>Windows hook commands refuse install paths containing <code class="il">$</code> or a backtick. Use a path without those characters. Version 2.2.0's <code class="il">.cmd</code> shims do not search the current directory for helpers; <code class="il">.ps1</code> shims carry a UTF-8 BOM for Windows PowerShell.</p>
 
