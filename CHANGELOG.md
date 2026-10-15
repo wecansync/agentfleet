@@ -359,6 +359,7 @@ through 2026-09-22:
 - A bytecode-guard preflight check, manifest/fleet-hash sync, and the gateway catalog's user agent, each of which could otherwise break installs or model discovery.
 - Windows compatibility: UTF-8 output across scripts and binaries.
 
+[2.7.0]: https://github.com/wecansync/claude-agents-config/pull/37
 [2.6.2]: https://github.com/wecansync/claude-agents-config/pull/36
 [2.6.1]: https://github.com/wecansync/claude-agents-config/pull/35
 [2.6.0]: https://github.com/wecansync/claude-agents-config/pull/34
