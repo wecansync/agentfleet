@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -475,6 +476,23 @@ class FleetWatchTests(unittest.TestCase):
         self.assertEqual(data["domains"]["example.com"]["count"], 1)
         self.assertIn("/fleet-report", data["commands"])
         self.assertNotIn(FAKE_KEY, paths[0].read_text(encoding="utf-8"))
+
+    def test_learning_keys_on_the_session_start_folder(self):
+        # The payload cwd follows the shell's `cd`; CLAUDE_PROJECT_DIR does not.
+        sub = self.project / "apps" / "api"
+        sub.mkdir(parents=True)
+        self.write_records(self.transcript, [assistant("m1", [tool("Bash", {"command": "npm run build"})])])
+        payload = {**self.payload(), "cwd": str(sub)}
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(self.project)}):
+            self.assertEqual(fleet_watch.project_dir(payload), str(self.project))
+            fleet_watch.on_prompt(payload, self.home)
+        paths = list((self.home / ".claude" / "agentfleet" / "usage").glob("*.json"))
+        self.assertEqual([p.name for p in paths], [fleet_watch._usage_path(self.home, str(self.project)).name])
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "relative/dir"}):
+            self.assertEqual(fleet_watch.project_dir(payload), str(sub))
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            self.assertEqual(fleet_watch.project_dir(payload), str(sub))
 
     def test_usage_retention_cap_and_per_session_counts(self):
         now = datetime.now(timezone.utc)
