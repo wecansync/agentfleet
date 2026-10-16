@@ -3,6 +3,13 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.8.3] - 2026-10-16
+
+### Fixed
+
+- After the shell changed into a subfolder (`cd apps/api`), AgentFleet treated that subfolder as a separate project: usage learning recorded under it, and the prompt hook scanned it for its own suggestions and notices. Hooks now key a session's project on `CLAUDE_PROJECT_DIR`, the folder Claude Code started in, and fall back to the hook's `cwd` when it is not set.
+- The daily update installs agent-brain 0.5.6, which fixes the same kind of bug in agent-brain's memory capture: a session got a new memory handle at each `cd`, the memory tools rejected it, and the end-of-reply capture request repeated at every reply.
+
 ## [2.8.2] - 2026-10-15
 
 ### Fixed

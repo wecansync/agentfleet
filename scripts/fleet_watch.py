@@ -1628,6 +1628,19 @@ def _forbidden_item(command: str) -> dict | None:
     return {"rule": reason, "command": _clean_text(command, 160)}
 
 
+def project_dir(payload: dict) -> str:
+    """The folder a hook's session belongs to.
+
+    The payload's cwd follows the shell's `cd`; CLAUDE_PROJECT_DIR stays where
+    Claude Code started, so a session's usage and suggestions keep one project.
+    """
+    started = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if started and os.path.isabs(started):
+        return started
+    cwd = payload.get("cwd")
+    return cwd if isinstance(cwd, str) else ""
+
+
 def _usage_key_path(cwd_string: str) -> str:
     try:
         return str(Path(cwd_string).expanduser().resolve())
@@ -1959,7 +1972,7 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
     if outage_data != live.get("lanes", {}) or model_data != live.get("models", {}) or gateway != live.get("gateway"):
         _write_outages(home, outage_data, model_data, gateway)
 
-    _learn_main(home, session, payload, session_id, str(payload.get("cwd") or ""), budget, deadline)
+    _learn_main(home, session, payload, session_id, project_dir(payload), budget, deadline)
     return _bounded_context(lines)
 
 

@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.8.2",
+  "version": "2.8.3",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "d0b99beea7af230fe6602b8da6ef56e26890c0e4d069ae29e1338c2b89e3a908",
+      "sha256": "1b37d21fd1d846599df2de5890070eb185bdcae037732b87347b9e9372b19f19",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "60d36e8a22cf32b14f23e478588882324b395f68ea7036a901cfbf2f79bc34cf",
+      "sha256": "8d067e2a9388938ad73b2114cf6089225d47586ac6311bed2c10a4550c372901",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "00d9235ed59ffb6f6771ed263216be6baf0be8f0408dc4bf6f59a14917d654ba",
+      "sha256": "e3fdbc5ab5230a7343de5d2ee3c2df4892f7f30e5fdef2f9654e4a3ac29cd987",
       "mode": "0o644"
     },
     {
@@ -504,7 +504,7 @@
     },
     {
       "path": "scripts/fleet_watch.py",
-      "sha256": "cb1144eb5529dcfb44bdf9ac7ef55fa22241bc63a3a08e73c17b249466b9dac1",
+      "sha256": "68003d1fc153a5e4566b75eeca391908b0f2400a735e1bcd0abfb68ff93a32b2",
       "mode": "0o644"
     },
     {
@@ -519,7 +519,7 @@
     },
     {
       "path": "scripts/route-to-fleet.py",
-      "sha256": "99d937139e132e3d600d1f1bf78b6ab03cf967464ab4c200b58e70aa585a44db",
+      "sha256": "c966af9f186d8e306e5b5c44dc0a02c3e39b4615db93efcb6ca1f94250b9e3f0",
       "mode": "0o755"
     },
     {
@@ -574,7 +574,7 @@
     },
     {
       "path": "tests/test_fleet_watch.py",
-      "sha256": "b933ebeac289bbdbd541af00728640be1897aa6af0c7f8c727e674a0770ebd64",
+      "sha256": "ffd716fbd59fe5cffde0d76078cae8a52377855c0a23478935a4be9ecf375122",
       "mode": "0o644"
     },
     {
@@ -649,7 +649,7 @@
     },
     {
       "path": "tests/test_suggest.py",
-      "sha256": "af5f114c3e1e3d11e5bd7e5cc575e07b29f1ed187f1feda81fb9ebaea3949877",
+      "sha256": "70643d34d633ab8afcd8c8dbe2cc3226ef1f7de2d6b74274a91f64c6c6bf7c94",
       "mode": "0o644"
     },
     {

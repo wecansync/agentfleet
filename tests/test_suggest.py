@@ -692,7 +692,8 @@ services:
             result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "route-to-fleet.py")],
                                     input=json.dumps({"cwd": str(proj), "prompt": "implement a new API endpoint for users"}),
                                     text=True, capture_output=True,
-                                    env={**os.environ, "CLAUDE_FLEET_HOME": str(self.home)})
+                                    env={**{k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"},
+                                         "CLAUDE_FLEET_HOME": str(self.home)})
             self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout
         self.assertNotIn("AgentFleet:", route())
@@ -704,6 +705,23 @@ services:
         (proj / "tsconfig.json").write_text("{}")
         self.assertIn("AgentFleet:", route())
         self.assertNotIn("AgentFleet:", route())
+
+    def test_route_keys_suggestions_on_the_session_start_folder(self):
+        # A shell `cd` into a subfolder must not make it a separate project.
+        proj = self.root / "started-here"
+        sub = proj / "apps" / "api"
+        sub.mkdir(parents=True)
+        (sub / "tsconfig.json").write_text("{}")
+        (self.claude_dir / "fleet.json").write_text(json.dumps({"lanes": {"implement": {"model": "haiku"}}}))
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        env.update(CLAUDE_FLEET_HOME=str(self.home), CLAUDE_PROJECT_DIR=str(proj))
+        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "route-to-fleet.py")],
+                                input=json.dumps({"cwd": str(sub), "prompt": "implement a new API endpoint for users"}),
+                                text=True, capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        projects = fleet_suggest.load_suggestions_store(self.home)["projects"]
+        self.assertIn(str(proj.resolve()), projects)
+        self.assertNotIn(str(sub.resolve()), projects)
 
     def test_sanitization_escapes_and_verbs(self):
         proj = self.root / "escape_proj"

@@ -68,6 +68,10 @@ except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
 if not isinstance(payload, dict):
     sys.exit(0)
 
+# Where Claude Code started, not the shell's current folder, which follows `cd`.
+_started = os.environ.get("CLAUDE_PROJECT_DIR", "")
+project_dir = _started if _started and os.path.isabs(_started) else (payload.get("cwd") if isinstance(payload.get("cwd"), str) else "")
+
 CONFIG_HOME = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
 CLAUDE_DIR = CONFIG_HOME / ".claude"
 LOG_PATH = str(CLAUDE_DIR / "routing-log.jsonl")
@@ -271,7 +275,7 @@ def emit_context(lines):
         }))
         if pending_suggestion and pending_suggestion in lines and fleet_suggest is not None:
             try:
-                fleet_suggest.mark_notified(payload.get("cwd") or "", suggestion_home)
+                fleet_suggest.mark_notified(project_dir, suggestion_home)
             except Exception:
                 pass
 
@@ -285,9 +289,8 @@ def leave(reason, prompt, lane=None):
 suggestion_home = Path(os.environ.get("CLAUDE_FLEET_HOME", Path(__file__).resolve().parent.parent)).expanduser()
 if fleet_suggest is not None and hasattr(fleet_suggest, "pending_notice"):
     try:
-        cwd = payload.get("cwd") if isinstance(payload.get("cwd"), str) else ""
         # Recorded as shown by emit_context only once it is printed.
-        candidate = fleet_suggest.pending_notice(cwd, suggestion_home)
+        candidate = fleet_suggest.pending_notice(project_dir, suggestion_home)
         try:
             settings = json.loads((suggestion_home / ".claude" / "settings.json").read_text(encoding="utf-8"))
             band_enabled = settings.get("enabledPlugins", {}).get("fleet-status@agentfleet") is True
