@@ -1090,6 +1090,31 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print("Claude will change files without checking the branch first. Restart Claude Code to apply.")
         return 0
 
+    if setting == "context-mode":
+        if value not in {"on", "off", "status"}:
+            print("agentfleet: context-mode must be on, off, or status", file=sys.stderr)
+            return 2
+        try:
+            import context_mode
+            if value == "status":
+                print(f"context-mode: {context_mode.status(paths.home)}")
+                return 0
+            if value == "on":
+                context_mode.enable(paths.home)
+                if not context_mode.node_runtime_available(paths.home):
+                    print("Warning: Context Mode requires Node.js 22.5 or later at runtime.")
+                print("Context Mode is enabled for your user scope. Restart Claude Code, then run /context-mode:ctx-doctor to verify the setup.")
+            else:
+                context_mode.disable(paths.home)
+                print("Context Mode is disabled; the plugin and its data remain installed. Restart Claude Code to apply.")
+            return 0
+        except ImportError:
+            print("agentfleet: context-mode support is missing; reinstall AgentFleet", file=sys.stderr)
+            return 1
+        except context_mode.ContextModeError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 1
+
     if setting == "agent-brain":
         if value not in {"on", "off"}:
             print("agentfleet: agent-brain must be on or off", file=sys.stderr)
@@ -1952,7 +1977,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "context-mode"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")

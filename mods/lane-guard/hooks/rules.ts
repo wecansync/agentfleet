@@ -1,6 +1,8 @@
 export type ForbiddenResult = {
   rule: string;
   label: string;
+  // Replaces the default closing sentence of the denial, when a rule needs to explain an alternative.
+  hint?: string;
 };
 
 const RULES = {
@@ -1207,12 +1209,55 @@ export function forbiddenReason(command: string): ForbiddenResult | null {
   return null;
 }
 
+// Context Mode tools a fleet lane may call: read-only search and stats.
+const CONTEXT_MODE_ALLOWED = new Set(['ctx_search', 'ctx_stats']);
+
+/**
+ * Returns the tool shortname when an MCP tool name belongs to a Context Mode server,
+ * or null otherwise. The server is matched after lowercasing and mapping hyphens to
+ * underscores, so `plugin_context-mode_context-mode`, `context_mode` and
+ * `context-mode` all match.
+ */
+function contextModeTool(toolName: string): string | null {
+  const parts = toolName.split('__');
+  if (parts.length < 3 || parts[0] !== 'mcp') return null;
+  const server = parts[1].toLowerCase().replace(/-/g, '_');
+  if (server !== 'context_mode' && !server.endsWith('_context_mode')) return null;
+  return parts.slice(2).join('__');
+}
+
+/**
+ * Context Mode's execute, batch, index, fetch, upgrade and purge tools run or change
+ * things outside the Bash rules, so fleet lanes get a deny-by-default policy: only
+ * the explicit read-only tools pass, and any tool not on the list (including ones
+ * added later) is denied. Returns null for tools that are not on a Context Mode server.
+ */
+export function contextModeForbidden(toolName: string): ForbiddenResult | null {
+  const tool = contextModeTool(toolName);
+  if (tool === null) return null;
+  if (CONTEXT_MODE_ALLOWED.has(tool)) return null;
+  return {
+    rule: 'context-mode',
+    label: 'Context Mode',
+    hint:
+      "Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. Use the native Read, Grep, Glob or Bash tools instead, or report the need to the main agent; it decides whether to run it.",
+  };
+}
+
 /**
  * Checks MCP arguments (recursively, bounded) for [migration] and [db-write] SQL rules.
  */
 export function mcpForbidden(args: unknown, toolName?: string): ForbiddenResult | null {
   if (toolName && toolName.startsWith('mcp__agent-brain-memory__')) {
     return null;
+  }
+
+  if (toolName) {
+    const tool = contextModeTool(toolName);
+    if (tool !== null) {
+      // Allowed read-only Context Mode tools skip the SQL scan: a search query is text, not SQL.
+      return contextModeForbidden(toolName);
+    }
   }
 
   const toolLower = (toolName ?? '').toLowerCase();

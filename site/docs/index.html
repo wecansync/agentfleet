@@ -1315,6 +1315,29 @@ sh packaging/deploy.sh             # upload site/, then archives, then latest.js
     </div>
   </div>
 </div>
+<section class="section" id="context-mode">
+  <h2>Optional Context Mode pilot</h2>
+  <p>Context Mode is an upstream plugin for indexing large tool outputs locally.
+  It is off by default, with no new setup question. Enable with
+  <code class="il">agentfleet config context-mode on</code>, inspect with
+  <code class="il">agentfleet config context-mode status</code>, and disable with
+  <code class="il">agentfleet config context-mode off</code>. Disabling does not
+  delete indexed data. Restart Claude Code and run
+  <code class="il">/context-mode:ctx-doctor</code> after enabling.</p>
+  <p>The command warns if Node.js 22.5+ is not detected; upstream also documents a Bun setup. The main session
+  can use the plugin; lane-guard restricts lanes to Context Mode search and stats.
+  Other Context Mode tools are blocked, not inspected as arbitrary code. Keep
+  lane-guard enabled. If upstream routing causes repeated blocked calls in lanes,
+  disable Context Mode rather than bypassing the guard. The name-based guard
+  recognizes official server names, not renamed aliases. Search may refresh
+  indexed files and retrieve other indexed projects.</p>
+  <p>Measure equivalent tasks with and without the plugin: total tokens, elapsed
+  time, compactions, blocked calls, tests and correctness. Keep models fixed,
+  disable JEV during the comparison, repeat in both orders and test Windows.
+  AgentFleet has not established total-session savings. Context Mode is not
+  vendored into the MIT bundle; its upstream ELv2 license and updates apply.</p>
+  <p><a href="https://github.com/mksglu/context-mode">Upstream project and installation details</a></p>
+</section>
 </main>
 
 <footer class="site-footer">

@@ -245,3 +245,74 @@ test('a tool that throws is run once, not retried', async () => {
   ).rejects.toThrow('tool failed');
   expect(calls).toBe(1);
 });
+
+test('Context Mode execute with a shell command from a fleet lane is denied with a native-tools hint', async () => {
+  const { _$, hooks, logs } = setup([{ id: 'sub-fleet-cm', type: 'fleet-coder' }]);
+  const event = {
+    agentId: 'sub-fleet-cm',
+    tool: 'mcp__plugin_context-mode_context-mode__ctx_execute',
+    language: 'shell',
+    code: 'git commit -am "sneaky" && git push',
+  };
+
+  let nextCalled = false;
+  const result = await hooks['tool.call'](_$, event, () => {
+    nextCalled = true;
+    return { result: 'ok' };
+  });
+
+  expect(nextCalled).toBe(false);
+  expect(result.deny).toBe(
+    "AgentFleet lane-guard blocked this Context Mode command in fleet-coder. Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. Use the native Read, Grep, Glob or Bash tools instead, or report the need to the main agent; it decides whether to run it.",
+  );
+  expect(result.deny).not.toContain('destructive SQL');
+  expect(logs.length).toBe(1);
+  expect(logs[0]).toContain('context-mode');
+});
+
+test('Context Mode execute_file, batch and upgrade from a fleet lane are denied', async () => {
+  const { _$, hooks } = setup([{ id: 'sub-fleet-cm2', type: 'fleet-review' }]);
+  for (const tool of ['ctx_execute_file', 'ctx_batch_execute', 'ctx_upgrade']) {
+    let nextCalled = false;
+    const result = await hooks['tool.call'](
+      _$,
+      { agentId: 'sub-fleet-cm2', tool: `mcp__context_mode__${tool}`, path: '/tmp/x' },
+      () => {
+        nextCalled = true;
+        return { result: 'ok' };
+      },
+    );
+    expect(nextCalled).toBe(false);
+    expect(result.deny).toContain('Context Mode');
+  }
+});
+
+test('Context Mode ctx_search from a fleet lane passes through', async () => {
+  const { _$, hooks } = setup([{ id: 'sub-fleet-cm3', type: 'fleet-review' }]);
+  let nextCalled = false;
+  const result = await hooks['tool.call'](
+    _$,
+    { agentId: 'sub-fleet-cm3', tool: 'mcp__context_mode__ctx_search', query: 'git push' },
+    () => {
+      nextCalled = true;
+      return { result: 'ok' };
+    },
+  );
+  expect(nextCalled).toBe(true);
+  expect(result.result).toBe('ok');
+});
+
+test('Context Mode execute from the main conversation passes through', async () => {
+  const { _$, hooks } = setup([]);
+  let nextCalled = false;
+  const result = await hooks['tool.call'](
+    _$,
+    { tool: 'mcp__context_mode__ctx_execute', language: 'shell', code: 'echo hi' },
+    () => {
+      nextCalled = true;
+      return { result: 'ok' };
+    },
+  );
+  expect(nextCalled).toBe(true);
+  expect(result.result).toBe('ok');
+});

@@ -2,6 +2,21 @@
 
 Claude Code mod for AgentFleet that guards fleet subagent lanes from running destructive or publishing commands, keeps a lane working when its model is down, and warns a lane before it runs out of turns.
 
+## Context Mode compatibility
+
+Fleet lanes may call only `ctx_search` and `ctx_stats` on recognized Context Mode
+MCP servers. All other Context Mode tools, including execution, batch execution,
+file execution, indexing, fetching, upgrades, purge and unknown future tools,
+are denied. The main conversation is unaffected. This is a conservative
+name-based compatibility boundary, not a general code sandbox. Keep lane-guard
+enabled; if upstream routing repeatedly asks a lane to use a blocked tool,
+disable Context Mode instead of bypassing this restriction.
+
+The guard recognizes the official Context Mode server names, not arbitrary aliases.
+Do not rename its MCP server or grant aliased execution tools to lanes. Search
+can refresh previously indexed files and access other indexed projects; it is
+retrieval-only with respect to code execution, not a strict read-only boundary.
+
 ## What It Blocks
 
 `lane-guard` intercepts tool calls made by fleet subagents (any agent whose type starts with `fleet-`) and blocks actions across six categories. It looks through common wrappers and shell forms first: pipes and `xargs`, `for … do … done` loops, subshells, `timeout`, `nice`, `sudo`, `env`, `find -exec`, `bundle exec`, `uv`/`poetry`/`pipenv run`, `npx`/`pnpm exec`/`bunx`, `docker [compose] exec|run`, `kubectl exec`, Laravel Sail, and `bash -c` strings. Git global options such as `--no-pager`, `-P`, `-C` and `-c` are skipped before the subcommand.

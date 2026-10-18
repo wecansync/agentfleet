@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing';
 import { cases, type TestCase } from './cases.js';
-import { forbiddenReason, mcpForbidden, redactSecrets } from '../hooks/rules.js';
+import { contextModeForbidden, forbiddenReason, mcpForbidden, redactSecrets } from '../hooks/rules.js';
 
 for (const tc of cases as TestCase[]) {
   test(`forbiddenReason case: ${tc.command}`, () => {
@@ -79,4 +79,54 @@ test('redactSecrets: comprehensive pattern verification', () => {
   for (const [input, expected] of cases) {
     expect(redactSecrets(input)).toBe(expected);
   }
+});
+
+const CONTEXT_MODE_SERVERS = [
+  'plugin_context-mode_context-mode',
+  'context_mode',
+  'context-mode',
+  'Context-Mode',
+];
+
+for (const server of CONTEXT_MODE_SERVERS) {
+  test(`contextModeForbidden: execute and batch tools on ${server} are denied`, () => {
+    for (const tool of ['ctx_execute', 'ctx_execute_file', 'ctx_batch_execute']) {
+      const res = contextModeForbidden(`mcp__${server}__${tool}`);
+      expect(res?.rule).toBe('context-mode');
+    }
+  });
+
+  test(`contextModeForbidden: index, fetch, upgrade, purge and unknown tools on ${server} are denied`, () => {
+    for (const tool of ['ctx_index', 'ctx_fetch_and_index', 'ctx_upgrade', 'ctx_purge', 'ctx_insight', 'ctx_doctor', 'ctx_future_tool']) {
+      const res = contextModeForbidden(`mcp__${server}__${tool}`);
+      expect(res?.rule).toBe('context-mode');
+    }
+  });
+
+  test(`contextModeForbidden: ctx_search and ctx_stats on ${server} are allowed`, () => {
+    expect(contextModeForbidden(`mcp__${server}__ctx_search`)).toBeNull();
+    expect(contextModeForbidden(`mcp__${server}__ctx_stats`)).toBeNull();
+  });
+}
+
+test('contextModeForbidden: denial hint names the native tools', () => {
+  const res = contextModeForbidden('mcp__context_mode__ctx_execute');
+  expect(res?.hint).toContain('Read, Grep, Glob or Bash');
+});
+
+test('contextModeForbidden: other servers and look-alike names are not touched', () => {
+  expect(contextModeForbidden('mcp__postgres__query')).toBeNull();
+  expect(contextModeForbidden('mcp__agent-brain-memory__memory_save')).toBeNull();
+  expect(contextModeForbidden('mcp__mycontext_modes__ctx_execute')).toBeNull();
+  expect(contextModeForbidden('Bash')).toBeNull();
+});
+
+test('mcpForbidden: ctx_search with SQL-looking query text is allowed', () => {
+  const res = mcpForbidden({ query: 'DROP TABLE users' }, 'mcp__context_mode__ctx_search');
+  expect(res).toBeNull();
+});
+
+test('mcpForbidden: context-mode execute tool is denied before the SQL scan', () => {
+  const res = mcpForbidden({ code: 'echo hi' }, 'mcp__plugin_context-mode_context-mode__ctx_execute');
+  expect(res?.rule).toBe('context-mode');
 });
