@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.8.3</span> &middot; <span class="latest-badge-date" data-latest-date>October 16, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.9.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 18, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,18 +431,26 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.8.3</span>
-        <span class="release-date" data-latest-date>October 16, 2026</span>
+        <span class="release-version" data-latest-version>v2.9.0</span>
+        <span class="release-date" data-latest-date>October 18, 2026</span>
       </div>
-      <p>A <code class="il">cd</code> no longer splits a session's project.</p>
+      <p>Optional Context Mode pilot, with a conservative lane boundary.</p>
       <ul class="release-list">
-        <li>After the shell changed into a subfolder, usage learning and suggestions treated it as a separate project. They now stay with the folder Claude Code started in.</li>
-        <li>The daily update installs agent-brain 0.5.6, which fixes the same problem in its memory capture.</li>
+        <li>Enable the upstream plugin with <code class="il">agentfleet config context-mode on</code>. It is off by default; no setup question is added.</li>
+        <li>lane-guard permits Context Mode search and stats in lanes, but blocks its other tools. The main conversation is unaffected.</li>
+        <li>Measure total tokens, time and correctness before keeping it enabled. No measured session savings are claimed.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.8.3</span><span class="release-date">October 16, 2026</span><span class="version-summary">A cd no longer splits a session's project.</span></summary>
+        <ul class="release-list">
+          <li>Usage learning and suggestions stay with the folder Claude Code started in.</li>
+          <li>The daily update installs agent-brain's session-handle fix.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.8.2</span><span class="release-date">October 15, 2026</span><span class="version-summary">Updates keep the effort you chose for a lane.</span></summary>
         <ul class="release-list">

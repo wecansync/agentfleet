@@ -1,7 +1,7 @@
 import type { AgentSpawnInput, CoreEngineInterface, On, Register, ToolCallInput } from 'claude-code';
 import { addNote, budgetNote, recordCall, turnLimit } from './budget.js';
 import { claudeDirectory, failoverModel, laneName, markDescription, SOURCE_LIMIT_BYTES } from './failover.js';
-import { forbiddenReason, mcpForbidden, redactSecrets } from './rules.js';
+import { forbiddenReason, mcpForbidden, redactSecrets, type ForbiddenResult } from './rules.js';
 
 const agentTypeCache = new Map<string, string>();
 const turnLimitCache = new Map<string, number | null>();
@@ -53,7 +53,7 @@ async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny:
     return null;
   }
 
-  let forbidden: { rule: string; label: string } | null = null;
+  let forbidden: ForbiddenResult | null = null;
   let rawCommand = '';
 
   if (e.tool === 'Bash' || e.tool === 'PowerShell') {
@@ -95,8 +95,11 @@ async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny:
     .replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Cc}]/gu, '');
 
   $.ui.log(`lane-guard blocked [${forbidden.rule}] in ${effectiveType}: ${sanitized}`);
+  const closing =
+    forbidden.hint ??
+    'Fleet lanes may not commit, push, merge, deploy, publish, run migrations or destructive SQL, or revert the working tree. Report the command to the main agent instead; it decides whether to run it.';
   return {
-    deny: `AgentFleet lane-guard blocked this ${forbidden.label} command in ${effectiveType}. Fleet lanes may not commit, push, merge, deploy, publish, run migrations or destructive SQL, or revert the working tree. Report the command to the main agent instead; it decides whether to run it.`,
+    deny: `AgentFleet lane-guard blocked this ${forbidden.label} command in ${effectiveType}. ${closing}`,
   };
 }
 

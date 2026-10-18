@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.9.0] - 2026-10-18
+
+### Added
+
+- Opt-in upstream Context Mode integration: `agentfleet config context-mode on|off|status`. No default install and no new wizard question. Disabling keeps its indexed data. The upstream plugin remains separately licensed under ELv2, not vendored into this MIT bundle.
+- `/fleet-suggest` can recommend the optional pilot for browser-test projects or large dependency sets. Documentation describes a paired comparison of total tokens, time and correctness; AgentFleet does not claim measured session savings.
+
+### Security
+
+- lane-guard restricts Context Mode in fleet lanes to search and stats. Execution, indexing, fetching, upgrades, deletion and unknown Context Mode tools are denied rather than trying to prove arbitrary code safe. The main conversation is unaffected. Keep lane-guard enabled; upstream routing may require disabling Context Mode if it repeatedly requests tools unavailable to lanes.
+
 ## [2.8.3] - 2026-10-16
 
 ### Fixed

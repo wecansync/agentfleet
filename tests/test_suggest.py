@@ -95,6 +95,18 @@ class FleetSuggestTests(unittest.TestCase):
             json.dumps({"version": 2, "plugins": {}}, indent=2), encoding="utf-8"
         )
 
+    def test_context_mode_is_an_optional_tool_suggestion(self):
+        project = self.root / "browser-project"
+        project.mkdir()
+        (project / "playwright.config.ts").write_text("export default {}", encoding="utf-8")
+        results = {s["id"]: s for s in fleet_suggest.suggest(self.home, project)}
+        self.assertIn("context-mode", results)
+        self.assertEqual(results["context-mode"]["install"], "agentfleet config context-mode on")
+        self.assertEqual(results["context-mode"]["kind"], "tool")
+        empty = self.root / "small-project"
+        empty.mkdir()
+        self.assertNotIn("context-mode", {s["id"] for s in fleet_suggest.suggest(self.home, empty)})
+
     def test_catalog_schema_and_integrity(self):
         catalog = fleet_suggest.load_catalog(ROOT / "scripts")
         self.assertEqual(catalog.get("format"), "agentfleet.suggestions-catalog.v1")

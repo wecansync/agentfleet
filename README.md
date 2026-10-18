@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.8.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.9.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -30,6 +30,58 @@ Version: **2.8.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](C
 - Node.js 18+
 
 ---
+
+## Optional Context Mode pilot
+
+Context Mode reduces large tool outputs by indexing them locally and returning
+selected excerpts. It is an upstream plugin, not part of AgentFleet's MIT bundle,
+and is **off by default**. No new setup question is added.
+
+```sh
+agentfleet config context-mode on
+agentfleet config context-mode status
+agentfleet config context-mode off
+```
+
+Enabling installs the upstream `mksglu/context-mode` marketplace plugin. Restart
+Claude Code and run `/context-mode:ctx-doctor`. Disabling keeps the plugin and its
+indexed data, but turns it off. The command warns when Node.js 22.5+ is not detected; upstream also documents a separate
+Bun setup. AgentFleet's normal Node.js minimum is unchanged.
+
+Enabling is user-scoped. Project or organization settings can override that
+state; `status` reports the user installation, not every session's effective policy.
+
+Use it initially in the main conversation for large logs, documentation and
+MCP-heavy work. With lane-guard enabled, lanes may use Context Mode's search and
+stats tools only; execution, indexing, fetching, upgrades, deletion and unknown
+Context Mode tools are blocked. Use native tools in lanes. Without lane-guard,
+AgentFleet cannot enforce this boundary. Do not grant Context Mode execution
+tools to a lane as a workaround.
+
+Context Mode's routing hooks may ask lanes to use tools they cannot execute.
+If this causes repeated blocked calls, disable Context Mode for that session;
+this compatibility release does not promise full lane-level routing support.
+
+The guard recognizes the official Context Mode server names, not arbitrary aliases.
+Do not rename its MCP server or grant aliased execution tools to lanes. Search
+can refresh previously indexed files and access other indexed projects; it is
+retrieval-only with respect to code execution, not a strict read-only boundary.
+
+Run a paired pilot before keeping it enabled: use equivalent tasks in separate
+clean worktrees, first without and then with Context Mode, keeping the model,
+lane assignments and compaction settings fixed. Disable JEV for the comparison.
+Record total input/output and cache tokens (`/brain`), wall-clock time,
+compactions, blocked calls, test results and correctness. Repeat in both orders
+and include Windows plus a session that changes directory. Upstream's advertised
+output-size reductions are not measured total-session token or cost savings.
+No such savings have been established by AgentFleet yet.
+
+The plugin adds execution tools and lifecycle hooks and stores indexed data
+locally. Its execution processes can inherit CLI credentials; “sandbox” is not
+an assurance of OS-level isolation. Upstream updates and ELv2 licensing remain
+upstream-managed; AgentFleet does not vendor or relicense the plugin. See the
+[upstream project](https://github.com/mksglu/context-mode) and
+[license](https://github.com/mksglu/context-mode/blob/main/LICENSE).
 
 ## Install
 

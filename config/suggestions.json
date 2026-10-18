@@ -1,6 +1,6 @@
 {
   "format": "agentfleet.suggestions-catalog.v1",
-  "version": "2026.10.2",
+  "version": "2026.10.18",
   "entries": [
     {
       "id": "init-claude-md",
@@ -1133,6 +1133,24 @@
       "source": "github/spec-kit",
       "access": "Installs the specify CLI with uv (needs Python 3.11+ and uv) and adds /speckit-* skills under .claude/skills that run only when you invoke them",
       "template": "Start with /speckit-constitution once, then for each large feature: /speckit-specify, /speckit-plan, /speckit-tasks, /speckit-implement, /speckit-converge. Use it for big features only; small changes don't need it."
+    },
+    {
+      "id": "context-mode",
+      "kind": "tool",
+      "title": "Context Mode (optional context-output pilot)",
+      "why": "Large dependency sets or browser-test projects can generate bulky tool output; measure before enabling",
+      "match": {
+        "minDeps": 20,
+        "files": [
+          "playwright.config.*"
+        ]
+      },
+      "install": {
+        "command": "agentfleet config context-mode on"
+      },
+      "source": "mksglu/context-mode",
+      "access": "Installs the upstream ELv2 plugin with local indexing, execution tools and lifecycle hooks. Opt-in; lane-guard restricts lanes to search and stats. No measured total-token savings are promised.",
+      "template": "Run /context-mode:ctx-doctor after restarting. Compare tokens, elapsed time and correctness on equivalent tasks. agentfleet config context-mode off disables the plugin without deleting indexed data."
     }
   ]
 }
