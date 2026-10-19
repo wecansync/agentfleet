@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.9.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 18, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.10.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 19, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,19 +431,27 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.9.0</span>
-        <span class="release-date" data-latest-date>October 18, 2026</span>
+        <span class="release-version" data-latest-version>v2.10.0</span>
+        <span class="release-date" data-latest-date>October 19, 2026</span>
       </div>
-      <p>Optional Context Mode pilot, with a conservative lane boundary.</p>
+      <p>See how each lane and model performs, and what it costs.</p>
       <ul class="release-list">
-        <li>Enable the upstream plugin with <code class="il">agentfleet config context-mode on</code>. It is off by default; no setup question is added.</li>
-        <li>lane-guard permits Context Mode search and stats in lanes, but blocks its other tools. The main conversation is unaffected.</li>
-        <li>Measure total tokens, time and correctness before keeping it enabled. No measured session savings are claimed.</li>
+        <li>Lanes start their report with an outcome: done, partial, blocked or failed. <code class="il">agentfleet report</code> shows each lane's and model's runs, outcomes, cut-off runs, errors and tokens, plus the main conversation's tokens.</li>
+        <li>Optional model prices: <code class="il">agentfleet config prices MODEL=INPUT,OUTPUT</code>, in dollars per million tokens, or a <code class="il">prices</code> table in a team preset. <code class="il">agentfleet report</code> and <code class="il">/brain</code> then show an estimated cost.</li>
+        <li>Claude continues a lane that reports partial or blocked instead of starting a new one, and stops a lane before redoing its task.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.9.0</span><span class="release-date">October 18, 2026</span><span class="version-summary">Optional Context Mode pilot.</span></summary>
+        <ul class="release-list">
+          <li>Enable the upstream plugin with <code class="il">agentfleet config context-mode on</code>. It is off by default; no setup question is added.</li>
+          <li>lane-guard permits Context Mode search and stats in lanes, but blocks its other tools. The main conversation is unaffected.</li>
+          <li>Measure total tokens, time and correctness before keeping it enabled. No measured session savings are claimed.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.8.3</span><span class="release-date">October 16, 2026</span><span class="version-summary">A cd no longer splits a session's project.</span></summary>
         <ul class="release-list">

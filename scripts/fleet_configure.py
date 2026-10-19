@@ -154,7 +154,7 @@ FEATURES = (
 
 # Preset keys that are not questions: they are applied through claude-fleet-setup
 # and never asked, so they are never recorded in wizard.json.
-FLEET_KEYS = ("reservedModels", "lanes")
+FLEET_KEYS = ("reservedModels", "lanes", "prices")
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 LANE_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
@@ -196,6 +196,10 @@ def validate_preset(data):
     for key, value in data.items():
         if key == "format":
             continue
+        if key == "prices":
+            if not provider_catalog.valid_prices(value):
+                raise ValueError("invalid value for prices")
+            continue
         if key == "reservedModels":
             if not valid_model_list(value):
                 raise ValueError("invalid value for reservedModels")
@@ -207,7 +211,8 @@ def validate_preset(data):
             raise ValueError("unknown preset field: " + ascii(key))
         if not known[key].valid(value):
             raise ValueError("invalid value for " + key)
-    return {k: v for k, v in data.items() if k != "format"}
+    return {k: (provider_catalog.normalise_prices(v) if k == "prices" else v)
+            for k, v in data.items() if k != "format"}
 
 
 def fleet_map(paths):
@@ -218,7 +223,7 @@ def fleet_map(paths):
 
 
 def export_fleet_keys(paths):
-    """reservedModels and the per-lane choices recorded in the fleet map."""
+    """reservedModels, per-lane choices, and configured prices."""
     fleet = fleet_map(paths)
     out = {}
     reserved = [m for m in fleet.get("reservedModels") or [] if isinstance(m, str) and m.strip()]
@@ -238,6 +243,9 @@ def export_fleet_keys(paths):
             lanes[name] = entry
     if lanes:
         out["lanes"] = lanes
+    prices = provider_catalog.load_preferences(paths.home).get("prices", {})
+    if prices:
+        out["prices"] = prices
     return out
 
 
@@ -366,7 +374,12 @@ def run(api, paths, args):
                 return 2
         if args.export:
             values = {f.key: f.read(api, paths) for f in FEATURES if f.key not in ACTIONS}
-            values.update(export_fleet_keys(paths))
+            values.update({key: value for key, value in export_fleet_keys(paths).items() if key != "prices"})
+            prices = provider_catalog.load_preferences(paths.home).get("prices", {})
+            if prices:
+                values["prices"] = prices
+            else:
+                values.pop("prices", None)
             api.atomic_write(Path(args.export).expanduser(), api.json_bytes({"format": "agentfleet.preset.v1", **values}), 0o644)
             return 0
         if args.preset:
@@ -450,11 +463,16 @@ def run(api, paths, args):
             if key not in asked:
                 asked.append(key)
             asked = save_state(api, paths, state_path, asked)
-        if args.preset and any(key in values for key in FLEET_KEYS):
-            code = apply_fleet_keys(api, paths, values)
+        if args.preset and "prices" in values:
+            provider_catalog.write_preferences(paths.home, {"prices": values["prices"]})
+        if args.preset and any(key in values for key in ("reservedModels", "lanes")):
+            fleet_values = {key: values[key] for key in ("reservedModels", "lanes") if key in values}
+            code = apply_fleet_keys(api, paths, fleet_values)
             if code:
                 print("agentfleet configure: could not apply reservedModels or lanes from the preset", file=sys.stderr)
                 return 1
+        if args.preset and "prices" in values:
+            values["prices"] = provider_catalog.load_preferences(paths.home)["prices"]
         # While installing agent-brain is still open, so is connecting it.
         still_skipped = [] if install_pending() else [
             key for key in AGENT_BRAIN_KEYS if key not in asked and not agent_brain_applies(paths, key)]
@@ -465,6 +483,9 @@ def run(api, paths, args):
                 continue
             value = values[feature.key] if feature.key in values else feature.read(api, paths)
             print(f"{feature.key}: {display(value)}")
+        if args.preset and "prices" in values:
+            count = len(values["prices"])
+            print(f"prices: {count} model{'s' if count != 1 else ''}")
         print("Restart Claude Code to apply.")
         return 0
     except (OSError, ValueError, RuntimeError, EOFError, KeyboardInterrupt):

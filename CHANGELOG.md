@@ -3,6 +3,20 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.10.0] - 2026-10-19
+
+### Added
+
+- Lanes start their report with an outcome line: `Outcome: done`, `partial`, `blocked` or `failed`. AgentFleet records it in `lane-reports.jsonl`, together with cache tokens and whether the lane was cut off without a report (for example at its turn limit).
+- AgentFleet records the main conversation's tokens per model and day in `~/.claude/agentfleet/main-usage.json`, so usage covers the whole session, not only lanes.
+- `agentfleet report` shows, per lane and per model: runs, outcomes, cut-off runs, API errors, average tool calls and duration, and tokens; plus the main conversation's tokens per model.
+- Optional model prices, in dollars per million tokens: `agentfleet config prices MODEL=INPUT,OUTPUT[,CACHE_READ,CACHE_WRITE]`, `MODEL=off`, or `off` to clear them; a team preset can carry a `prices` table. With prices set, `agentfleet report` and `/brain` (brain mod 1.2.0) show an estimated cost, labelled as an estimate and naming any model without a price. Without prices nothing changes.
+
+### Changed
+
+- Rules: on a `partial` report Claude continues the same lane for the next part, and on `blocked` answers it and continues it, instead of starting a new lane. Before redoing a lane's task or dispatching it again, Claude stops the old lane with TaskStop, so a superseded lane cannot change files afterwards.
+- A lane's turn limit counts across SendMessage continuations, so a lane continued part by part could be cut off at its limit without a report. Claude now continues a lane only while it has used less than half of its turns, and otherwise starts a new lane for the next part with a brief that says what is already done.
+
 ## [2.9.0] - 2026-10-18
 
 ### Added

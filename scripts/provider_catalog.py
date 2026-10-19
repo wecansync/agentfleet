@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
+import unicodedata
 import secrets
 import sys
 
@@ -215,7 +217,8 @@ WORK_STYLES = ("direct", "balanced", "fleet")
 # and agree on the approach before large, unclear or risky work.
 # branchCheck keeps the "Check the branch before changing files" section.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
-                       "workStyle": "balanced", "agentBrain": None, "askFirst": True, "branchCheck": True}
+                       "workStyle": "balanced", "agentBrain": None, "askFirst": True, "branchCheck": True,
+                       "prices": {}}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
@@ -244,6 +247,110 @@ def render_policy_for(template: str, preferences: dict) -> str:
     return render_policy(template, preferences.get("workStyle", PREFERENCE_DEFAULTS["workStyle"]),
                          preferences.get("askFirst", PREFERENCE_DEFAULTS["askFirst"]) is not False,
                          preferences.get("branchCheck", PREFERENCE_DEFAULTS["branchCheck"]) is not False)
+
+
+def _valid_price_model(model: object) -> bool:
+    return (
+        isinstance(model, str) and bool(model) and len(model) <= 200
+        and not any(char.isspace() or unicodedata.category(char) in {"Cc", "Cf", "Cs"} for char in model)
+    )
+
+
+def _price_number(value: object) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _normalise_price_entry(value: object) -> dict | None:
+    if (not isinstance(value, dict) or any(key not in {"input", "output", "cacheRead", "cacheWrite"} for key in value)
+            or not _price_number(value.get("input")) or not _price_number(value.get("output"))):
+        return None
+    result = {"input": float(value["input"]), "output": float(value["output"])}
+    for key in ("cacheRead", "cacheWrite"):
+        if key in value:
+            if not _price_number(value[key]):
+                return None
+            result[key] = float(value[key])
+    return result
+
+
+def normalise_prices(value: object) -> dict:
+    """Keep valid model prices in stable insertion order, up to the table limit."""
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for model, entry in value.items():
+        if not _valid_price_model(model):
+            continue
+        normalized = _normalise_price_entry(entry)
+        if normalized is None:
+            continue
+        result[model] = normalized
+        if len(result) == 100:
+            break
+    return result
+
+
+def valid_prices(value: object) -> bool:
+    if not isinstance(value, dict) or len(value) > 100:
+        return False
+    return all(_valid_price_model(model) and _normalise_price_entry(entry) is not None
+               for model, entry in value.items())
+
+
+def price_key(model: str) -> str:
+    """Normalize a provider-recorded model id for matching a configured price."""
+    return re.sub(r"\[[^\]]*\]$", "", model).lower().replace(".", "-").replace("_", "-")
+
+
+def price_for(prices: dict, model: str) -> dict | None:
+    """Return an exact price first, then a normalized gateway-model match."""
+    if not isinstance(prices, dict):
+        return None
+    exact = prices.get(model)
+    if isinstance(exact, dict):
+        return exact
+    key = price_key(model)
+    for candidate, entry in prices.items():
+        if isinstance(candidate, str) and price_key(candidate) == key and isinstance(entry, dict):
+            return entry
+    return None
+
+
+def parse_price_spec(text: str) -> tuple[str, dict | None]:
+    """Parse ``MODEL=IN,OUT[,CR,CW]`` or ``MODEL=off``."""
+    expected = "expected MODEL=INPUT,OUTPUT or MODEL=INPUT,OUTPUT,CACHE_READ,CACHE_WRITE (dollars per million tokens)"
+    if not isinstance(text, str) or "=" not in text:
+        raise ValueError(expected)
+    model, specification = text.split("=", 1)
+    if not _valid_price_model(model):
+        raise ValueError(expected)
+    if specification == "off":
+        return model, None
+    parts = specification.split(",")
+    if len(parts) not in {2, 4}:
+        raise ValueError(expected)
+    if any(not value and index < 2 for index, value in enumerate(parts)):
+        raise ValueError(expected)
+    if any(value != value.strip() or (value and not re.fullmatch(r"(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", value)) for value in parts):
+        raise ValueError(expected)
+    try:
+        numbers = [None if value == "" else float(value) for value in parts]
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(expected) from None
+    if not all(number is None or _price_number(number) for number in numbers):
+        raise ValueError(expected)
+    entry = {"input": numbers[0], "output": numbers[1]}
+    if len(numbers) == 4:
+        if numbers[2] is not None:
+            entry["cacheRead"] = numbers[2]
+        if numbers[3] is not None:
+            entry["cacheWrite"] = numbers[3]
+    return model, entry
 
 
 def preferences_path(home: Path) -> Path:
@@ -279,6 +386,7 @@ def load_preferences(home: Path) -> dict:
         preferences["askFirst"] = raw["askFirst"]
     if isinstance(raw.get("branchCheck"), bool):
         preferences["branchCheck"] = raw["branchCheck"]
+    preferences["prices"] = normalise_prices(raw.get("prices"))
     return preferences
 
 
@@ -300,6 +408,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError("askFirst must be true or false")
         if key == "branchCheck" and not isinstance(value, bool):
             raise ValueError("branchCheck must be true or false")
+        if key == "prices" and not valid_prices(value):
+            raise ValueError("prices must be a table of up to 100 valid model prices")
         if key not in PREFERENCE_DEFAULTS:
             raise ValueError(f"unknown preference: {key}")
     path = preferences_path(home)

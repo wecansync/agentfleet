@@ -64,12 +64,14 @@ Delegate substantive work to the matching lane: plan when the approach is open, 
 - A lane starts without this file and without the conversation, so the brief is all it knows: the goal, the files in scope, constraints, the check to run, and what to report.
 - Give each lane one concern it can finish well inside its turn limit. Split bigger work into separate lanes rather than one long brief.
 - Save tokens: pick the lightest lane that fits (`-fast` for small, well-specified edits, `-cheap` for mechanical bulk changes, `-deep` only for hard problems), and point briefs at files and line ranges instead of pasting their contents.
-- Give a long, well-specified task to one implementation lane, in parts: when it reports a part, continue the same lane with SendMessage for the next, so it keeps what it has already read.
+- Give a long, well-specified task to one implementation lane, in parts: when it reports a part, continue the same lane with SendMessage for the next, so it keeps what it has already read. Its turn limit counts across continuations: once it has used more than half of its turns (the tool uses in its completion notice), start a new lane for the next part, with a brief that says what is already done.
+- A lane's report starts with `Outcome: done`, `partial`, `blocked` or `failed`. On `partial`, continue the same lane for the next part; on `blocked`, answer its question and continue it with SendMessage rather than starting a new lane.
 - Lanes that write in parallel need disjoint files.
 - Review lanes run checks and tests; they edit only in FIX MODE, with the brief listing the files they may change. `agentfleet config reviewer-access` can restrict them.
 - When a lane reports, review its diff yourself and rerun the check it names. Redo its investigation only when the diff or the check disagrees with its report.
 - Use a review lane only for security, data-loss or migration changes, or when the user asks, and at most one per change. Use `fleet-review-deep` only when the user asks for it.
 - Fix small findings yourself. Send larger ones back to the lane that wrote the code with SendMessage, which keeps its context, rather than to a new lane. Do not review the fix on another lane unless it changes security, data-loss or migration code.
+- Before you redo a lane's task yourself or dispatch it again, stop the old lane with TaskStop if it is still running, so it cannot change files afterwards.
 - Lanes cannot commit, push, merge, deploy, or run migrations; you do those, and only when the user's request covers them.
 - When an AgentFleet notice says a lane's model failed, re-dispatch the task once, as the notice says: to the same lane when it has switched to another of its models, otherwise to the lane it names. If that run fails too, or a notice says the gateway is failing, do the work yourself and tell the user.
 
