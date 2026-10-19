@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.9.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.10.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -523,6 +523,14 @@ them to the gateway's IDs. Lanes the preset leaves out keep their own models.
 `agentfleet configure --export` writes these keys too, for lanes pinned with
 `--prefer-only` or given an effort.
 
+From 2.10.0 a preset can carry the team's model prices, in dollars per million
+tokens; `cacheRead` and `cacheWrite` are optional. A preset with `prices`
+replaces the whole price table. The numbers below are examples, not real rates. See [Usage and estimated cost](#usage-and-estimated-cost).
+
+```json
+{"format":"agentfleet.preset.v1","prices":{"claude-opus-5.5":{"input":5,"output":25,"cacheRead":0.5,"cacheWrite":6.25},"codex-luna":{"input":1.25,"output":10}}}
+```
+
 `agentfleet config` shows every feature, including work-style and agent-brain.
 The shared preferences live in `~/.claude/agentfleet/config.json`:
 
@@ -535,6 +543,7 @@ agentfleet config compact <20-95|off>                # set auto-compact percenta
 agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
 agentfleet config learn on|off                       # command usage learning (new installs: on)
 agentfleet config agent-brain on|off                 # install and connect agent-brain, or disconnect it
+agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]  # model prices for estimated cost (default: none)
 ```
 
 Restart Claude Code after changing the work style, ask-first or branch-check.
@@ -836,7 +845,8 @@ your user permissions and are not sandboxed.
 - **brain**: adds a `/brain` command that opens a scrollable pane with agent-brain
   token usage and, when agent-brain memory is active for the project, the project's
   memories, critical ones first (↑/↓ to move, Enter to read one in full, Esc to close).
-  On by default from 2.7.0; an update adds it once and never re-adds it after you
+  With [model prices](#usage-and-estimated-cost) set, it also shows this week's
+  estimated cost for the main conversation and lanes. On by default from 2.7.0; an update adds it once and never re-adds it after you
   remove it. Turn it off with `/plugin`.
 
 ### Optional mods
@@ -921,8 +931,32 @@ On a gateway profile, each lane in `~/.claude/fleet.json` has a model and up to 
 - **Another lane**: only when every model of a lane is down, or `lane-guard` is off, does the prompt hook name a lane with a working model instead. In the `fleet` work style a request routed to that lane is sent to the alternative while the outage lasts.
 - **Gateway outages**: when models from two or more vendors fail within 10 minutes, the gateway itself is failing and switching models will not help. The prompt hook says so once and tells Claude to do the work itself, without dispatching lanes, until the outage expires.
 - **Status**: the fleet-status band shows which model a lane switched to, and `/fleet-status` lists the models that are down.
-- **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), and API errors, allowing the main agent to verify lane actions before merging.
+- **Execution reports**: When each subagent finishes, AgentFleet logs a completion report to `~/.claude/agentfleet/lane-reports.jsonl` (local, rotated at 256 KB). Reports record modified files, any forbidden commands the lane ran (checked by AgentFleet's own rules, whether or not `lane-guard` blocked them), API errors, tokens (including cache tokens), the lane's outcome, and whether it was cut off, allowing the main agent to verify lane actions before merging.
 - **Inspection**: Summarize reports and active outages using `agentfleet report [--days N] [--json]` or by opening the `/fleet-tasks` pane.
+
+### Usage and estimated cost
+
+Each lane starts its final report with one line: `Outcome: done`, `Outcome: partial` (more remains), `Outcome: blocked` (it needs a decision, access or input) or `Outcome: failed`. AgentFleet records that outcome. A lane that ended on a tool call without a report, for example at its turn limit, is recorded as cut off. Claude continues a `partial` or `blocked` lane with SendMessage, so it keeps what it has read, and stops a lane with TaskStop before redoing its task.
+
+AgentFleet also adds up the main conversation's tokens per model and day in `~/.claude/agentfleet/main-usage.json` (local, kept 35 days). It reads them from Claude Code's transcripts at each prompt, whether or not usage learning is on.
+
+`agentfleet report` (default: the last 7 days) shows:
+
+- **Per lane and per model:** runs, outcomes (done, partial, blocked, failed, cut off, none), API errors, average tool calls and duration, and tokens.
+- **Main conversation:** tokens per model.
+- **Estimated cost:** only when you have set prices.
+
+Model catalogs list no prices, so cost needs your own price table, in dollars per million tokens (the numbers below are examples):
+
+```bash
+agentfleet config prices                                       # show the table
+agentfleet config prices claude-opus-5.5=5,25,0.5,6.25        # input, output, cache read, cache write
+agentfleet config prices codex-luna=1.25,10                    # cache prices are optional
+agentfleet config prices codex-luna=off                        # remove one model
+agentfleet config prices off                                   # remove all prices
+```
+
+A team preset can carry the same table (see [Preferences and configuration](#preferences-and-configuration)). With prices set, `agentfleet report` and `/brain` show an estimated cost, labelled as an estimate. It counts tokens at your prices; it is not a bill, and gateway discounts, batch pricing or subscription plans are not reflected. A model without a price is named and left out of the total, and cache tokens of a model without cache prices are noted as not priced. A gateway can record a model under its own name, for example `codex-luna` as `gpt-6-luna`; `agentfleet report` lists the names it recorded, so price those. Names match ignoring case, a `[1m]` suffix, and the difference between `.`, `-` and `_`, so a price for `claude-opus-5.5` also covers `claude-opus-5-5`.
 
 ---
 

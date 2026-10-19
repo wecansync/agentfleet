@@ -79,10 +79,10 @@ class TestAgentfleetGlue(unittest.TestCase):
         self.assertEqual(settings["autoCompactWindow"], 1000000)
 
     def test_report_empty_case(self) -> None:
-        # Text output when no reports exist
+        # Text output when no lane runs or main usage exist
         proc = self.run_agentfleet("report")
         self.assertEqual(proc.returncode, 0, f"stderr: {proc.stderr}")
-        self.assertIn("No lane reports yet.", proc.stdout)
+        self.assertIn("No lane runs or usage recorded in the last 7 days.", proc.stdout)
 
         # JSON output when no reports exist
         proc_json = self.run_agentfleet("report", "--json")
@@ -91,6 +91,21 @@ class TestAgentfleetGlue(unittest.TestCase):
         self.assertIsInstance(data, dict)
         self.assertEqual(data.get("lanes"), {})
         self.assertEqual(data.get("totals", {}).get("runs"), 0)
+
+        # Main-session usage alone is enough to render the report.
+        store = self.home_claude / "agentfleet"
+        store.mkdir(parents=True, exist_ok=True)
+        today = dt.datetime.now(dt.timezone.utc).date().isoformat()
+        (store / "main-usage.json").write_text(json.dumps({
+            "format": "agentfleet.main-usage.v1",
+            "days": {today: {"claude-sonnet": {"inputTokens": 7, "outputTokens": 2,
+                "cacheReadTokens": 0, "cacheWriteTokens": 0, "messages": 1}}},
+            "transcripts": {},
+        }), encoding="utf-8")
+        proc_main = self.run_agentfleet("report")
+        self.assertEqual(proc_main.returncode, 0, f"stderr: {proc_main.stderr}")
+        self.assertIn("Main conversation", proc_main.stdout)
+        self.assertIn("claude-sonnet", proc_main.stdout)
 
     def test_report_crafted_lane_reports(self) -> None:
         watch_store = self.home_claude / "agentfleet"
@@ -123,7 +138,7 @@ class TestAgentfleetGlue(unittest.TestCase):
         # Text mode
         proc = self.run_agentfleet("report")
         self.assertEqual(proc.returncode, 0, f"stderr: {proc.stderr}")
-        self.assertIn("AgentFleet usage report", proc.stdout)
+        self.assertIn("AgentFleet report, last 7 days", proc.stdout)
         self.assertIn("implement", proc.stdout)
         self.assertIn("review", proc.stdout)
 

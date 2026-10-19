@@ -104,6 +104,205 @@ function sanitize(value: string): string {
   return value.replace(DISPLAY_UNSAFE, '')
 }
 
+export type ModelPrice = { input: number; output: number; cacheRead?: number; cacheWrite?: number }
+export type TokenCounts = { input: number; output: number; cacheRead: number; cacheWrite: number }
+export type LaneRow = TokenCounts & { at: number; model: string }
+export type CostData = {
+  prices: Map<string, ModelPrice>
+  main: Map<string, Map<string, TokenCounts>>
+  lanes: LaneRow[]
+}
+export type CostEstimate = {
+  total: number
+  main: number
+  lanes: number
+  unpriced: string[]
+  cacheNotPriced: boolean
+}
+
+const COST_FILE_LIMIT_BYTES = 1024 * 1024
+const WEEK_MS = 7 * 86_400_000
+const MAX_UNPRICED_NAMES = 4
+
+// Only the installer's known layout may select a Claude directory.
+export function claudeDirectory(root: string): string | null {
+  const normalized = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const match = /^(.*)\/agentfleet\/mods\/brain$/.exec(normalized)
+  const directory = match?.[1]
+  return directory && directory !== '/' && !/^[A-Za-z]:$/.test(directory) ? directory : null
+}
+
+function jsonValue(source: string | null | undefined): unknown {
+  try { return JSON.parse(source ?? 'null') } catch { return null }
+}
+
+function price(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+export function parsePrices(source: string | null | undefined): Map<string, ModelPrice> {
+  const prices = new Map<string, ModelPrice>()
+  const table = record(record(jsonValue(source))?.prices)
+  if (!table) return prices
+  for (const [model, raw] of Object.entries(table)) {
+    const entry = record(raw)
+    const input = price(entry?.input)
+    const output = price(entry?.output)
+    if (!entry || input === undefined || output === undefined) continue
+    const parsed: ModelPrice = { input, output }
+    const cacheRead = price(entry.cacheRead)
+    const cacheWrite = price(entry.cacheWrite)
+    if (cacheRead !== undefined) parsed.cacheRead = cacheRead
+    if (cacheWrite !== undefined) parsed.cacheWrite = cacheWrite
+    prices.set(model, parsed)
+  }
+  return prices
+}
+
+function tokenCounts(entry: Record<string, unknown>): TokenCounts {
+  return {
+    input: nonnegative(entry.inputTokens),
+    output: nonnegative(entry.outputTokens),
+    cacheRead: nonnegative(entry.cacheReadTokens),
+    cacheWrite: nonnegative(entry.cacheWriteTokens),
+  }
+}
+
+export function parseMainUsage(source: string | null | undefined): Map<string, Map<string, TokenCounts>> {
+  const days = new Map<string, Map<string, TokenCounts>>()
+  const table = record(record(jsonValue(source))?.days)
+  if (!table) return days
+  for (const [day, raw] of Object.entries(table)) {
+    const models = record(raw)
+    if (!models || !/^\d{4}-\d{2}-\d{2}$/u.test(day)) continue
+    const perModel = new Map<string, TokenCounts>()
+    for (const [model, usage] of Object.entries(models)) {
+      const entry = record(usage)
+      if (entry) perModel.set(model, tokenCounts(entry))
+    }
+    days.set(day, perModel)
+  }
+  return days
+}
+
+export function parseLaneRows(sources: readonly (string | null | undefined)[]): LaneRow[] {
+  const rows: LaneRow[] = []
+  for (const source of sources) {
+    for (const line of (source ?? '').split(/\r?\n/u)) {
+      if (!line.trim()) continue
+      const row = record(jsonValue(line))
+      if (!row || typeof row.model !== 'string' || typeof row.at !== 'string') continue
+      const at = Date.parse(row.at)
+      if (!Number.isFinite(at)) continue
+      rows.push({ at, model: row.model, ...tokenCounts(row) })
+    }
+  }
+  return rows
+}
+
+// Gateways record their own spelling of a model (claude-opus-5-5 for
+// claude-opus-5.5), so prices match ignoring case, a [..] suffix, and . _ -.
+export function priceKey(model: string): string {
+  return model.replace(/\[[^\]]*\]$/u, '').toLowerCase().replace(/[._]/gu, '-')
+}
+
+function findPrice(prices: ReadonlyMap<string, ModelPrice>, model: string): ModelPrice | null {
+  const exact = prices.get(model)
+  if (exact) return exact
+  const key = priceKey(model)
+  for (const [candidate, found] of prices) {
+    if (priceKey(candidate) === key) return found
+  }
+  return null
+}
+
+export function costWindowStart(since: unknown, now: number): number {
+  if (typeof since === 'string') {
+    const parsed = Date.parse(since)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return now - WEEK_MS
+}
+
+export function estimateCost(data: CostData, windowStart: number): CostEstimate | null {
+  if (data.prices.size === 0) return null
+  const firstDay = new Date(windowStart).toISOString().slice(0, 10)
+  const unpriced = new Set<string>()
+  let cacheNotPriced = false
+  const cost = (model: string, tokens: TokenCounts): number => {
+    if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0) return 0
+    const found = findPrice(data.prices, model)
+    if (!found) { unpriced.add(model); return 0 }
+    if ((tokens.cacheRead > 0 && found.cacheRead === undefined) || (tokens.cacheWrite > 0 && found.cacheWrite === undefined)) {
+      cacheNotPriced = true
+    }
+    return (tokens.input * found.input + tokens.output * found.output +
+      tokens.cacheRead * (found.cacheRead ?? 0) + tokens.cacheWrite * (found.cacheWrite ?? 0)) / 1_000_000
+  }
+  let main = 0
+  for (const [day, models] of data.main) {
+    if (day < firstDay) continue
+    for (const [model, tokens] of models) main += cost(model, tokens)
+  }
+  let lanes = 0
+  for (const row of data.lanes) {
+    if (row.at >= windowStart) lanes += cost(row.model, row)
+  }
+  return { total: main + lanes, main, lanes, unpriced: [...unpriced].sort(), cacheNotPriced }
+}
+
+const dollars = (value: number): string => `$${value.toFixed(2)}`
+
+export function formatCostLine(estimate: CostEstimate | null): string | null {
+  if (!estimate) return null
+  let line = `Est. cost:    ${dollars(estimate.total)} this week (main ${dollars(estimate.main)}, lanes ${dollars(estimate.lanes)})`
+  if (estimate.cacheNotPriced) line += ' (cache not priced)'
+  if (estimate.unpriced.length > 0) {
+    const names = estimate.unpriced.slice(0, MAX_UNPRICED_NAMES).map(name => sanitize(name))
+    const more = estimate.unpriced.length - names.length
+    line += `; no price for ${names.join(', ')}${more > 0 ? `, +${more} more` : ''}`
+  }
+  return line
+}
+
+// Reads the optional cost inputs. Any problem means "no data", never an error.
+export async function loadCostData($: CoreEngineInterface): Promise<CostData | null> {
+  try {
+    const claudeDir = claudeDirectory($.plugin.root)
+    if (claudeDir === null) return null
+    const base = claudeDir.replace(/\/$/, '')
+    const readSource = async (path: string): Promise<string | null> => {
+      const knownPath = `${base}/${path}`
+      try {
+        const stat = await $.fs.stat(knownPath, { resolve: true })
+        if (stat.kind !== 'file' || stat.realPath !== knownPath || stat.size > COST_FILE_LIMIT_BYTES) return null
+        return await $.fs.read(knownPath)
+      } catch { return null }
+    }
+    const [config, main, laneCurrent, laneOlder] = await Promise.all([
+      readSource('agentfleet/config.json'),
+      readSource('agentfleet/main-usage.json'),
+      readSource('agentfleet/lane-reports.jsonl'),
+      readSource('agentfleet/lane-reports.jsonl.1'),
+    ])
+    const prices = parsePrices(config)
+    if (prices.size === 0) return null
+    return { prices, main: parseMainUsage(main), lanes: parseLaneRows([laneCurrent, laneOlder]) }
+  } catch { return null }
+}
+
+async function costLine(data: CostData | null, since: unknown, $: CoreEngineInterface): Promise<string | null> {
+  if (!data) return null
+  try {
+    let now = Date.now()
+    try {
+      const clock: unknown = await $.clock.now()
+      if (typeof clock === 'number' && Number.isFinite(clock)) now = clock
+    } catch { /* The system clock is close enough for a weekly window. */ }
+    return formatCostLine(estimateCost(data, costWindowStart(since, now)))
+  } catch { return null }
+}
+
 export function splitMemories(source: string): string[] {
   const entries: string[][] = []
   for (const line of source.split(/\r?\n/u)) {
@@ -312,11 +511,13 @@ function loadMemories(outcomes: readonly CallOutcome[]): Pick<BrainView, 'memori
 }
 
 export async function loadBrain($: CoreEngineInterface): Promise<BrainView> {
-  const [usage, criticalMemories, newestMemories] = await Promise.all([
+  const [usage, criticalMemories, newestMemories, costData] = await Promise.all([
     boundedCall($, 'usage_stats', async () => ({ session_id: await $.session.id() })),
     boundedCall($, 'memory_list', { priority: 'critical', limit: 10 }),
     boundedCall($, 'memory_list', { limit: 30 }),
+    loadCostData($),
   ])
+  let since: unknown = null
 
   let usageLines: string[] = []
   if (usage.status === 'rejected') {
@@ -328,7 +529,11 @@ export async function loadBrain($: CoreEngineInterface): Promise<BrainView> {
   } else if (!usage.result.isError) {
     const json = textBlocks(usage.result)[0]
     if (json !== undefined) {
-      try { usageLines = formatUsage(JSON.parse(json) as UsageStats) }
+      try {
+        const parsed: unknown = JSON.parse(json)
+        usageLines = formatUsage(parsed)
+        since = record(record(parsed)?.week)?.since
+      }
       catch { /* Malformed optional usage data has no displayable lines. */ }
     }
   } else {
@@ -336,6 +541,8 @@ export async function loadBrain($: CoreEngineInterface): Promise<BrainView> {
       ? UPDATE_NEEDED : "agent-brain couldn't read usage; run `agent-brain status`.")
   }
   if (usageLines.length === 0) usageLines.push("agent-brain couldn't read usage; run `agent-brain status`.")
+  const cost = await costLine(costData, since, $)
+  if (cost) usageLines.push(cost)
 
   return { usage: usageLines, ...loadMemories([criticalMemories, newestMemories]) }
 }

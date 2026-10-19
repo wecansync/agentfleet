@@ -21,6 +21,8 @@ spec = importlib.util.spec_from_file_location("fleet_watch", SCRIPT)
 fleet_watch = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = fleet_watch
 spec.loader.exec_module(fleet_watch)
+sys.path.insert(0, str(ROOT / "scripts"))
+import provider_catalog
 
 
 # Built at runtime so the bundle's own secret scan never sees a key-shaped literal.
@@ -116,6 +118,125 @@ class FleetWatchTests(unittest.TestCase):
         report = json.loads(rows[0])
         # The later record of a message carries its final counts: 500 + 10 in, 200 + 3 out.
         self.assertEqual((report["inputTokens"], report["outputTokens"]), (510, 203))
+
+    def test_main_usage_counts_updates_and_survives_state_pruning(self):
+        stamp = "2026-10-19T01:00:00Z"
+        self.write_records(self.transcript, [
+            {**assistant("main", [], usage={
+                "input_tokens": 5, "output_tokens": 2,
+                "cache_read_input_tokens": 7, "cache_creation_input_tokens": 3,
+            }), "timestamp": stamp},
+            {**assistant("main", [], usage={
+                "input_tokens": 6, "output_tokens": 3,
+                "cache_read_input_tokens": 8, "cache_creation_input_tokens": 4,
+            }), "timestamp": stamp},
+        ])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        store = self.home / ".claude" / "agentfleet"
+        model = "claude-sonnet-4.6"
+        state_path = store / "watch-state.json"
+        state_path.write_text(json.dumps({"format": fleet_watch.STORE_FORMAT, "sessions": {}}), encoding="utf-8")
+        with self.transcript.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({**assistant("main", [], usage={
+                "input_tokens": 8, "output_tokens": 4,
+                "cache_read_input_tokens": 10, "cache_creation_input_tokens": 6,
+            }), "timestamp": "2026-10-19T01:01:00Z"}) + "\n")
+            handle.write(json.dumps({**assistant("next", [], usage={"input_tokens": 3, "output_tokens": 1}),
+                                     "timestamp": "2026-10-20T01:00:00Z"}) + "\n")
+        fleet_watch.on_prompt(self.payload(), self.home)
+        data = json.loads((store / "main-usage.json").read_text())
+        bucket = data["days"]["2026-10-19"][model]
+        self.assertEqual(bucket, {"inputTokens": 8, "outputTokens": 4, "cacheReadTokens": 10,
+                                  "cacheWriteTokens": 6, "messages": 1})
+        totals = fleet_watch.main_usage(self.home, datetime(2026, 10, 19, tzinfo=timezone.utc))[model]
+        self.assertEqual((totals["inputTokens"], totals["outputTokens"], totals["messages"]), (11, 5, 2))
+        if os.name != "nt":
+            self.assertEqual((store / "main-usage.json").stat().st_mode & 0o777, 0o600)
+
+    def test_main_usage_skips_sidechain_and_synthetic_and_prunes_old_days(self):
+        now = datetime.now(timezone.utc)
+        old_day = (now.date() - timedelta(days=36)).isoformat()
+        self.write_records(self.transcript, [
+            {**assistant("side", [], usage={"input_tokens": 500}), "isSidechain": True},
+            assistant("synthetic", [], model="<synthetic>", usage={"input_tokens": 600}),
+            {**assistant("valid", [], usage={"input_tokens": 7}), "timestamp": fleet_watch._iso(now)},
+        ])
+        store = self.home / ".claude" / "agentfleet"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "main-usage.json").write_text(json.dumps({
+            "format": fleet_watch.MAIN_USAGE_FORMAT,
+            "days": {old_day: {"old-model": {"inputTokens": 4}}},
+            "transcripts": {},
+        }), encoding="utf-8")
+        fleet_watch.on_prompt(self.payload(), self.home)
+        data = json.loads((store / "main-usage.json").read_text())
+        self.assertNotIn(old_day, data["days"])
+        totals = fleet_watch.main_usage(self.home, datetime.combine(now.date(), datetime.min.time(), timezone.utc))
+        self.assertEqual(totals["claude-sonnet-4.6"]["inputTokens"], 7)
+        self.assertNotIn("old-model", totals)
+
+    def test_cache_tokens_are_counted_once_per_message_id(self):
+        self.write_records(self.agent, [
+            assistant("same", [], usage={"input_tokens": 5, "output_tokens": 2,
+                "cache_read_input_tokens": 7, "cache_creation_input_tokens": 3}),
+            assistant("same", [], usage={"input_tokens": 500, "output_tokens": 200,
+                "cache_read_input_tokens": 70, "cache_creation_input_tokens": 30}),
+            assistant("final", [], usage={"input_tokens": 10, "output_tokens": 3,
+                "cache_read_input_tokens": 11, "cache_creation_input_tokens": 13}),
+        ])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        report = json.loads((self.home / ".claude" / "agentfleet" / "lane-reports.jsonl").read_text().splitlines()[0])
+        self.assertEqual((report["cacheReadTokens"], report["cacheWriteTokens"]), (81, 43))
+        self.assertEqual(set(("outcome", "cutOff", "cacheReadTokens", "cacheWriteTokens")) & report.keys(),
+                         {"outcome", "cutOff", "cacheReadTokens", "cacheWriteTokens"})
+
+    def test_outcome_parser_accepts_only_labeled_lines(self):
+        cases = {
+            "Outcome: done": "done",
+            "**Outcome:** partial": "partial",
+            "- Outcome: blocked": "blocked",
+            "   Outcome: failed.": "failed",
+            "outcomes: done": None,
+            "The outcome: done": None,
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(fleet_watch._outcome_from_text(text), expected)
+
+    def test_lane_outcome_follows_final_text_and_resets_on_tool_use(self):
+        self.write_records(self.agent, [
+            assistant("report", [{"type": "text", "text": "Outcome: DONE."}]),
+        ])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        report_path = self.home / ".claude" / "agentfleet" / "lane-reports.jsonl"
+        self.assertEqual(json.loads(report_path.read_text().splitlines()[0])["outcome"], "done")
+
+        self.agent.unlink()
+        (self.agent_dir / "agent-other.meta.json").write_text(
+            json.dumps({"agentType": "fleet-tests", "description": "Try again"}), encoding="utf-8")
+        other = self.agent_dir / "agent-other.jsonl"
+        self.write_records(other, [
+            assistant("text", [{"type": "text", "text": "**Outcome:** partial"}]),
+            assistant("tool", [tool("Bash", {"command": "true"})]),
+            assistant("final", [{"type": "text", "text": "No status available."}]),
+        ])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        reports = [json.loads(line) for line in report_path.read_text().splitlines()]
+        self.assertIsNone(reports[-1]["outcome"])
+
+        self.agent.unlink(missing_ok=True)
+        (self.agent_dir / "agent-absent.meta.json").write_text(
+            json.dumps({"agentType": "fleet-tests", "description": "No outcome"}), encoding="utf-8")
+        absent = self.agent_dir / "agent-absent.jsonl"
+        self.write_records(absent, [assistant("final", [{"type": "text", "text": "Just prose."}])])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        self.assertIsNone(json.loads(report_path.read_text().splitlines()[-1])["outcome"])
+
+    def test_cutoff_is_true_when_last_assistant_record_has_tool_use(self):
+        self.write_records(self.agent, [assistant("work", [tool("Bash", {"command": "true"})])])
+        fleet_watch.on_prompt(self.payload(), self.home)
+        row = json.loads((self.home / ".claude" / "agentfleet" / "lane-reports.jsonl").read_text().splitlines()[0])
+        self.assertTrue(row["cutOff"])
 
     def test_outage_alternative_selection_clearing_expiry_and_alt_of(self):
         self._fleet({
@@ -538,6 +659,116 @@ class FleetWatchTests(unittest.TestCase):
         for command in negatives:
             with self.subTest(command=command):
                 self.assertIsNone(fleet_watch.forbidden_reason(command))
+
+    def _write_report_rows(self, rows):
+        store = self.home / ".claude" / "agentfleet"
+        store.mkdir(parents=True, exist_ok=True)
+        (store / "lane-reports.jsonl").write_text(
+            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+        )
+
+    def test_report_classifies_rows_groups_models_and_averages(self):
+        now = datetime.now(timezone.utc)
+        stamp = fleet_watch._iso(now)
+        rows = [
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "inputTokens": 100,
+             "outputTokens": 20, "toolCalls": 3, "durationSeconds": 120, "outcome": "done", "cutOff": False},
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "inputTokens": 50,
+             "outputTokens": 10, "toolCalls": 5, "durationSeconds": 240, "outcome": "partial", "cutOff": True},
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "outcome": "blocked"},
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "outcome": "failed"},
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "apiError": 503, "outcome": "done"},
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "cutOff": True},
+            # Pre-2.10 reports have no outcome or cache keys.
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "toolCalls": 1, "durationSeconds": 60},
+            {"at": stamp, "lane": "review", "inputTokens": 1},
+        ]
+        self._write_report_rows(rows)
+        data = fleet_watch.report(self.home)
+        lane = data["lanes"]["implement"]
+        self.assertEqual(lane["runs"], 7)
+        self.assertEqual(lane["failures"], 1)
+        self.assertEqual(lane["outcomes"], {
+            "done": 1, "partial": 1, "blocked": 1, "failed": 1,
+            "cutOff": 1, "apiError": 1, "none": 1,
+        })
+        self.assertEqual((lane["cacheReadTokens"], lane["cacheWriteTokens"]), (0, 0))
+        self.assertEqual((lane["avgToolCalls"], lane["avgMinutes"]), (3.0, 2.3))
+        self.assertEqual(data["models"]["claude-opus-5-5"]["lanes"], ["implement"])
+        self.assertEqual(data["models"]["claude-opus-5-5"]["runs"], 7)
+        self.assertEqual(data["models"]["claude-opus-5-5"]["inputTokens"], 150)
+        self.assertEqual(data["models"]["unknown"]["lanes"], ["review"])
+        self.assertEqual(data["totals"]["outcomes"]["apiError"], 1)
+
+    def test_report_cost_matching_main_usage_and_unpriced_kinds(self):
+        now = datetime.now(timezone.utc)
+        stamp = fleet_watch._iso(now)
+        rows = [
+            {"at": stamp, "lane": "implement", "model": "claude-opus-5-5", "inputTokens": 1_000_000,
+             "outputTokens": 500_000, "cacheReadTokens": 200_000, "cacheWriteTokens": 100_000,
+             "toolCalls": 4, "durationSeconds": 90},
+            {"at": stamp, "lane": "review", "model": "codex-luna", "cacheReadTokens": 10},
+            {"at": stamp, "lane": "tests", "model": "gpt-6.1-sol", "inputTokens": 0},
+        ]
+        self._write_report_rows(rows)
+        store = self.home / ".claude" / "agentfleet"
+        (store / "main-usage.json").write_text(json.dumps({
+            "format": fleet_watch.MAIN_USAGE_FORMAT,
+            "days": {now.date().isoformat(): {
+                "claude-opus-5-5": {"inputTokens": 100_000, "outputTokens": 20_000,
+                    "cacheReadTokens": 30_000, "cacheWriteTokens": 40_000, "messages": 2},
+                "gemini-3.8-flash-tiered": {"inputTokens": 1, "outputTokens": 0,
+                    "cacheReadTokens": 0, "cacheWriteTokens": 0, "messages": 1},
+            }}, "transcripts": {},
+        }), encoding="utf-8")
+        provider_catalog.write_preferences(self.home, {"prices": {
+            "claude-opus-5.5": {"input": 2.0, "output": 8.0, "cacheRead": 0.2},
+            "codex-luna": {"input": 1.0, "output": 2.0},
+        }})
+        data = fleet_watch.report(self.home)
+        # Lane estimate: 1*2 + .5*8 + .2*.2 + .1*0 dollars.
+        self.assertEqual(data["lanes"]["implement"]["estimatedCost"], 6.04)
+        self.assertEqual(data["models"]["claude-opus-5-5"]["estimatedCost"], 6.04)
+        self.assertEqual(data["main"]["claude-opus-5-5"]["estimatedCost"], 0.366)
+        self.assertEqual(data["cost"]["lanes"], 6.04)
+        self.assertEqual(data["cost"]["main"], 0.366)
+        self.assertEqual(data["cost"]["total"], 6.406)
+        self.assertEqual(data["cost"]["unpriced"], ["gemini-3.8-flash-tiered"])
+        self.assertEqual(data["cost"]["cacheNotPriced"], ["claude-opus-5-5", "codex-luna"])
+        text = fleet_watch.format_report(data)
+        self.assertIn("Models (as the gateway recorded them)", text)
+        self.assertIn("Estimated cost: $6.41", text)
+        self.assertIn("Cache not priced for: claude-opus-5-5, codex-luna.", text)
+        self.assertIn("No price for: gemini-3.8-flash-tiered.", text)
+
+    def test_report_without_prices_and_day_window(self):
+        now = datetime.now(timezone.utc)
+        recent = fleet_watch._iso(now)
+        old = fleet_watch._iso(now - timedelta(days=10))
+        self._write_report_rows([
+            {"at": recent, "lane": "implement", "model": "sonnet", "inputTokens": 3},
+            {"at": old, "lane": "review", "model": "opus", "inputTokens": 9},
+        ])
+        data = fleet_watch.report(self.home, days=2)
+        self.assertEqual(set(data["lanes"]), {"implement"})
+        self.assertIsNone(data["cost"])
+        self.assertIn("Estimated cost: not shown; set model prices with agentfleet config prices.",
+                      fleet_watch.format_report(data))
+
+    def test_report_main_usage_only_is_nonempty_for_cli(self):
+        store = self.home / ".claude" / "agentfleet"
+        store.mkdir(parents=True, exist_ok=True)
+        today = datetime.now(timezone.utc).date().isoformat()
+        (store / "main-usage.json").write_text(json.dumps({
+            "format": fleet_watch.MAIN_USAGE_FORMAT,
+            "days": {today: {"claude-sonnet-4.6": {"inputTokens": 1, "outputTokens": 0,
+                "cacheReadTokens": 0, "cacheWriteTokens": 0, "messages": 1}}},
+            "transcripts": {},
+        }), encoding="utf-8")
+        data = fleet_watch.report(self.home)
+        self.assertEqual(data["lanes"], {})
+        self.assertIn("claude-sonnet-4.6", data["main"])
+        self.assertIn("Main conversation", fleet_watch.format_report(data))
 
     def test_corrupted_state_recovers_modes_and_report(self):
         store = self.home / ".claude" / "agentfleet"

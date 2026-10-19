@@ -82,7 +82,7 @@
         <li><a href="#outages">Outages and lane reports</a></li>
         <li><a href="#suggestions">Suggestions</a></li>
         <li><a href="#project-lane-overrides">Project lane overrides</a></li>
-        <li><a href="#usage-report">Usage report</a></li>
+        <li><a href="#usage-report">Usage and estimated cost</a></li>
         <li><a href="#privacy">Privacy</a></li>
         <li><a href="#safety">Safety</a></li>
         <li><a href="#upgrading">Upgrading</a></li>
@@ -808,7 +808,7 @@ agentfleet use openrouter     # or pass --use to add</code></pre>
         <p><strong>token-weather</strong> is Anthropic's sample mod (Apache-2.0): a forecast of how full the context window is, drawn above the prompt below the other mods' bands. It is on by default from 2.5.0; an update adds it once and never re-adds it after you remove it. Turn it off with <code class="il">/plugin</code> or <code class="il">agentfleet configure</code>.</p>
 
         <h3 id="mods-brain" class="anchor-heading">brain<a class="anchor-link" href="#mods-brain" aria-label="Link to this section">#</a></h3>
-        <p><strong>brain</strong> adds a <code class="il">/brain</code> command that opens a scrollable pane with agent-brain token usage and, when agent-brain memory is active for the project, the project's memories, critical ones first. <code class="il">↑</code>/<code class="il">↓</code> move, <code class="il">Enter</code> shows a memory in full, <code class="il">Esc</code> closes it. It is on by default from 2.7.0; an update adds it once and never re-adds it after you remove it. Turn it off with <code class="il">/plugin</code>.</p>
+        <p><strong>brain</strong> adds a <code class="il">/brain</code> command that opens a scrollable pane with agent-brain token usage and, when agent-brain memory is active for the project, the project's memories, critical ones first. <code class="il">↑</code>/<code class="il">↓</code> move, <code class="il">Enter</code> shows a memory in full, <code class="il">Esc</code> closes it. With <a href="#usage-report">model prices</a> set, it also shows this week's estimated cost for the main conversation and lanes. It is on by default from 2.7.0; an update adds it once and never re-adds it after you remove it. Turn it off with <code class="il">/plugin</code>.</p>
 
         <h3 id="mods-optional" class="anchor-heading">Optional mods<a class="anchor-link" href="#mods-optional" aria-label="Link to this section">#</a></h3>
         <p><strong>fast-jev-compaction</strong>, by tamaratran (MIT), replaces Claude Code's compaction summary. A fast request to TypeSafe's Jev model decides which old tool calls and results to drop or truncate; everything kept stays word for word. It is not installed by default.</p>
@@ -866,7 +866,7 @@ claude plugin install lane-guard@agentfleet</code></pre>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.claude/skills/fleet-suggest/SKILL.md</code> — the interactive suggestion wizard.</li>
         </ul>
         <h3 id="wgi-user-state" class="anchor-heading">User-owned preferences and state<a class="anchor-link" href="#wgi-user-state" aria-label="Link to this section">#</a></h3>
-        <p>The bundle never manages these files under <code class="il">~/.claude/agentfleet/</code>: <code class="il">config.json</code>, <code class="il">outages.json</code>, <code class="il">lane-reports.jsonl</code>, <code class="il">usage/</code>, and <code class="il">suggestions.json</code>. Runtime commands and hooks maintain them; bundle updates do not replace them with shipped defaults.</p>
+        <p>The bundle never manages these files under <code class="il">~/.claude/agentfleet/</code>: <code class="il">config.json</code>, <code class="il">outages.json</code>, <code class="il">lane-reports.jsonl</code>, <code class="il">main-usage.json</code>, <code class="il">usage/</code>, and <code class="il">suggestions.json</code>. Runtime commands and hooks maintain them; bundle updates do not replace them with shipped defaults.</p>
         <h3 id="wgi-cli" class="anchor-heading">CLI wrappers<a class="anchor-link" href="#wgi-cli" aria-label="Link to this section">#</a></h3>
         <ul class="req-list">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> <code class="il">~/.local/bin/agentfleet</code>, <code class="il">claude-fleet-setup</code>, <code class="il">claude-fleet-sync</code>, <code class="il">claude-agents-doctor</code> (POSIX), or equivalent wrappers on Windows.</li>
@@ -894,6 +894,7 @@ agentfleet configure --export team.json # export settings without secrets</code>
         <p>Presets use <code class="il">agentfleet.preset.v1</code>. Feature keys are optional; unknown fields, invalid values, and any other key containing "key", "token", or "secret" are rejected. Example <code class="il">team.json</code>:</p>
         <div class="code-wrap"><pre><code>{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrainInstall":true,"agentBrain":true,"askFirst":true}</code></pre></div>
         <p><code class="il">workStyle</code> and <code class="il">agentBrain</code> are accepted from 2.4.0, <code class="il">askFirst</code> and <code class="il">tokenWeather</code> from 2.5.0, and <code class="il">agentBrainInstall</code> from 2.6.0. A preset never runs the instruction check.</p>
+        <p>From 2.10.0 a preset can carry a <code class="il">prices</code> table, which replaces your whole price table; see <a href="#usage-report">Usage and estimated cost</a>. Example values, not real rates: <code class="il">"prices":{"codex-luna":{"input":1.25,"output":10}}</code>.</p>
         <p><code class="il">agentfleet config</code> shows every feature. Shared work style, ask-first, branch-check, compact, reviewer, learning, and agent-brain preferences live in <code class="il">~/.claude/agentfleet/config.json</code>, apply across provider profiles, and survive updates.</p>
         <div class="cmd-ref">
           <div class="cmd-ref-item"><code class="il">agentfleet config</code><p>Show the effective preferences. Defaults for new installs: 70% auto-compact, full reviewer access, learning on. Existing installs keep their learning setting and are asked once by the wizard.</p></div>
@@ -904,6 +905,7 @@ agentfleet configure --export team.json # export settings without secrets</code>
           <div class="cmd-ref-item"><code class="il">agentfleet config reviewer-access full|run|read-only</code><p>Choose reviewer tool access and regenerate the fleet agents.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet config learn on|off</code><p>Enable or disable local per-project usage learning for suggestions. On by default for new installs; existing settings are preserved.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet config agent-brain on|off</code><p>Install agent-brain if it is missing and connect it to Claude Code, or disconnect it (it stays installed and keeps its data). See <a href="#agent-brain">agent-brain</a>.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]</code><p>Show, set or remove model prices in dollars per million tokens, used only for estimated cost. Default: none. See <a href="#usage-report">Usage and estimated cost</a>.</p></div>
         </div>
         <h3 id="agent-brain" class="anchor-heading">agent-brain<a class="anchor-link" href="#agent-brain" aria-label="Link to this section">#</a></h3>
         <p><a href="https://agentbrain.wecansync.com">agent-brain</a> is a free tool that records the tokens and cost of each Claude Code session. AgentFleet installs and connects the free tool only; it never asks you to sign in or create an agent-brain account.</p>
@@ -992,7 +994,7 @@ claude-fleet-setup --compaction 200000</code></pre>
           <li><strong>Gateway outages:</strong> when models from two or more vendors fail within 10 minutes, the gateway itself is failing and switching models will not help. The prompt hook says so once and tells Claude to do the work itself, without dispatching lanes, until the outage expires.</li>
           <li><strong>Status:</strong> the fleet-status band shows which model a lane switched to, and <code class="il">/fleet-status</code> lists the models that are down.</li>
         </ul>
-        <p>Per-lane reports in <code class="il">~/.claude/agentfleet/lane-reports.jsonl</code> record changed files, forbidden commands, API errors, and reported token counts. They are local records, not automatic permission to rerun a blocked command. Use <code class="il">/fleet-status</code> for outages or <code class="il">/fleet-tasks</code> for recent lane activity.</p>
+        <p>Per-lane reports in <code class="il">~/.claude/agentfleet/lane-reports.jsonl</code> record changed files, forbidden commands, API errors, token counts including cache tokens, the lane's outcome, and whether it was cut off without a report. They are local records, not automatic permission to rerun a blocked command. Use <code class="il">/fleet-status</code> for outages or <code class="il">/fleet-tasks</code> for recent lane activity.</p>
       </section>
 
       <section id="suggestions">
@@ -1020,17 +1022,33 @@ claude-fleet-setup --compaction 200000</code></pre>
       </section>
 
       <section id="usage-report">
-        <h2 class="anchor-heading">Usage report<a class="anchor-link" href="#usage-report" aria-label="Link to this section">#</a></h2>
+        <h2 class="anchor-heading">Usage and estimated cost<a class="anchor-link" href="#usage-report" aria-label="Link to this section">#</a></h2>
         <div class="cmd-ref">
-          <div class="cmd-ref-item"><code class="il">agentfleet report [--days N] [--json]</code><p>Summarize recent local lane reports. Defaults to seven days; use JSON for scripts.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet report [--days N] [--json]</code><p>Summarize recent lane runs and main-conversation usage. Defaults to seven days; use JSON for scripts.</p></div>
         </div>
-        <p>The report groups runs, failures, forbidden commands, changed-file counts, input and output tokens, and models by lane, and includes active outages. Token counts come from observed subagent records, not a provider billing statement. This report works even when suggestion learning is off.</p>
+        <p>Each lane starts its final report with one line: <code class="il">Outcome: done</code>, <code class="il">partial</code> (more remains), <code class="il">blocked</code> (it needs a decision, access or input) or <code class="il">failed</code>. AgentFleet records it. A lane that ended on a tool call without a report, for example at its turn limit, is recorded as cut off. Claude continues a partial or blocked lane with SendMessage, so it keeps what it has read, and stops a lane with TaskStop before redoing its task.</p>
+        <p>AgentFleet also adds up the main conversation's tokens per model and day in <code class="il">~/.claude/agentfleet/main-usage.json</code> (kept 35 days), reading Claude Code's transcripts at each prompt, whether or not usage learning is on.</p>
+        <ul>
+          <li><strong>Per lane and per model:</strong> runs, outcomes (done, partial, blocked, failed, cut off, none), API errors, forbidden commands, average tool calls and duration, and tokens.</li>
+          <li><strong>Main conversation:</strong> tokens per model.</li>
+          <li><strong>Estimated cost:</strong> only when you have set prices.</li>
+        </ul>
+        <p>Model catalogs list no prices, so cost needs your own table, in dollars per million tokens. The numbers below are examples, not real rates:</p>
+        <div class="code-wrap">
+          <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy price examples">Copy</button></div>
+          <pre><code>agentfleet config prices                                  # show the table
+agentfleet config prices claude-opus-5.5=5,25,0.5,6.25   # input, output, cache read, cache write
+agentfleet config prices codex-luna=1.25,10               # cache prices are optional
+agentfleet config prices codex-luna=off                   # remove one model
+agentfleet config prices off                              # remove all prices</code></pre>
+        </div>
+        <p>With prices set, <code class="il">agentfleet report</code> and <code class="il">/brain</code> show an estimated cost, labelled as an estimate. It counts recorded tokens at your prices; it is not a bill, and gateway discounts, batch pricing or subscription plans are not reflected. A model without a price is named and left out of the total, and cache tokens of a model without cache prices are noted as not priced. A gateway can record a model under its own name, for example <code class="il">codex-luna</code> as <code class="il">gpt-6-luna</code>; <code class="il">agentfleet report</code> lists the names it recorded, so price those. Names match ignoring case, a <code class="il">[1m]</code> suffix, and the difference between <code class="il">.</code>, <code class="il">-</code> and <code class="il">_</code>, so a price for <code class="il">claude-opus-5.5</code> also covers <code class="il">claude-opus-5-5</code>. Token counts come from Claude Code's transcripts, not a provider billing statement.</p>
       </section>
 
       <section id="privacy">
         <h2 class="anchor-heading">Privacy<a class="anchor-link" href="#privacy" aria-label="Link to this section">#</a></h2>
         <p><code class="il">fleet-status</code> sends nothing anywhere; the opt-in <code class="il">fast-jev-compaction</code> mod sends main-conversation text and tool inputs to TypeSafe at each compaction, with tool results replaced by short notes. See <a href="#mods">Mods</a> for its key requirements and data sharing.</p>
-        <p>Suggestions scan locally without network access and never read <code class="il">.env</code> values. Usage learning stores command names, tool names, documentation sites, and slash commands per project, never prompt text. Lane reports store observed activity, changed paths, forbidden commands, API errors, and token counts locally. Use <code class="il">agentfleet suggest --forget</code> to erase usage counters and suggestion history; it does not erase lane reports.</p>
+        <p>Suggestions scan locally without network access and never read <code class="il">.env</code> values. Usage learning stores command names, tool names, documentation sites, and slash commands per project, never prompt text. Lane reports store observed activity, changed paths, forbidden commands, API errors, outcomes and token counts locally, and <code class="il">main-usage.json</code> stores the main conversation's token counts per model and day, never its text. Use <code class="il">agentfleet suggest --forget</code> to erase usage counters and suggestion history; it does not erase lane reports.</p>
         <p><code class="il">agentfleet instructions</code> sends the text of your instruction files to your model provider through one Claude Code run, as Claude Code already does each session. It runs only when you ask for it or accept it in the wizard.</p>
         <p>The routing hook writes only to a mode-0600 JSONL log at <code class="il">~/.claude/routing-log.jsonl</code>.</p>
         <h3 id="privacy-what-stored" class="anchor-heading">What is stored<a class="anchor-link" href="#privacy-what-stored" aria-label="Link to this section">#</a></h3>

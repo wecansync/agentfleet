@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -21,13 +22,15 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 try:
-    from provider_catalog import load_preferences
+    from provider_catalog import load_preferences, price_for
 except ImportError:  # An incomplete installation must not break a hook.
     load_preferences = None
+    price_for = None
 
 STORE_FORMAT = "agentfleet.watch-state.v1"
 OUTAGE_FORMAT = "agentfleet.outages.v1"
 USAGE_FORMAT = "agentfleet.usage.v1"
+MAIN_USAGE_FORMAT = "agentfleet.main-usage.v1"
 REPORT_MAX_BYTES = 256 * 1024
 SCAN_MAX_BYTES = 8 * 1024 * 1024
 SCAN_MAX_SECONDS = 1.2
@@ -1057,7 +1060,8 @@ def _head_for_segment(segment: str) -> str | None:
     return _clean_text(head, 60) if head else None
 
 
-def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, callback) -> tuple[int, int]:
+def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, callback,
+                contains: bytes | None = None, strict: bool = False) -> tuple[int, int]:
     remaining = SCAN_MAX_BYTES - budget[0]
     if remaining <= 0:
         return offset, 0
@@ -1066,6 +1070,8 @@ def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, cal
             handle.seek(max(0, offset))
             data = handle.read(remaining)
     except OSError:
+        if strict:
+            raise
         return offset, 0
     budget[0] += len(data)
     complete_end = data.rfind(b"\n") + 1
@@ -1084,6 +1090,8 @@ def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, cal
         raw_line = raw_line.rstrip(b"\r\n")
         if not raw_line.strip():
             continue
+        if contains and (b'"type"' not in raw_line or contains not in raw_line):
+            continue
         try:
             record = json.loads(raw_line.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError):
@@ -1092,7 +1100,8 @@ def _iter_jsonl(path: Path, offset: int, budget: list[int], deadline: float, cal
             try:
                 callback(record)
             except Exception:
-                pass
+                if strict:
+                    raise
     return offset + processed, len(data)
 
 
@@ -1114,6 +1123,11 @@ def _new_agent_state(agent_id: str, lane: str, description: str) -> dict:
         "usageId": "",
         "usageIdIn": 0,
         "usageIdOut": 0,
+        "usageCacheRead": 0,
+        "usageCacheWrite": 0,
+        "usageIdCacheRead": 0,
+        "usageIdCacheWrite": 0,
+        "outcome": None,
         "lastStopReason": None,
         "firstAt": None,
         "lastAt": None,
@@ -1125,6 +1139,16 @@ def _new_agent_state(agent_id: str, lane: str, description: str) -> dict:
         "done": False,
         "reported": False,
     }
+
+
+def _outcome_from_text(text: str) -> str | None:
+    match = re.search(
+        r"(?im)^[ \t]*(?:(?:[-*+]\s+)|(?:>\s*)|(?:#{1,6}\s*))*"
+        r"(?:\*\*|__)?outcome(?:\*\*|__)?[ \t]*:(?:\*\*|__)?[ \t]*"
+        r"(?:\*\*|__)?(done|partial|blocked|failed)(?![\w-])",
+        text,
+    )
+    return match.group(1).lower() if match else None
 
 
 def _agent_record(state: dict, record: dict, cwd: object) -> None:
@@ -1152,16 +1176,32 @@ def _agent_record(state: dict, record: dict, cwd: object) -> None:
         if message_id != state.get("usageId"):
             state["usageIn"] = _as_int(state.get("usageIn")) + _as_int(state.get("usageIdIn"))
             state["usageOut"] = _as_int(state.get("usageOut")) + _as_int(state.get("usageIdOut"))
-            state["usageId"], state["usageIdIn"], state["usageIdOut"] = message_id, 0, 0
+            state["usageCacheRead"] = _as_int(state.get("usageCacheRead")) + _as_int(state.get("usageIdCacheRead"))
+            state["usageCacheWrite"] = _as_int(state.get("usageCacheWrite")) + _as_int(state.get("usageIdCacheWrite"))
+            state["usageId"] = message_id
+            state["usageIdIn"] = state["usageIdOut"] = 0
+            state["usageIdCacheRead"] = state["usageIdCacheWrite"] = 0
         state["usageIdIn"] = max(_as_int(state.get("usageIdIn")), max(0, _as_int(usage.get("input_tokens"))))
         state["usageIdOut"] = max(_as_int(state.get("usageIdOut")), max(0, _as_int(usage.get("output_tokens"))))
+        state["usageIdCacheRead"] = max(
+            _as_int(state.get("usageIdCacheRead")), max(0, _as_int(usage.get("cache_read_input_tokens")))
+        )
+        state["usageIdCacheWrite"] = max(
+            _as_int(state.get("usageIdCacheWrite")), max(0, _as_int(usage.get("cache_creation_input_tokens")))
+        )
     stop_reason = message.get("stop_reason")
     state["lastStopReason"] = stop_reason if isinstance(stop_reason, str) else None
     content = message.get("content")
     content = content if isinstance(content, list) else []
     tool_uses = [block for block in content if isinstance(block, dict) and block.get("type") == "tool_use"]
+    text_blocks = [block for block in content if isinstance(block, dict) and block.get("type") == "text"]
     state["lastAssistantHasToolUse"] = bool(tool_uses)
     if not synthetic:
+        if tool_uses:
+            state["outcome"] = None
+        elif text_blocks:
+            text = "\n".join(block.get("text", "") for block in text_blocks if isinstance(block.get("text"), str))
+            state["outcome"] = _outcome_from_text(text)
         state["isApiError"] = False
         state["apiError"] = None
         state["apiMessage"] = ""
@@ -1343,6 +1383,10 @@ def _report_payload(session_id: str, state: dict, home: Path | None = None) -> d
                     + sum(max(0, _as_int(item.get("input"))) for item in legacy))
     output_tokens = (_as_int(state.get("usageOut")) + _as_int(state.get("usageIdOut"))
                      + sum(max(0, _as_int(item.get("output"))) for item in legacy))
+    cache_read_tokens = (_as_int(state.get("usageCacheRead")) + _as_int(state.get("usageIdCacheRead"))
+                         + sum(max(0, _as_int(item.get("cacheRead"))) for item in legacy))
+    cache_write_tokens = (_as_int(state.get("usageCacheWrite")) + _as_int(state.get("usageIdCacheWrite"))
+                          + sum(max(0, _as_int(item.get("cacheWrite"))) for item in legacy))
     return {
         "at": _iso(),
         "session": session_id,
@@ -1359,6 +1403,10 @@ def _report_payload(session_id: str, state: dict, home: Path | None = None) -> d
         "toolCalls": max(0, _as_int(state.get("toolCalls"))),
         "inputTokens": input_tokens,
         "outputTokens": output_tokens,
+        "cacheReadTokens": cache_read_tokens,
+        "cacheWriteTokens": cache_write_tokens,
+        "outcome": state.get("outcome") if state.get("outcome") in {"done", "partial", "blocked", "failed"} else None,
+        "cutOff": bool(state.get("lastAssistantHasToolUse") and not state.get("isApiError")),
         "durationSeconds": duration,
     }
 
@@ -1783,6 +1831,178 @@ def _learn_main(home: Path, session: dict, payload: dict, session_id: str, cwd_s
     _atomic_write(usage_path, (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
+def _main_usage_empty() -> dict:
+    return {"format": MAIN_USAGE_FORMAT, "days": {}, "transcripts": {}}
+
+
+def _main_usage_bucket(days: dict, day: str, model: str) -> dict:
+    models = days.get(day)
+    if not isinstance(models, dict):
+        models = {}
+        days[day] = models
+    bucket = models.get(model)
+    if not isinstance(bucket, dict):
+        bucket = {key: 0 for key in ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "messages")}
+        models[model] = bucket
+    return bucket
+
+
+def _scan_main_usage(home: Path, transcript: Path, budget: list[int], deadline: float) -> None:
+    """Incrementally account main-session assistant tokens without affecting prompts."""
+    path = _store(home) / "main-usage.json"
+    try:
+        resolved = transcript.resolve(strict=False)
+        transcript_key = hashlib.sha256(str(resolved).encode("utf-8", errors="replace")).hexdigest()[:16]
+        try:
+            original = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            original = _main_usage_empty()
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return
+        if not isinstance(original, dict):
+            original = _main_usage_empty()
+        elif original.get("format") != MAIN_USAGE_FORMAT:
+            if original.get("format") in {None, ""}:
+                original = _main_usage_empty()
+            else:
+                return
+        days = original.get("days")
+        transcripts = original.get("transcripts")
+        if not isinstance(days, dict) or not isinstance(transcripts, dict):
+            return
+        if not all(isinstance(day, str) and isinstance(models, dict) for day, models in days.items()):
+            return
+        if not all(isinstance(key, str) and isinstance(value, dict) for key, value in transcripts.items()):
+            return
+        before = json.dumps(original, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        original_transcript = transcripts.get(transcript_key)
+        existing = original_transcript if isinstance(original_transcript, dict) else {}
+        counted_raw = existing.get("counted") if isinstance(existing.get("counted"), dict) else {}
+        token_fields = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens")
+        entry = {
+            "offset": max(0, _as_int(existing.get("offset"))),
+            "updated": existing.get("updated") if isinstance(existing.get("updated"), str) else "",
+            "id": existing.get("id") if isinstance(existing.get("id"), str) else "",
+            "counted": {key: max(0, _as_int(counted_raw.get(key))) for key in token_fields},
+            "day": existing.get("day") if isinstance(existing.get("day"), str) else "",
+            "model": existing.get("model") if isinstance(existing.get("model"), str) else "",
+        }
+        try:
+            size = resolved.stat().st_size
+        except OSError:
+            size = -1
+        offset = entry["offset"]
+        if size >= offset >= 0:
+            def consume(record: dict) -> None:
+                if record.get("type") != "assistant" or record.get("isSidechain") is True:
+                    return
+                message = record.get("message")
+                if not isinstance(message, dict):
+                    return
+                model = message.get("model")
+                usage = message.get("usage")
+                message_id = message.get("id")
+                if (not isinstance(model, str) or not model or model == "<synthetic>"
+                        or not isinstance(usage, dict) or not isinstance(message_id, str) or not message_id):
+                    return
+                message_id = _clean_text(message_id, 200)
+                model = _clean_text(model, 100)
+                same_message = message_id == entry["id"] and bool(entry["day"]) and bool(entry["model"])
+                if same_message:
+                    day = entry["day"]
+                    model = entry["model"]
+                    counted = entry["counted"]
+                    bucket = _main_usage_bucket(days, day, model)
+                    for field, source in zip(token_fields, (
+                        "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"
+                    )):
+                        value = max(0, _as_int(usage.get(source)))
+                        previous = max(0, _as_int(counted.get(field)))
+                        bucket[field] = max(0, _as_int(bucket.get(field))) + max(0, value - previous)
+                        counted[field] = max(previous, value)
+                    return
+                timestamp = _parse_time(record.get("timestamp"))
+                if timestamp is None:
+                    return
+                day = timestamp.date().isoformat()
+                values = {
+                    field: max(0, _as_int(usage.get(source)))
+                    for field, source in zip(token_fields, (
+                        "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"
+                    ))
+                }
+                bucket = _main_usage_bucket(days, day, model)
+                for field, value in values.items():
+                    bucket[field] = max(0, _as_int(bucket.get(field))) + value
+                bucket["messages"] = max(0, _as_int(bucket.get("messages"))) + 1
+                entry["id"] = message_id
+                entry["counted"] = values
+                entry["day"] = day
+                entry["model"] = model
+
+            new_offset, _ = _iter_jsonl(
+                resolved, offset, budget, deadline, consume, contains=b'assistant', strict=True
+            )
+            if new_offset > offset:
+                entry["offset"] = new_offset
+                entry["updated"] = _iso()
+                transcripts[transcript_key] = entry
+        now = _utcnow()
+        cutoff_day = (now.date() - timedelta(days=35)).isoformat()
+        for day in list(days):
+            if not isinstance(day, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or day < cutoff_day:
+                days.pop(day, None)
+        cutoff = now - timedelta(days=35)
+        for key, value in list(transcripts.items()):
+            updated = _parse_time(value.get("updated")) if isinstance(value, dict) else None
+            if updated is None or updated < cutoff:
+                transcripts.pop(key, None)
+        if len(transcripts) > 500:
+            oldest = sorted(
+                transcripts,
+                key=lambda key: _parse_time(transcripts[key].get("updated"))
+                if isinstance(transcripts.get(key), dict) else None,
+            )
+            for key in oldest[:len(transcripts) - 500]:
+                transcripts.pop(key, None)
+        after = json.dumps(original, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if after != before:
+            _atomic_write(path, (json.dumps(original, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    except Exception:
+        # Accounting is best-effort; a failed scan never damages the previous store or a prompt.
+        return
+
+
+def main_usage(home: Path, since: datetime) -> dict:
+    """Sum stored main-session usage on or after ``since``'s UTC date."""
+    try:
+        if not isinstance(since, datetime):
+            return {}
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        since_day = since.astimezone(timezone.utc).date().isoformat()
+        value = _load_json(_store(home) / "main-usage.json", {})
+        if not isinstance(value, dict) or value.get("format") != MAIN_USAGE_FORMAT:
+            return {}
+        days = value.get("days")
+        if not isinstance(days, dict):
+            return {}
+        totals: dict[str, dict] = {}
+        fields = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "messages")
+        for day, models in days.items():
+            if not isinstance(day, str) or day < since_day or not isinstance(models, dict):
+                continue
+            for model, bucket in models.items():
+                if not isinstance(model, str) or not model or not isinstance(bucket, dict):
+                    continue
+                total = totals.setdefault(model, {field: 0 for field in fields})
+                for field in fields:
+                    total[field] += max(0, _as_int(bucket.get(field)))
+        return totals
+    except Exception:
+        return {}
+
+
 def _system_envelope(payload: dict) -> bool:
     prompt = payload.get("prompt")
     return isinstance(prompt, str) and prompt.startswith("<")
@@ -1973,6 +2193,9 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         _write_outages(home, outage_data, model_data, gateway)
 
     _learn_main(home, session, payload, session_id, project_dir(payload), budget, deadline)
+    # After the lanes, with its own byte budget: catching up a long session's
+    # history must not delay lane reports and outage notices.
+    _scan_main_usage(home, transcript, [0], deadline)
     return _bounded_context(lines)
 
 
@@ -2031,11 +2254,108 @@ def on_prompt(payload: dict, home: Path) -> list[str]:
         return []
 
 
+_OUTCOME_NAMES = ("done", "partial", "blocked", "failed", "cutOff", "apiError", "none")
+_TOKEN_FIELDS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens")
+
+
+def _new_report_stats() -> dict:
+    return {
+        "runs": 0,
+        "failures": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "outcomes": {name: 0 for name in _OUTCOME_NAMES},
+        "toolCalls": 0,
+        "durationSeconds": 0,
+        "_toolCallSamples": [],
+        "_durationSamples": [],
+    }
+
+
+def _record_outcome(row: dict) -> str:
+    if row.get("apiError") is not None:
+        return "apiError"
+    outcome = row.get("outcome")
+    if isinstance(outcome, str) and outcome in {"done", "partial", "blocked", "failed"}:
+        return outcome
+    if row.get("cutOff") is True:
+        return "cutOff"
+    return "none"
+
+
+def _add_report_row(stats: dict, row: dict) -> None:
+    stats["runs"] += 1
+    if row.get("apiError") is not None:
+        stats["failures"] += 1
+    stats["outcomes"][_record_outcome(row)] += 1
+    for field in _TOKEN_FIELDS:
+        stats[field] += max(0, _as_int(row.get(field)))
+    tool_calls = max(0, _as_int(row.get("toolCalls")))
+    duration = max(0, _as_int(row.get("durationSeconds")))
+    stats["toolCalls"] += tool_calls
+    stats["durationSeconds"] += duration
+    if "toolCalls" in row and row.get("toolCalls") is not None:
+        stats["_toolCallSamples"].append(tool_calls)
+    if "durationSeconds" in row and row.get("durationSeconds") is not None:
+        stats["_durationSamples"].append(duration)
+
+
+def _finish_report_stats(stats: dict) -> dict:
+    tool_samples = stats.pop("_toolCallSamples", [])
+    duration_samples = stats.pop("_durationSamples", [])
+    stats["avgToolCalls"] = round(sum(tool_samples) / len(tool_samples), 1) if tool_samples else None
+    stats["avgMinutes"] = round(sum(duration_samples) / len(duration_samples) / 60, 1) if duration_samples else None
+    return stats
+
+
+def _estimate_cost(tokens: dict, price: dict) -> float:
+    """Match mods/brain/hooks/brain.ts estimateCost's dollars-per-million formula."""
+    return (
+        max(0, _as_int(tokens.get("inputTokens"))) * float(price.get("input", 0))
+        + max(0, _as_int(tokens.get("outputTokens"))) * float(price.get("output", 0))
+        + max(0, _as_int(tokens.get("cacheReadTokens"))) * float(price.get("cacheRead", 0))
+        + max(0, _as_int(tokens.get("cacheWriteTokens"))) * float(price.get("cacheWrite", 0))
+    ) / 1_000_000
+
+
 def report(home: Path, days: int = 7) -> dict:
-    """Aggregate recent subagent reports and expose currently active outages."""
+    """Aggregate recent lane and main-session usage, estimates, and outages."""
+    day_count = max(0, _as_int(days))
     now = _utcnow()
-    cutoff = now - timedelta(days=max(0, _as_int(days)))
+    cutoff = now - timedelta(days=day_count)
+    try:
+        preferences = load_preferences(home) if load_preferences is not None else {}
+        prices = preferences.get("prices", {}) if isinstance(preferences, dict) else {}
+        prices = prices if isinstance(prices, dict) else {}
+    except Exception:
+        prices = {}
+    has_prices = bool(prices)
+
     lanes: dict[str, dict] = {}
+    models: dict[str, dict] = {}
+    lane_costs: dict[str, float] = {}
+    model_costs: dict[str, float] = {}
+    unpriced: set[str] = set()
+    cache_not_priced: set[str] = set()
+    all_rows = _new_report_stats()
+
+    def add_cost(target: dict, costs: dict, name: str, row: dict) -> None:
+        if not has_prices:
+            return
+        price = price_for(prices, name) if price_for is not None else None
+        tokens = {field: max(0, _as_int(row.get(field))) for field in _TOKEN_FIELDS}
+        if price is None:
+            if any(tokens.values()):
+                unpriced.add(name)
+            costs[target["_costKey"]] = costs.get(target["_costKey"], 0.0)
+            return
+        costs[target["_costKey"]] = costs.get(target["_costKey"], 0.0) + _estimate_cost(tokens, price)
+        if ((tokens["cacheReadTokens"] and "cacheRead" not in price)
+                or (tokens["cacheWriteTokens"] and "cacheWrite" not in price)):
+            cache_not_priced.add(name)
+
     for path in (_store(home) / "lane-reports.jsonl", _store(home) / "lane-reports.jsonl.1"):
         try:
             with path.open("r", encoding="utf-8", errors="replace") as handle:
@@ -2050,50 +2370,226 @@ def report(home: Path, days: int = 7) -> dict:
                     lane = _clean_lane(row.get("lane"))
                     if not at or at < cutoff or not lane:
                         continue
-                    stats = lanes.setdefault(lane, {
-                        "runs": 0, "failures": 0, "forbidden": 0, "filesChanged": 0,
-                        "inputTokens": 0, "outputTokens": 0, "models": [],
+
+                    lane_stats = lanes.setdefault(lane, {
+                        **_new_report_stats(), "forbidden": 0, "filesChanged": 0, "models": [],
                     })
-                    stats["runs"] += 1
-                    if row.get("apiError") is not None:
-                        stats["failures"] += 1
-                    stats["forbidden"] += len(row.get("forbidden", [])) if isinstance(row.get("forbidden"), list) else 0
-                    stats["filesChanged"] += len(row.get("files", [])) if isinstance(row.get("files"), list) else 0
-                    stats["inputTokens"] += max(0, _as_int(row.get("inputTokens")))
-                    stats["outputTokens"] += max(0, _as_int(row.get("outputTokens")))
-                    model = _clean_text(row.get("model", ""), 100)
-                    if model and model not in stats["models"]:
-                        stats["models"].append(model)
+                    model_name = _clean_text(row.get("model", ""), 100) or "unknown"
+                    model_stats = models.setdefault(model_name, {
+                        **_new_report_stats(), "lanes": [],
+                    })
+                    _add_report_row(lane_stats, row)
+                    _add_report_row(model_stats, row)
+                    _add_report_row(all_rows, row)
+                    lane_stats["forbidden"] += len(row.get("forbidden", [])) if isinstance(row.get("forbidden"), list) else 0
+                    lane_stats["filesChanged"] += len(row.get("files", [])) if isinstance(row.get("files"), list) else 0
+                    if lane not in model_stats["lanes"]:
+                        model_stats["lanes"].append(lane)
+                    if model_name != "unknown" and model_name not in lane_stats["models"]:
+                        lane_stats["models"].append(model_name)
+                    if has_prices:
+                        lane_stats.setdefault("_costKey", lane)
+                        model_stats.setdefault("_costKey", model_name)
+                        add_cost(lane_stats, lane_costs, model_name, row)
+                        add_cost(model_stats, model_costs, model_name, row)
         except OSError:
             continue
-    totals = {key: 0 for key in ("runs", "failures", "forbidden", "filesChanged", "inputTokens", "outputTokens")}
+
     for stats in lanes.values():
-        for key in totals:
-            totals[key] += stats[key]
-    return {"days": max(0, _as_int(days)), "lanes": lanes, "totals": totals, "outages": current_outages(home)}
+        _finish_report_stats(stats)
+        stats["estimatedCost"] = round(lane_costs.get(stats.get("_costKey"), 0.0), 4) if has_prices else None
+        stats.pop("_costKey", None)
+    for name, stats in models.items():
+        _finish_report_stats(stats)
+        stats["lanes"].sort()
+        stats["estimatedCost"] = round(model_costs.get(name, 0.0), 4) if has_prices else None
+        stats.pop("_costKey", None)
+
+    totals = _finish_report_stats(all_rows)
+    totals.update({
+        "forbidden": sum(stats["forbidden"] for stats in lanes.values()),
+        "filesChanged": sum(stats["filesChanged"] for stats in lanes.values()),
+        "estimatedCost": round(sum(lane_costs.values()), 4) if has_prices else None,
+    })
+
+    main: dict[str, dict] = {}
+    main_cost = 0.0
+    for raw_model, usage in main_usage(home, now - timedelta(days=day_count)).items():
+        model_name = _clean_text(raw_model, 100) or "unknown"
+        bucket = main.setdefault(model_name, {field: 0 for field in (*_TOKEN_FIELDS, "messages")})
+        for field in (*_TOKEN_FIELDS, "messages"):
+            bucket[field] += max(0, _as_int(usage.get(field))) if isinstance(usage, dict) else 0
+    for name, usage in main.items():
+        if has_prices:
+            price = price_for(prices, name) if price_for is not None else None
+            if price is None:
+                if any(usage[field] for field in _TOKEN_FIELDS):
+                    unpriced.add(name)
+                usage["estimatedCost"] = 0.0
+            else:
+                estimated = _estimate_cost(usage, price)
+                usage["estimatedCost"] = round(estimated, 4)
+                main_cost += estimated
+                if ((usage["cacheReadTokens"] and "cacheRead" not in price)
+                        or (usage["cacheWriteTokens"] and "cacheWrite" not in price)):
+                    cache_not_priced.add(name)
+        else:
+            usage["estimatedCost"] = None
+
+    # Sum lane-level model costs once, preserving unrounded values until the final total.
+    lane_total_cost = sum(lane_costs.values()) if has_prices else 0.0
+    cost = None
+    if has_prices:
+        cost = {
+            "estimate": True,
+            "total": round(lane_total_cost + main_cost, 4),
+            "lanes": round(lane_total_cost, 4),
+            "main": round(main_cost, 4),
+            "unpriced": sorted(unpriced),
+            "cacheNotPriced": sorted(cache_not_priced),
+        }
+
+    return {
+        "days": day_count,
+        "lanes": lanes,
+        "models": models,
+        "main": main,
+        "totals": totals,
+        "outages": current_outages(home),
+        "cost": cost,
+    }
+
+
+def _compact_number(value: object) -> str:
+    """Format counts and averages compactly without unstable locale rules."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "-"
+    number = float(value)
+    if not math.isfinite(number):
+        return "-"
+    absolute = abs(number)
+    if absolute >= 1_000_000_000:
+        scaled, suffix = number / 1_000_000_000, "B"
+    elif absolute >= 1_000_000:
+        scaled, suffix = number / 1_000_000, "M"
+    elif absolute >= 1_000:
+        scaled, suffix = number / 1_000, "k"
+    else:
+        if number.is_integer():
+            return str(int(number))
+        return f"{number:.1f}".rstrip("0").rstrip(".")
+    return f"{scaled:.1f}".rstrip("0").rstrip(".") + suffix
+
+
+def _money(value: object) -> str:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "-"
+    number = float(value)
+    if not math.isfinite(number):
+        return "-"
+    return f"${number:.2f}"
+
+
+def _stats_table_row(name: str, stats: dict, label: str, with_cost: bool) -> str:
+    outcomes = stats.get("outcomes", {}) if isinstance(stats.get("outcomes"), dict) else {}
+    shown_name = name if len(name) <= 20 else name[:19] + "…"
+    columns = [
+        f"{shown_name:<20}",
+        f"{_compact_number(stats.get('runs', 0)):>4}",
+        *[f"{_compact_number(outcomes.get(key, 0)):>4}" for key in _OUTCOME_NAMES[:4]],
+        f"{_compact_number(outcomes.get('cutOff', 0)):>4}",
+        f"{_compact_number(outcomes.get('apiError', 0)):>4}",
+        f"{_compact_number(outcomes.get('none', 0)):>4}",
+        f"{_compact_number(stats.get('avgToolCalls')):>6}",
+        f"{_compact_number(stats.get('avgMinutes')):>6}",
+        f"{_compact_number(stats.get('inputTokens', 0)):>7}",
+        f"{_compact_number(stats.get('outputTokens', 0)):>7}",
+        f"{_compact_number(_as_int(stats.get('cacheReadTokens')) + _as_int(stats.get('cacheWriteTokens'))):>7}",
+    ]
+    if with_cost:
+        columns.append(f"{_money(stats.get('estimatedCost')):>8}")
+    return " ".join(columns)
+
+
+def _stats_table_header(label: str, with_cost: bool) -> str:
+    columns = [
+        f"{label:<20}", f"{'Runs':>4}", f"{'Done':>4}", f"{'Part':>4}", f"{'Blkd':>4}",
+        f"{'Fail':>4}", f"{'Cut':>4}", f"{'Err':>4}", f"{'None':>4}", f"{'Tools':>6}",
+        f"{'Min':>6}", f"{'Input':>7}", f"{'Output':>7}", f"{'Cache':>7}",
+    ]
+    if with_cost:
+        columns.append(f"{'Cost':>8}")
+    return " ".join(columns)
 
 
 def format_report(data: dict) -> str:
-    """Render a compact, stable text table from ``report`` output."""
-    lanes = data.get("lanes", {}) if isinstance(data, dict) else {}
-    lines = ["AgentFleet usage report", "Lane                 Runs Fail Forbidden Files    Input   Output Models"]
-    for lane, stats in sorted(lanes.items()) if isinstance(lanes, dict) else []:
-        models = ",".join(stats.get("models", [])) if isinstance(stats, dict) else ""
+    """Render a compact, stable text report from ``report`` output."""
+    data = data if isinstance(data, dict) else {}
+    day_count = max(0, _as_int(data.get("days", 7)))
+    lanes = data.get("lanes", {}) if isinstance(data.get("lanes"), dict) else {}
+    models = data.get("models", {}) if isinstance(data.get("models"), dict) else {}
+    main = data.get("main", {}) if isinstance(data.get("main"), dict) else {}
+    cost = data.get("cost") if isinstance(data.get("cost"), dict) else None
+    with_cost = cost is not None
+    lines = [f"AgentFleet report, last {day_count} days"]
+
+    if lanes:
+        lines.extend(["", _stats_table_header("Lanes", with_cost)])
+        for lane, stats in sorted(lanes.items()):
+            if isinstance(stats, dict):
+                lines.append(_stats_table_row(lane, stats, "Lanes", with_cost))
+        totals = data.get("totals", {}) if isinstance(data.get("totals"), dict) else {}
+        lines.append(_stats_table_row("TOTAL", totals, "Lanes", with_cost))
+        forbidden = [
+            f"fleet-{lane} {_compact_number(stats.get('forbidden', 0))}"
+            for lane, stats in sorted(lanes.items())
+            if isinstance(stats, dict) and _as_int(stats.get("forbidden")) > 0
+        ]
+        if forbidden:
+            lines.append("Forbidden commands: " + ", ".join(forbidden))
+
+    if models:
+        lines.extend(["", "Models (as the gateway recorded them)", _stats_table_header("Model", with_cost)])
+        for model, stats in sorted(models.items()):
+            if isinstance(stats, dict):
+                lines.append(_stats_table_row(model, stats, "Model", with_cost))
+
+    if main:
+        lines.extend(["", "Main conversation", f"{'Model':<20} {'Msgs':>6} {'Input':>7} {'Output':>7} {'Cache':>7}" + (f" {'Cost':>8}" if with_cost else "")])
+        for model, usage in sorted(main.items()):
+            if not isinstance(usage, dict):
+                continue
+            shown_model = model if len(model) <= 20 else model[:19] + "…"
+            columns = [
+                f"{shown_model:<20}", f"{_compact_number(usage.get('messages', 0)):>6}",
+                f"{_compact_number(usage.get('inputTokens', 0)):>7}",
+                f"{_compact_number(usage.get('outputTokens', 0)):>7}",
+                f"{_compact_number(_as_int(usage.get('cacheReadTokens')) + _as_int(usage.get('cacheWriteTokens'))):>7}",
+            ]
+            if with_cost:
+                columns.append(f"{_money(usage.get('estimatedCost')):>8}")
+            lines.append(" ".join(columns))
+
+    lines.append("")
+    if with_cost:
         lines.append(
-            f"{lane:<20} {stats.get('runs', 0):>4} {stats.get('failures',  0):>4} "
-            f"{stats.get('forbidden', 0):>4} {stats.get('filesChanged', 0):>6} "
-            f"{stats.get('inputTokens', 0):>7} {stats.get('outputTokens', 0):>8} {models}"
+            f"Estimated cost: {_money(cost.get('total'))} (lanes {_money(cost.get('lanes'))}, "
+            f"main {_money(cost.get('main'))}) at your prices; an estimate, not a bill."
         )
-    totals = data.get("totals", {}) if isinstance(data, dict) else {}
-    if isinstance(totals, dict):
-        lines.append(
-            f"{'TOTAL':<20} {totals.get('runs', 0):>4} {totals.get('failures', 0):>4} "
-            f"{totals.get('forbidden', 0):>4} {totals.get('filesChanged', 0):>6} "
-            f"{totals.get('inputTokens', 0):>7} {totals.get('outputTokens', 0):>8}"
-        )
-    outages = data.get("outages", {}).get("lanes", {}) if isinstance(data, dict) else {}
+        notices = []
+        if cost.get("unpriced"):
+            notices.append("No price for: " + ", ".join(str(name) for name in cost["unpriced"]) + ".")
+        if cost.get("cacheNotPriced"):
+            notices.append("Cache not priced for: " + ", ".join(str(name) for name in cost["cacheNotPriced"]) + ".")
+        if notices:
+            lines.append(" ".join(notices))
+    else:
+        lines.append("Estimated cost: not shown; set model prices with agentfleet config prices.")
+
+    outages = data.get("outages", {}).get("lanes", {}) if isinstance(data.get("outages"), dict) else {}
     for lane, value in sorted(outages.items()) if isinstance(outages, dict) else []:
-        lines.append(f"OUTAGE fleet-{lane}: {value.get('status')} until {value.get('until')}")
+        if isinstance(value, dict):
+            lines.append(f"OUTAGE fleet-{lane}: {value.get('status')} until {value.get('until')}")
     return "\n".join(lines)
 
 

@@ -156,6 +156,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
+        self.assertIn("prices", wizard.FLEET_KEYS)
         self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
         later = {f.key: f.introduced for f in wizard.FEATURES[7:]}
         self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrainInstall": "2.6.0",
@@ -210,6 +211,24 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(path.stat().st_mode & 0o777, 0o644)
         self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS if k not in ACTIONS})
         self.assertEqual(self.cli("--preset", str(path)).returncode, 0)
+        wizard.provider_catalog.write_preferences(self.home, {"prices": {"claude-opus-5.5": {"input": 5, "output": 25}}})
+        self.assertEqual(self.cli("--export", str(path)).returncode, 0)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("prices", data)
+        data["prices"] = {"claude-opus-5.5": {"input": 5, "output": 25, "cacheRead": 0.5}}
+        self.assertEqual(wizard.validate_preset(data)["prices"], {"claude-opus-5.5": {"input": 5.0, "output": 25.0, "cacheRead": 0.5}})
+        path.write_text(json.dumps(data), encoding="utf-8")
+        applied = self.cli("--preset", str(path))
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertEqual(wizard.provider_catalog.load_preferences(self.home)["prices"], data["prices"])
+        exported = self.home / "export-with-prices.json"
+        self.assertEqual(self.cli("--export", str(exported)).returncode, 0)
+        round_trip = json.loads(exported.read_text(encoding="utf-8"))
+        self.assertEqual(round_trip["prices"], data["prices"])
+        self.assertEqual(wizard.validate_preset(round_trip)["prices"], data["prices"])
+        wizard_state = self.paths.store / "wizard.json"
+        if wizard_state.is_file():
+            self.assertNotIn("prices", json.loads(wizard_state.read_text()).get("asked", []))
 
     def test_yes_and_after_install(self):
         result = self.cli("--after-install")

@@ -181,6 +181,62 @@ class PreferencesTests(unittest.TestCase):
         self.assertIsNone(notice)
         self.assertEqual(result, unchanged)
 
+    def test_price_preferences_validate_merge_and_match(self):
+        prices = {"claude-opus-5.5": {"input": 5.0, "output": 25, "cacheRead": 0.5}}
+        provider_catalog.write_preferences(self.home, {"prices": prices})
+        provider_catalog.write_preferences(self.home, {"learn": False})
+        self.assertEqual(provider_catalog.load_preferences(self.home)["prices"], prices)
+        self.assertEqual(provider_catalog.price_for(prices, "claude-opus-5-5[1m]"), prices["claude-opus-5.5"])
+        provider_catalog.preferences_path(self.home).write_text(json.dumps({"prices": {
+            "one": {"input": 1, "output": 2}, "bad model": {"input": 3, "output": 4},
+            "bad-number": {"input": 1, "output": float("nan")},
+        }}), encoding="utf-8")
+        self.assertEqual(provider_catalog.load_preferences(self.home)["prices"], {"one": {"input": 1, "output": 2}})
+        provider_catalog.write_preferences(self.home, {"prices": prices})
+        reverse = {"claude-opus-5-5[1m]": {"input": 1, "output": 2}}
+        self.assertEqual(provider_catalog.price_for(reverse, "CLAUDE-OPUS-5.5"), reverse["claude-opus-5-5[1m]"])
+        self.assertNotEqual(provider_catalog.price_key("codex-luna"), provider_catalog.price_key("gpt-6-luna"))
+        for invalid in (
+            None, [], {"": {"input": 1, "output": 2}}, {"bad model": {"input": 1, "output": 2}},
+            {"model": {"input": True, "output": 2}}, {"model": {"input": float("inf"), "output": 2}},
+            {"model": {"input": 1, "output": -1}}, {"model": {"input": 1, "output": 2, "extra": 4}},
+            {str(i): {"input": 1, "output": 2} for i in range(101)},
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(provider_catalog.valid_prices(invalid))
+                with self.assertRaises(ValueError):
+                    provider_catalog.write_preferences(self.home, {"prices": invalid})
+        self.assertEqual(provider_catalog.parse_price_spec("vendor=1,2")[0], "vendor")
+        self.assertEqual(provider_catalog.parse_price_spec("m=1,2,,3"), ("m", {"input": 1.0, "output": 2.0, "cacheWrite": 3.0}))
+        self.assertEqual(provider_catalog.parse_price_spec("m=off"), ("m", None))
+        self.assertFalse(provider_catalog.valid_prices({"m" + str(i): {"input": 1, "output": 2} for i in range(101)}))
+        for value in ("m=1", "m=1,2,3", "m=1,-2", "m=nan,2", "=1,2"):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(ValueError, "MODEL=INPUT,OUTPUT"):
+                    provider_catalog.parse_price_spec(value)
+        provider_catalog.write_preferences(self.home, {"prices": {}})
+        self.assertEqual(provider_catalog.load_preferences(self.home)["prices"], {})
+
+    def test_agentfleet_config_prices_cli_output(self):
+        shown = self.run_agentfleet("config", "prices")
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(shown.stdout.strip(), "No model prices set. Example: agentfleet config prices MODEL=INPUT,OUTPUT (dollars per million tokens).")
+        configured = self.run_agentfleet("config", "prices", "claude-opus-5.5=5,25,0.5,6.25")
+        self.assertEqual(configured.returncode, 0, configured.stderr)
+        self.assertEqual(configured.stdout.strip(), "claude-opus-5.5: input $5.00, output $25.00, cache read $0.50, cache write $6.25 per million tokens")
+        listed = self.run_agentfleet("config", "prices")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertEqual(listed.stdout.strip(), configured.stdout.strip())
+        self.assertIn("prices: 1 model\n", self.run_agentfleet("config").stdout)
+        removed = self.run_agentfleet("config", "prices", "claude-opus-5.5=off")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertEqual(removed.stdout.strip(), "Removed the price for claude-opus-5.5.")
+        invalid = self.run_agentfleet("config", "prices", "not-a-price")
+        self.assertEqual(invalid.returncode, 2)
+        self.assertTrue(invalid.stderr.startswith("agentfleet: expected MODEL=INPUT,OUTPUT"))
+        self.assertEqual(self.run_agentfleet("config", "prices", "off").stdout.strip(),
+                         "Model prices removed; estimated cost is no longer shown.")
+
     def test_agentfleet_config_show_set_off_and_invalid(self):
         self.gateway()
         shown = self.run_agentfleet("config")
