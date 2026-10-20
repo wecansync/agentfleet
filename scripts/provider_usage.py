@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
+import urllib.error
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
@@ -32,7 +33,8 @@ STORE_NAME = "provider-usage.json"
 PUBLISHED_PRICES_NAME = "published-prices.json"
 MAX_RESPONSE_BYTES = 1024 * 1024
 OVERALL_TIMEOUT = 12.0
-REQUEST_TIMEOUT = 5.0
+# A gateway's first answer after a quiet spell can take several seconds.
+REQUEST_TIMEOUT = 8.0
 # The background reader ends after this many seconds, whatever it waits on.
 WATCHDOG_SECONDS = OVERALL_TIMEOUT + REQUEST_TIMEOUT
 REFRESH_INTERVAL = 300
@@ -41,6 +43,11 @@ RUNNING_INTERVAL = 60
 UNKNOWN_RETRY_INTERVAL = 24 * 60 * 60
 _SESSION_ID = re.compile(r"^[A-Za-z0-9-]{8,80}$")
 _READERS = ("omniroute", "openrouter", "litellm")
+# Returned when a gateway could not be reached or was briefly failing, as
+# opposed to answering that it has no such report. Only a real answer may
+# decide that a gateway reports no usage.
+_UNREACHABLE = object()
+_RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524})
 
 
 def _store_path(home: Path) -> Path:
@@ -387,10 +394,12 @@ def _session_row(payload: object, session_id: str, token: str | None, fetched_at
 
 
 def _request_json(base: str, path: str, token: str, deadline: float) -> object | None:
+    """Return the decoded answer, None when the gateway answered without one,
+    or _UNREACHABLE when it could not be reached in time or was failing."""
     url = base + path
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        return None
+        return _UNREACHABLE
     try:
         request = urllib.request.Request(
             url,
@@ -413,7 +422,7 @@ def _request_json(base: str, path: str, token: str, deadline: float) -> object |
             size = 0
             while True:
                 if time.monotonic() >= deadline:
-                    return None
+                    return _UNREACHABLE
                 chunk = response.read1(65536)
                 if not chunk:
                     break
@@ -421,16 +430,29 @@ def _request_json(base: str, path: str, token: str, deadline: float) -> object |
                 if size > MAX_RESPONSE_BYTES:
                     return None
                 chunks.append(chunk)
+    except urllib.error.HTTPError as error:
+        try:
+            error.close()
+        except BaseException:
+            pass
+        return _UNREACHABLE if error.code in _RETRYABLE_STATUS else None
+    except BaseException:
+        # A timeout, refused connection or dropped reply. Never surface the
+        # exception text: it may contain a URL or request header.
+        return _UNREACHABLE
+    try:
         return json.loads(b"".join(chunks).decode("utf-8"))
     except BaseException:
-        # Never surface transport or parser exception text: it may contain a URL
-        # or request header, and it is not useful to a caller of this cache.
         return None
 
 
-def _read_reader(reader: str, base: str, token: str, session_id: str | None, deadline: float) -> tuple[dict, dict | None] | None:
+def _read_reader(reader: str, base: str, token: str, session_id: str | None, deadline: float) -> tuple[dict, dict | None] | object | None:
+    """Return (usage, session), None when the gateway answered without this
+    report, or _UNREACHABLE when it could not tell."""
     if reader == "omniroute":
         payload = _request_json(base, "/v1/me/status", token, deadline)
+        if payload is _UNREACHABLE:
+            return _UNREACHABLE
         if not isinstance(payload, dict):
             return None
         usage = payload.get("usage")
@@ -445,11 +467,15 @@ def _read_reader(reader: str, base: str, token: str, session_id: str | None, dea
         return mapped, session
     if reader == "openrouter":
         payload = _request_json(base, "/v1/key", token, deadline)
+        if payload is _UNREACHABLE:
+            return _UNREACHABLE
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
             return None
         return _openrouter_usage(payload, token), None
     if reader == "litellm":
         payload = _request_json(base, "/key/info", token, deadline)
+        if payload is _UNREACHABLE:
+            return _UNREACHABLE
         if not isinstance(payload, dict) or not isinstance(payload.get("info"), dict):
             return None
         return _litellm_usage(payload, token), None
@@ -566,12 +592,17 @@ def refresh_due(home: Path, session_id: str | None, now: float | None = None) ->
         started_age = _age(stored.get("startedAt"), current)
         if started_age is not None and 0 <= started_age < RUNNING_INTERVAL:
             return False
+        fetched_age = _age(stored.get("fetchedAt"), current)
+        # The last attempt fetched nothing, for instance because the gateway
+        # was down: wait the usual interval before the next one.
+        last_failed = started_age is not None and (fetched_age is None or fetched_age > started_age)
+        if last_failed and 0 <= started_age < REFRESH_INTERVAL:
+            return False
         if stored.get("reader") is None:
             if stored.get("detectedAt") is None:
                 return True
             detected_age = _age(stored.get("detectedAt"), current)
             return detected_age is None or detected_age >= UNKNOWN_RETRY_INTERVAL
-        fetched_age = _age(stored.get("fetchedAt"), current)
         valid_session = session_id if isinstance(session_id, str) and _SESSION_ID.fullmatch(session_id) else None
         sessions = stored.get("sessions")
         if valid_session and (not isinstance(sessions, dict) or valid_session not in sessions):
@@ -658,7 +689,7 @@ def _notices(usage: dict, now: float) -> list[dict]:
     return notices[:201]
 
 
-def _document(endpoint: str, account: str, reader: str | None, detected_at: str, fetched_at: str | None,
+def _document(endpoint: str, account: str, reader: str | None, detected_at: str | None, fetched_at: str | None,
               started_at: str | None, usage: dict | None, sessions: dict, notices: list[dict]) -> dict:
     return {
         "format": FORMAT,
@@ -757,38 +788,49 @@ def refresh(home: Path, session_id: str | None) -> int:
         previous_reader = previous.get("reader") if previous and previous.get("reader") in _READERS else None
         previous_detected = _normalise_time(previous.get("detectedAt")) if previous else None
         previous_fetched = _normalise_time(previous.get("fetchedAt")) if previous else None
-        document = _document(
+        # Saved before asking the gateway, and kept as it is when the gateway
+        # cannot be reached: what was known stays, and a reader stopped half
+        # way never counts as a gateway without a usage report.
+        unchanged = _document(
             endpoint,
             account,
             previous_reader,
-            previous_detected or started_at,
+            previous_detected,
             previous_fetched,
             started_at,
             previous.get("usage") if previous else None,
             sessions,
             previous.get("notices") if previous and isinstance(previous.get("notices"), list) else [],
         )
-        if not _save(home, document, token):
+        if not _save(home, unchanged, token):
             return 1
 
         deadline = time.monotonic() + OVERALL_TIMEOUT
         result: tuple[dict, dict | None] | None = None
         reader: str | None = None
+        unreachable = False
         redetecting = previous_reader is None
         if previous_reader is not None:
-            result = _read_reader(previous_reader, endpoint, token, safe_session, deadline)
-            if result is not None:
+            answer = _read_reader(previous_reader, endpoint, token, safe_session, deadline)
+            if answer is _UNREACHABLE:
+                unreachable = True
+            elif answer is not None:
                 reader = previous_reader
+                result = answer
             else:
                 redetecting = True
         if result is None and redetecting:
             for candidate in _READERS:
                 if time.monotonic() >= deadline:
+                    unreachable = True
                     break
-                candidate_result = _read_reader(candidate, endpoint, token, safe_session, deadline)
-                if candidate_result is not None:
+                answer = _read_reader(candidate, endpoint, token, safe_session, deadline)
+                if answer is _UNREACHABLE:
+                    unreachable = True
+                    continue
+                if answer is not None:
                     reader = candidate
-                    result = candidate_result
+                    result = answer
                     break
 
         # The profile may have changed while the gateway answered; never save
@@ -796,6 +838,9 @@ def refresh(home: Path, session_id: str | None) -> int:
         if scope(home) != (endpoint, account):
             return 1
         if result is None or reader is None:
+            if unreachable:
+                # Not an answer: keep what was known and try again later.
+                return 1
             detected_at = _now_iso()
             document = _document(endpoint, account, None, detected_at, None, started_at, None, sessions, [])
             return 0 if _save(home, document, token) else 1

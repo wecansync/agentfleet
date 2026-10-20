@@ -3,6 +3,14 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.11.1] - 2026-10-20
+
+### Fixed
+
+- A gateway that was slow, down or returning server errors (408, 429, 5xx) was taken for one without a usage report, so its figures stayed hidden for a day. Only a real answer now decides that: an unreachable gateway keeps the figures already shown, and AgentFleet tries again after 5 minutes. A reader stopped by its time limit no longer counts as an answer either.
+- A gateway's first answer after a quiet spell can take several seconds, so each request now waits up to 8 seconds instead of 5; the background reader stops after 20 seconds.
+- `agentfleet config` says "gateway not reached yet; retrying" instead of "gateway reports no usage" while the gateway hasn't answered.
+
 ## [2.11.0] - 2026-10-20
 
 ### Added

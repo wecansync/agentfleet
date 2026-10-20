@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.11.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.11.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -988,7 +988,7 @@ Some gateways report spend and limits for the key you use. On a gateway profile,
 - **OpenRouter:** `/api/v1/key`.
 - **LiteLLM:** `/key/info`.
 
-If none answers, it tries again a day later. Claude subscription profiles are skipped.
+If the gateway answers none of them, it tries again a day later. A gateway that is down, slow or returning server errors doesn't count as an answer: the figures already shown stay, and it tries again after 5 minutes. Claude subscription profiles are skipped.
 
 The prompt hook refreshes the figures in the background, at most every 5 minutes, so prompts never wait on the gateway. They are saved to `~/.claude/agentfleet/provider-usage.json`, readable only by you. The key goes only to the profile's own gateway URL, the same one Claude Code sends it to; redirects are refused and responses are size-capped.
 

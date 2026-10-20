@@ -961,7 +961,11 @@ def _provider_usage_state(paths: Paths) -> str:
     if not isinstance(stored, dict):
         return ", not checked yet"
     reader = stored.get("reader")
-    return f", gateway reports usage ({reader})" if isinstance(reader, str) and reader else ", gateway reports no usage"
+    if isinstance(reader, str) and reader:
+        return f", gateway reports usage ({reader})"
+    if not stored.get("detectedAt"):
+        return ", gateway not reached yet; retrying"
+    return ", gateway reports no usage"
 
 
 def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
