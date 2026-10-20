@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 import socketserver
 import subprocess
 import sys
@@ -14,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -171,6 +173,58 @@ class ProviderUsageTests(unittest.TestCase):
         self.assertIsNone(value["usage"])
         self.assertFalse(provider_usage.refresh_due(self.home, None, now=time.time() + 3600))
         self.assertTrue(provider_usage.refresh_due(self.home, None, now=time.time() + 90000))
+
+    def test_a_failing_gateway_is_not_recorded_as_having_no_report(self):
+        for path in ("/api/v1/me/status", "/api/v1/key", "/api/key/info"):
+            self.route(path, {"error": "busy"}, 503)
+        self.assertEqual(self.refresh(), 1)
+        value = self.stored()
+        self.assertIsNone(value["reader"])
+        self.assertIsNone(value["detectedAt"], "a failing gateway was taken for one without a report")
+        started = provider_usage._timestamp(value["startedAt"])
+        # The next try waits the usual interval, not a day.
+        self.assertFalse(provider_usage.refresh_due(self.home, None, now=started + 120))
+        self.assertTrue(provider_usage.refresh_due(self.home, None, now=started + 301))
+        self.route("/api/v1/me/status", {"usage": {"cost": {"usedUsd": 1}}})
+        self.assertEqual(self.refresh(), 0)
+        self.assertEqual(self.stored()["reader"], "omniroute")
+
+    def test_an_unreachable_gateway_is_not_recorded_as_having_no_report(self):
+        closed = socket.socket()
+        closed.bind(("127.0.0.1", 0))
+        port = closed.getsockname()[1]
+        closed.close()
+        self.set_gateway(base=f"http://127.0.0.1:{port}/api")
+        self.assertEqual(self.refresh(), 1)
+        self.assertIsNone(self.stored()["detectedAt"])
+
+    def test_a_known_reader_keeps_its_figures_while_the_gateway_is_down(self):
+        self.route("/api/v1/me/status", {"usage": {"cost": {"usedUsd": 4}}})
+        self.assertEqual(self.refresh(), 0)
+        before = self.stored()
+        self.route("/api/v1/me/status", {"error": "bad gateway"}, 502)
+        self.assertEqual(self.refresh(), 1)
+        after = self.stored()
+        self.assertEqual(after["reader"], "omniroute")
+        self.assertEqual(after["usage"], before["usage"])
+        self.assertEqual((after["detectedAt"], after["fetchedAt"]), (before["detectedAt"], before["fetchedAt"]))
+        started = provider_usage._timestamp(after["startedAt"])
+        self.assertFalse(provider_usage.refresh_due(self.home, None, now=started + 120))
+        self.assertTrue(provider_usage.refresh_due(self.home, None, now=started + 301))
+
+    def test_a_reader_stopped_half_way_is_not_a_gateway_without_a_report(self):
+        # What a watchdog kill leaves behind is the document saved before the
+        # gateway was asked; on a first check it must not read as an answer.
+        seen = []
+
+        def interrupted(*args, **kwargs):
+            seen.append(self.stored())
+            raise KeyboardInterrupt
+
+        with mock.patch.object(provider_usage, "_read_reader", interrupted):
+            self.assertEqual(self.refresh(), 1)
+        self.assertIsNone(seen[0]["detectedAt"])
+        self.assertIsNone(self.stored()["detectedAt"])
 
     def test_redirect_is_refused(self):
         self.route("/api/v1/me/status", "http://127.0.0.1/redirected", 302)

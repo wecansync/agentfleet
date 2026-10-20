@@ -271,6 +271,15 @@ class UsageSourceTests(unittest.TestCase):
         bad = self.run_agentfleet("config", "provider-usage", "maybe")
         self.assertNotEqual(bad.returncode, 0)
 
+    def test_config_tells_a_gateway_not_reached_from_one_without_a_report(self) -> None:
+        self.write_usage(reader=None, detectedAt=None, fetchedAt=None, usage=None)
+        unreached = self.run_agentfleet("config")
+        self.assertEqual(unreached.returncode, 0, unreached.stderr)
+        self.assertIn("gateway not reached yet; retrying", unreached.stdout)
+        self.write_usage(reader=None, fetchedAt=None, usage=None)
+        answered = self.run_agentfleet("config")
+        self.assertIn("gateway reports no usage", answered.stdout)
+
 
 class DeadlineTests(unittest.TestCase):
     """A gateway that keeps sending a few bytes must not hold a reader open."""
@@ -309,7 +318,8 @@ class DeadlineTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
-        self.assertIsNone(result)
+        # Cut off at the deadline: not an answer, so it must not count as one.
+        self.assertIs(result, provider_usage._UNREACHABLE)
         self.assertLess(elapsed, 2.0, "the reader kept reading past its deadline")
 
     def test_the_watchdog_ends_a_reader_before_another_may_start(self) -> None:
