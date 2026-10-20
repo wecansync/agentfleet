@@ -85,28 +85,70 @@ def _run(home: Path, *args: str) -> subprocess.CompletedProcess[str]:
         raise ContextModeError("Claude Code plugin command could not be started") from exc
 
 
-def node_runtime_available(home: Path) -> bool:
-    """Context Mode's upstream runtime requires Node.js 22.5 or later."""
-    env = _cli_environment(home)
-    executable = shutil.which("node", path=env.get("PATH", ""))
-    trusted = {
-        Path(entry).resolve(strict=False)
-        for entry in env.get("PATH", "").split(os.pathsep)
-        if entry and Path(entry).is_absolute()
-    }
-    if not executable or not Path(executable).is_absolute() or Path(executable).parent.resolve(strict=False) not in trusted:
-        return False
+def _node_version(executable: Path, env: dict[str, str]) -> tuple[int, int, int] | None:
     try:
         result = subprocess.run(
-            [str(Path(executable).resolve(strict=False)), "--version"],
+            [str(executable), "--version"],
             text=True, encoding="utf-8", errors="replace", capture_output=True,
             check=False, timeout=5, env=env, stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return None
     match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:[-+][A-Za-z0-9.-]+)?\s*", result.stdout.strip())
-    version = tuple(int(part) for part in match.groups()) if match else (0, 0, 0)
-    return result.returncode == 0 and version >= (22, 5, 0)
+    if result.returncode != 0 or not match:
+        return None
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def pinned_node(home: Path) -> Path | None:
+    """The Node.js an installed Context Mode runs.
+
+    Upstream ships a bare `node`; the installed copy replaces it with the
+    absolute path of the Node that first started it, so that path, not the
+    one on PATH, is what its tools and hooks need."""
+    record = _user_record(home)
+    install_path = record.get("installPath") if record else None
+    if not isinstance(install_path, str) or not install_path:
+        return None
+    try:
+        plugin = json.loads((Path(install_path) / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    servers = plugin.get("mcpServers") if isinstance(plugin, dict) else None
+    server = servers.get("context-mode") if isinstance(servers, dict) else None
+    command = server.get("command") if isinstance(server, dict) else None
+    if not isinstance(command, str) or not Path(command).is_absolute():
+        return None
+    # Only ever run something that is plainly a Node binary.
+    if Path(command).name.lower() not in {"node", "node.exe"}:
+        return None
+    return Path(command)
+
+
+def node_problem(home: Path) -> str | None:
+    """Why Context Mode's Node.js cannot run it, or None when it can (22.5 or later)."""
+    env = _cli_environment(home)
+    pinned = pinned_node(home)
+    if pinned is not None:
+        if not pinned.is_file():
+            return f"Context Mode runs Node.js from {pinned}, which no longer exists, so its tools and hooks will fail."
+        executable = pinned
+    else:
+        found = shutil.which("node", path=env.get("PATH", ""))
+        trusted = {
+            Path(entry).resolve(strict=False)
+            for entry in env.get("PATH", "").split(os.pathsep)
+            if entry and Path(entry).is_absolute()
+        }
+        if not found or not Path(found).is_absolute() or Path(found).parent.resolve(strict=False) not in trusted:
+            return "Node.js was not found on PATH; Context Mode needs Node.js 22.5 or later."
+        executable = Path(found)
+    version = _node_version(executable, env)
+    if version is None:
+        return f"Context Mode needs Node.js 22.5 or later; {executable} did not report a version."
+    if version < (22, 5, 0):
+        return f"Context Mode needs Node.js 22.5 or later; {executable} is {'.'.join(map(str, version))}."
+    return None
 
 
 def _marketplace_list(home: Path) -> list[dict]:
@@ -140,12 +182,13 @@ def _find_upstream_marketplace(home: Path) -> bool:
     return True
 
 
-def _installed_metadata(home: Path) -> bool:
+def _user_record(home: Path) -> dict | None:
+    """Claude Code's record of the user-scope install, or None when not installed."""
     path = config_dir(home) / "plugins" / "installed_plugins.json"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return False
+        return None
     except (OSError, UnicodeError, ValueError):
         raise ContextModeError("Claude Code's installed-plugin metadata is unavailable or invalid") from None
     plugins = value.get("plugins") if isinstance(value, dict) else None
@@ -155,8 +198,12 @@ def _installed_metadata(home: Path) -> bool:
     if isinstance(records, dict):
         records = [records]
     if not isinstance(records, list):
-        return False
-    return any(isinstance(record, dict) and record.get("scope") == "user" for record in records)
+        return None
+    return next((record for record in records if isinstance(record, dict) and record.get("scope") == "user"), None)
+
+
+def _installed_metadata(home: Path) -> bool:
+    return _user_record(home) is not None
 
 
 def _enabled_settings(home: Path) -> bool | None:
@@ -203,22 +250,34 @@ def _ensure_marketplace(home: Path) -> None:
         raise ContextModeError("Claude Code did not register the upstream Context Mode marketplace")
 
 
-def enable(home: Path) -> None:
-    """Register upstream if needed, then enable or install the user plugin."""
+def enable(home: Path) -> bool:
+    """Register upstream if needed, then enable or install the user plugin.
+
+    Returns False when it was already installed and enabled. Claude Code's
+    `plugin enable` fails on an enabled plugin, so the state is checked first,
+    and again after a failure in case it changed in between."""
     if _installed_metadata(home):
+        if _enabled_settings(home) is True:
+            return False
         _ensure_marketplace(home)
         result = _run(home, "plugin", "enable", PLUGIN_ID, "--scope", "user")
-        if result.returncode != 0:
+        if result.returncode != 0 and _enabled_settings(home) is not True:
             raise ContextModeError("Claude Code could not enable Context Mode")
-        return
+        return True
     _ensure_marketplace(home)
     result = _run(home, "plugin", "install", PLUGIN_ID, "--scope", "user")
     if result.returncode != 0:
         raise ContextModeError("Claude Code could not install Context Mode")
+    return True
 
 
-def disable(home: Path) -> None:
-    """Disable the plugin without uninstalling it or deleting user data."""
+def disable(home: Path) -> bool:
+    """Disable the plugin without uninstalling it or deleting user data.
+
+    Returns False when it is not installed or already disabled."""
+    if not _installed_metadata(home) or _enabled_settings(home) is False:
+        return False
     result = _run(home, "plugin", "disable", PLUGIN_ID, "--scope", "user")
-    if result.returncode != 0:
+    if result.returncode != 0 and _enabled_settings(home) is not False:
         raise ContextModeError("Claude Code could not disable Context Mode")
+    return True

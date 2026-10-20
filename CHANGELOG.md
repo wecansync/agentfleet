@@ -3,6 +3,15 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.10.2] - 2026-10-20
+
+### Fixed
+
+- Hooks pin the Node.js found on PATH as it is, instead of following links to the real file. Following them pinned versioned folders, such as Homebrew's Cellar, which an upgrade deletes, so the model-sync hook stopped working. Each update rewrites the hook with the current Node.js.
+- `agentfleet doctor` reports a hook whose Node.js or Python no longer exists. For Node.js, `agentfleet update` fixes it; for Python, rerunning the installer does, because the `agentfleet` command uses the same Python. An update keeps a hook you edited yourself, so fix that one's path by hand; updates no longer fail because of it.
+- `agentfleet config context-mode on` and `off` succeed when Context Mode is already in that state, instead of failing on Claude Code's "already enabled" error, and `off` says so when Context Mode is not installed.
+- The Node.js warning for Context Mode is shown before enabling, so it also appears when enabling fails, and it checks the Node.js an installed Context Mode actually runs (the path it pinned at install), not only the one on PATH.
+
 ## [2.10.1] - 2026-10-20
 
 ### Added

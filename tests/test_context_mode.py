@@ -58,7 +58,12 @@ elif argv == ["plugin", "install", "context-mode@context-mode", "--scope", "user
 elif argv in (["plugin", "enable", "context-mode@context-mode", "--scope", "user"], ["plugin", "disable", "context-mode@context-mode", "--scope", "user"]):
     settings_path = claude / "settings.json"
     settings = json.loads(settings_path.read_text()) if settings_path.exists() else {}
-    settings.setdefault("enabledPlugins", {})["context-mode@context-mode"] = argv[1] == "enable"
+    wanted = argv[1] == "enable"
+    # Like the real CLI: asking for the state the plugin is already in fails.
+    if settings.get("enabledPlugins", {}).get("context-mode@context-mode") is wanted:
+        print(f"Plugin context-mode@context-mode is already {argv[1]}d at user scope", file=sys.stderr)
+        sys.exit(1)
+    settings.setdefault("enabledPlugins", {})["context-mode@context-mode"] = wanted
     settings_path.write_text(json.dumps(settings))
 else:
     sys.exit(2)
@@ -125,14 +130,21 @@ class ContextModeTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.calls_path.read_text(encoding="utf-8").splitlines()]
 
-    def set_installed(self, enabled: bool | None) -> None:
+    def set_installed(self, enabled: bool | None, pinned_node: Path | None = None) -> None:
         self.state_path.write_text(json.dumps({"marketplaces": [{
             "name": "context-mode", "source": {"source": "github", "repo": MARKETPLACE_SOURCE},
         }], "plugins": []}), encoding="utf-8")
+        record = {"scope": "user", "version": "1.0.0"}
+        if pinned_node is not None:
+            # The installed copy pins the Node that first ran it.
+            install_path = self.claude_dir / "plugins" / "cache" / "context-mode" / "context-mode" / "1.0.0"
+            (install_path / ".claude-plugin").mkdir(parents=True)
+            (install_path / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+                "mcpServers": {"context-mode": {"command": str(pinned_node), "args": ["start.mjs"]}},
+            }), encoding="utf-8")
+            record["installPath"] = str(install_path)
         self.installed_path.parent.mkdir(parents=True, exist_ok=True)
-        self.installed_path.write_text(json.dumps({"plugins": {
-            PLUGIN_ID: [{"scope": "user", "version": "1.0.0"}],
-        }}), encoding="utf-8")
+        self.installed_path.write_text(json.dumps({"plugins": {PLUGIN_ID: [record]}}), encoding="utf-8")
         settings = {"enabledPlugins": {PLUGIN_ID: enabled}} if enabled is not None else {}
         self.settings_path.write_text(json.dumps(settings), encoding="utf-8")
 
@@ -143,7 +155,7 @@ class ContextModeTests(unittest.TestCase):
         self.assertIn("user scope", result.stdout)
         self.assertIn("Restart Claude Code", result.stdout)
         self.assertNotRegex(result.stdout + result.stderr, r"[0-9,]+%|[0-9,]+ tokens saved")
-        self.assertIn("Node.js 22.5+", result.stdout) if "Warning: Context Mode requires Node.js" in result.stdout else None
+        self.assertNotIn("Warning:", result.stdout)  # the fake node on PATH is 26.7.0
         self.assertEqual([call["argv"] for call in self.calls()], [
             ["plugin", "marketplace", "list", "--json"],
             ["plugin", "marketplace", "add", MARKETPLACE_SOURCE],
@@ -180,6 +192,57 @@ class ContextModeTests(unittest.TestCase):
         ]])
         self.assertEqual(self.installed_path.read_bytes(), before)
         self.assertIs(json.loads(self.settings_path.read_text(encoding="utf-8"))["enabledPlugins"][PLUGIN_ID], False)
+
+    def test_on_when_already_enabled_succeeds_without_running_claude(self):
+        self.set_installed(True)
+        result = self.run_agentfleet("config", "context-mode", "on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("already enabled", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_off_when_already_disabled_succeeds_without_running_claude(self):
+        self.set_installed(False)
+        result = self.run_agentfleet("config", "context-mode", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("already disabled", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_off_when_not_installed_succeeds_without_running_claude(self):
+        result = self.run_agentfleet("config", "context-mode", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("not installed", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_on_warns_about_the_pinned_node_not_the_one_on_path(self):
+        gone = self.root / "old-node" / "node"
+        self.set_installed(False, pinned_node=gone)
+        result = self.run_agentfleet("config", "context-mode", "on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Warning: Context Mode runs Node.js from {gone}, which no longer exists", result.stdout)
+
+    def test_on_warns_when_the_pinned_node_is_too_old(self):
+        old = self.root / "node-20" / "node"
+        old.parent.mkdir()
+        old.write_text("#!/bin/sh\nprintf 'v20.11.1\\n'\n", encoding="utf-8")
+        old.chmod(0o755)
+        self.set_installed(False, pinned_node=old)
+        result = self.run_agentfleet("config", "context-mode", "on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"Context Mode needs Node.js 22.5 or later; {old} is 20.11.1", result.stdout)
+
+    def test_node_warning_shows_even_when_enabling_fails(self):
+        old = self.root / "node-18" / "node"
+        old.parent.mkdir()
+        old.write_text("#!/bin/sh\nprintf 'v18.19.1\\n'\n", encoding="utf-8")
+        old.chmod(0o755)
+        env = dict(self.env)
+        env["PATH"] = str(self.fake_bin) + os.pathsep + str(old.parent) + os.pathsep + os.defpath
+        self.state_path.write_text(json.dumps({"marketplaces": [{
+            "name": "context-mode", "source": {"source": "github", "repo": "someone/else"},
+        }], "plugins": []}), encoding="utf-8")
+        result = self.run_agentfleet("config", "context-mode", "on", env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"Warning: Context Mode needs Node.js 22.5 or later; {old} is 18.19.1", result.stdout)
 
     def test_status_uses_settings_and_installed_metadata_without_running_claude(self):
         result = self.run_agentfleet("config", "context-mode", "status")

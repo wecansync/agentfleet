@@ -1149,13 +1149,22 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
                 print(f"context-mode: {context_mode.status(paths.home)}")
                 return 0
             if value == "on":
-                context_mode.enable(paths.home)
-                if not context_mode.node_runtime_available(paths.home):
-                    print("Warning: Context Mode requires Node.js 22.5 or later at runtime.")
-                print("Context Mode is enabled for your user scope. Restart Claude Code, then run /context-mode:ctx-doctor to verify the setup.")
+                # Checked first, so the warning shows even when enabling fails.
+                problem = context_mode.node_problem(paths.home)
+                if problem:
+                    print(f"Warning: {problem}")
+                if context_mode.enable(paths.home):
+                    print("Context Mode is enabled for your user scope. Restart Claude Code, then run /context-mode:ctx-doctor to verify the setup.")
+                else:
+                    print("Context Mode is already enabled.")
             else:
-                context_mode.disable(paths.home)
-                print("Context Mode is disabled; the plugin and its data remain installed. Restart Claude Code to apply.")
+                installed = context_mode.status(paths.home) != "not installed"
+                if context_mode.disable(paths.home):
+                    print("Context Mode is disabled; the plugin and its data remain installed. Restart Claude Code to apply.")
+                elif installed:
+                    print("Context Mode is already disabled.")
+                else:
+                    print("Context Mode is not installed; nothing to turn off.")
             return 0
         except ImportError:
             print("agentfleet: context-mode support is missing; reinstall AgentFleet", file=sys.stderr)
