@@ -24,7 +24,7 @@ api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
 KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "askFirst", "tokenWeather",
-        "agentBrainInstall", "agentBrain", "instructions"]
+        "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "instructions"]
 ACTIONS = {"instructions"}
 
 
@@ -160,7 +160,7 @@ class ConfigureTests(unittest.TestCase):
         self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
         later = {f.key: f.introduced for f in wizard.FEATURES[7:]}
         self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrainInstall": "2.6.0",
-                                 "agentBrain": "2.4.0", "instructions": "2.4.0"})
+                                 "agentBrain": "2.4.0", "agentBrainLocalMemory": "2.10.1", "instructions": "2.4.0"})
 
     def test_validation(self):
         for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"tokenSecret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}, {"agentBrainMemory": True}, {"agentBrainInstall": "yes"}):
@@ -169,6 +169,35 @@ class ConfigureTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertFalse((self.paths.store / "wizard.json").exists())
                 self.assertFalse((self.home / "commands.log").exists())
+
+    def test_local_memory_is_skipped_when_agent_brain_is_off(self):
+        wizard.provider_catalog.write_preferences(self.home, {"agentBrain": False})
+        result = self.cli("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertIn("agentBrainLocalMemory", asked)
+        self.assertFalse(wizard.agent_brain.managed_binary(self.home).exists())
+
+    def test_local_memory_is_skipped_when_agent_brain_was_declined(self):
+        wizard.provider_catalog.write_preferences(self.home, {"agentBrain": False})
+        state = {"format": "agentfleet.wizard.v1", "asked": ["agentBrainInstall", "agentBrain"]}
+        self.paths.store.mkdir(parents=True, exist_ok=True)
+        (self.paths.store / "wizard.json").write_text(json.dumps(state))
+        result = self.cli("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertIn("agentBrainLocalMemory", asked)
+
+    def test_local_memory_already_active_is_skipped_and_saved(self):
+        binary = wizard.agent_brain.managed_binary(self.home)
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!/bin/sh\nprintf 'Memory:           active; 280 entries for test\\n'\n")
+        binary.chmod(0o755)
+        result = self.cli("--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
+        self.assertIn("agentBrainLocalMemory", asked)
+        self.assertTrue(wizard.provider_catalog.load_preferences(self.home)["agentBrainLocalMemory"])
 
     def test_apply_functions(self):
         args = argparse.Namespace(after_install=False, yes=False, export=None, preset=str(self.preset({"compact": "off", "reviewerAccess": "run", "learn": False, "autoUpdate": False, "jev": True, "statusBand": True, "laneGuard": True})))
@@ -207,6 +236,8 @@ class ConfigureTests(unittest.TestCase):
         data = json.loads(path.read_text())
         self.assertEqual(list(data), ["format"] + [key for key in KEYS if key not in ACTIONS])
         self.assertIs(data["agentBrainInstall"], False)
+        # Never turned on here, so the question's suggested yes is not exported.
+        self.assertIs(data["agentBrainLocalMemory"], False)
         if os.name == "posix":
             self.assertEqual(path.stat().st_mode & 0o777, 0o644)
         self.assertEqual(wizard.validate_preset(data), {k: data[k] for k in KEYS if k not in ACTIONS})
@@ -345,28 +376,81 @@ class ConfigureTests(unittest.TestCase):
             self.assertEqual(wizard.run(api, self.paths, args), 0)
         return prompted, [(c.args[1].setting, c.args[1].value) for c in config.call_args_list], output.getvalue()
 
-    def test_interactive_install_connects_agent_brain_and_asks_nothing_more(self):
-        for after_install in (False, True):
-            with self.subTest(after_install=after_install):
+    def test_interactive_install_connects_agent_brain_then_offers_memory(self):
+        # None: Enter, which keeps memory off.
+        for after_install, memory in ((False, True), (True, True), (False, False), (False, None)):
+            with self.subTest(after_install=after_install, memory=memory):
                 (self.paths.store / 'wizard.json').unlink(missing_ok=True)
                 wizard.agent_brain.managed_binary(self.home).unlink(missing_ok=True)
-                prompted, calls, output = self.interactive_run({"agentBrainInstall": True, "instructions": False},
-                                                               after_install=after_install)
-                # Installing it answers whether to connect it.
+                answers = {"agentBrainInstall": True, "instructions": False}
+                if memory is not None:
+                    answers["agentBrainLocalMemory"] = memory
+                prompted, calls, output = self.interactive_run(answers, after_install=after_install)
+                # Installing it answers whether to connect it; memory is asked next.
                 self.assertIn("agentBrainInstall", prompted)
                 self.assertNotIn("agentBrain", prompted)
-                self.assertEqual(calls, [("agent-brain", "on")])
+                self.assertIn("agentBrainLocalMemory", prompted)
+                self.assertEqual(calls, [("agent-brain", "on")] + ([("agent-brain-memory", "on")] if memory else []))
                 self.assertIn("agent-brain is installed and connected", output)
-                # The free tool only: no account, sign-in or memory.
-                for word in ("Pro", "login", "sign in", "memory"):
+                for word in ("Pro", "login", "sign in"):
                     self.assertNotIn(word, output)
                 asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
-                self.assertTrue({'agentBrainInstall', 'agentBrain'}.issubset(asked))
+                self.assertTrue({'agentBrainInstall', 'agentBrain', 'agentBrainLocalMemory'}.issubset(asked))
+        self.assertIs(wizard.provider_catalog.load_preferences(self.home)["agentBrainLocalMemory"], False)
+
+    def test_yes_and_presets_with_memory(self):
+        binary = wizard.agent_brain.managed_binary(self.home)
+        binary.parent.mkdir(parents=True)
+        binary.write_text("fake")
+        # --yes never turns memory on: it needs a yes.
+        with patch.object(api, "cmd_config", return_value=0) as config, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(wizard.run(api, self.paths, argparse.Namespace(after_install=False, yes=True, export=None, preset=None)), 0)
+        self.assertNotIn(("agent-brain-memory", "on"), [(c.args[1].setting, c.args[1].value) for c in config.call_args_list])
+        self.assertIs(wizard.provider_catalog.load_preferences(self.home)["agentBrainLocalMemory"], False)
+        # A preset turns it on, and off where it is on, even with agent-brain
+        # disconnected.
+        for chosen, active, connected, expected in ((True, False, None, [("agent-brain-memory", "on")]),
+                                                    (False, True, None, [("agent-brain-memory", "off")]),
+                                                    (False, True, False, [("agent-brain-memory", "off")]),
+                                                    (False, False, None, [])):
+            if connected is not None:
+                wizard.provider_catalog.write_preferences(self.home, {"agentBrain": connected})
+            with self.subTest(chosen=chosen, active=active, connected=connected), \
+                    patch.object(wizard.agent_brain, "memory_active", return_value=active), \
+                    patch.object(api, "cmd_config", return_value=0) as config, contextlib.redirect_stdout(io.StringIO()):
+                args = argparse.Namespace(after_install=False, yes=False, export=None,
+                                          preset=str(self.preset({"agentBrainLocalMemory": chosen})))
+                self.assertEqual(wizard.run(api, self.paths, args), 0)
+            self.assertEqual([(c.args[1].setting, c.args[1].value) for c in config.call_args_list], expected)
+
+    def test_export_writes_memory_as_agent_brain_reports_it(self):
+        # Turned on through AgentFleet, then off with agent-brain itself.
+        wizard.provider_catalog.write_preferences(self.home, {"agentBrainLocalMemory": True})
+        path = self.home / "export.json"
+        for active in (False, True):
+            with self.subTest(active=active), patch.object(wizard.agent_brain, "memory_active", return_value=active), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                args = argparse.Namespace(after_install=False, yes=False, export=str(path), preset=None)
+                self.assertEqual(wizard.run(api, self.paths, args), 0)
+            self.assertIs(json.loads(path.read_text())["agentBrainLocalMemory"], active)
+
+    def test_failed_memory_apply_leaves_the_question_open(self):
+        binary = wizard.agent_brain.managed_binary(self.home)
+        binary.parent.mkdir(parents=True)
+        binary.write_text("fake")
+        with patch.object(api, "cmd_config", return_value=1), contextlib.redirect_stdout(io.StringIO()):
+            args = argparse.Namespace(after_install=False, yes=False, export=None,
+                                      preset=str(self.preset({"agentBrainLocalMemory": True})))
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        state = self.paths.store / 'wizard.json'
+        asked = json.loads(state.read_text())['asked'] if state.exists() else []
+        self.assertNotIn('agentBrainLocalMemory', asked)
 
     def test_no_question_mentions_an_agent_brain_account_or_memory(self):
         for feature in wizard.FEATURES:
-            for word in ("Pro ", "sign in", "memory", "login"):
+            for word in ("Pro ", "sign in", "login"):
                 self.assertNotIn(word, feature.question, feature.key)
+        self.assertIn("memory", next(f for f in wizard.FEATURES if f.key == "agentBrainLocalMemory").question)
 
     @unittest.skipUnless(os.name == 'posix', 'pty requires POSIX')
     def test_interactive_pty(self):
@@ -379,9 +463,9 @@ class ConfigureTests(unittest.TestCase):
         output = b''
         index = 0
         # agent-brain is not installed, so only its install question is
-        # asked, and declined; the instruction check is declined so no
-        # headless Claude run starts.
-        questions = [f for f in wizard.FEATURES if f.key != 'agentBrain']
+        # asked, and declined; local memory is skipped. The instruction check
+        # is declined so no headless Claude run starts.
+        questions = [f for f in wizard.FEATURES if f.key not in {'agentBrain', 'agentBrainLocalMemory'}]
         declined = ('agentBrainInstall', 'instructions')
         deadline = time.monotonic() + 20
         reaped = False

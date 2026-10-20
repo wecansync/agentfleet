@@ -124,13 +124,18 @@ class Install240Tests(unittest.TestCase):
                 shutil.rmtree(backup)
 
     def agent_brain_on_path(self):
-        """A fake agent-brain that records each call and whether a credential reached it."""
+        """A fake agent-brain that records each call and whether a credential reached it.
+        Its `status` reports memory as active while set_brain_memory(True) is in effect."""
         self.brain_log = Path(self.raw.name) / "agent-brain-calls.jsonl"
+        self.brain_memory_flag = Path(self.raw.name) / "agent-brain-memory-active"
         script = self.fake_bin / "agent-brain"
         script.write_text(
             "import json, os, sys\n"
             f"with open({str(self.brain_log)!r}, 'a', encoding='utf-8') as log:\n"
-            "    log.write(json.dumps({'argv': sys.argv[1:], 'token': 'ANTHROPIC_AUTH_TOKEN' in os.environ}) + '\\n')\n",
+            "    log.write(json.dumps({'argv': sys.argv[1:], 'token': 'ANTHROPIC_AUTH_TOKEN' in os.environ}) + '\\n')\n"
+            "if sys.argv[1:2] == ['status']:\n"
+            f"    active = os.path.exists({str(self.brain_memory_flag)!r})\n"
+            "    print('Memory:           ' + ('active; 3 entries for repo' if active else 'off'))\n",
             encoding="utf-8")
         if os.name == "nt":
             (self.fake_bin / "agent-brain.cmd").write_text(f'@"{PYTHON}" "%~dp0agent-brain" %*\n', encoding="utf-8")
@@ -139,10 +144,18 @@ class Install240Tests(unittest.TestCase):
             script.chmod(0o755)
         self.env["PATH"] = str(self.fake_bin) + os.pathsep + self.env["PATH"]
 
+    def set_brain_memory(self, active: bool):
+        if active:
+            self.brain_memory_flag.write_text("", encoding="utf-8")
+        else:
+            self.brain_memory_flag.unlink(missing_ok=True)
+
     def brain_calls(self) -> list[dict]:
+        """The calls that change something; read-only `status` checks are left out."""
         if not self.brain_log.exists():
             return []
-        return [json.loads(line) for line in self.brain_log.read_text(encoding="utf-8").splitlines()]
+        calls = [json.loads(line) for line in self.brain_log.read_text(encoding="utf-8").splitlines()]
+        return [call for call in calls if call["argv"][:1] != ["status"]]
 
     def add_pre_260_agent_brain_hooks(self):
         """The marked hooks AgentFleet wrote for agent-brain before 2.6.0."""
@@ -274,6 +287,7 @@ class Install240Tests(unittest.TestCase):
     # -- agent-brain ------------------------------------------------------------------
     def test_agent_brain_lanes_follow_the_preference_and_the_installer_writes_no_hooks(self):
         self.agent_brain_on_path()
+        self.set_brain_memory(True)
         self.install_native()
         # agent-brain's own `install` owns its hooks since 2.6.0.
         self.assertFalse(any("agent-brain" in command for command in self.hook_commands()))
@@ -291,7 +305,33 @@ class Install240Tests(unittest.TestCase):
         self.assertNotIn("agent-brain", agent)
         fleet = json.loads((self.claude / "fleet.json").read_text(encoding="utf-8"))
         self.assertIs(fleet["integrations"]["agentBrain"], False)
+        self.assertIs(fleet["integrations"]["agentBrainMemory"], False)
         self.doctor()
+
+    def test_lanes_get_the_memory_tool_only_while_agent_brain_memory_is_on(self):
+        self.agent_brain_on_path()
+        self.install_native()
+        # Connected, but memory is off: a memory tool could only fail.
+        fleet = json.loads((self.claude / "fleet.json").read_text(encoding="utf-8"))
+        self.assertIs(fleet["integrations"]["agentBrain"], True)
+        self.assertIs(fleet["integrations"]["agentBrainMemory"], False)
+        lane = (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8")
+        self.assertNotIn("agent-brain", lane)
+        self.set_brain_memory(True)
+        self.update()
+        fleet = json.loads((self.claude / "fleet.json").read_text(encoding="utf-8"))
+        self.assertIs(fleet["integrations"]["agentBrainMemory"], True)
+        lane = (self.claude / "agents" / "fleet-implement.md").read_text(encoding="utf-8")
+        self.assertIn("mcp__agent-brain-memory__memory_search", lane)
+        self.assertIn("Do not save memory, even when a hook asks you to", lane)
+        self.doctor()
+
+    def test_a_fleet_map_from_before_2_10_1_keeps_the_connection_as_the_signal(self):
+        self.assertTrue(install.lanes_get_memory({"integrations": {"agentBrain": True}}))
+        self.assertFalse(install.lanes_get_memory({"integrations": {"agentBrain": True, "agentBrainMemory": False}}))
+        self.assertTrue(install.lanes_get_memory({"integrations": {"agentBrain": True, "agentBrainMemory": True}}))
+        self.assertFalse(install.lanes_get_memory({"integrations": {"agentBrain": False, "agentBrainMemory": True}}))
+        self.assertFalse(install.lanes_get_memory({}))
 
     def test_update_hands_pre_260_agent_brain_hooks_to_agent_brain(self):
         self.agent_brain_on_path()

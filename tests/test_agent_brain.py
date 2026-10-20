@@ -32,11 +32,14 @@ import agent_brain  # noqa: E402
 POSIX = os.name == "posix"
 
 
-def fake_binary(version: str, log: Path | None = None) -> bytes:
+def fake_binary(version: str, log: Path | None = None, memory_state: str = "active") -> bytes:
     """An agent-brain stand-in: prints its version and records other calls."""
     lines = ["#!" + PYTHON, "import json, os, sys",
              "if sys.argv[1:] == ['--version']:",
              f"    print('agent-brain version {version}')",
+             "    sys.exit(0)",
+             "if sys.argv[1:] == ['status']:",
+             f"    print('Memory:           {memory_state}; 280 entries for test')",
              "    sys.exit(0)"]
     if log is not None:
         lines += [f"with open({str(log)!r}, 'a', encoding='utf-8') as out:",
@@ -322,6 +325,26 @@ class AgentBrainTests(unittest.TestCase):
         write("/opt/tools/agent-brain hook stop # claude-agents-config:agent-brain")
         self.assertFalse(agent_brain.hooks_run(self.home, binary))
 
+    def test_memory_status_and_enable_commands(self):
+        # No real agent-brain on PATH, so the managed fake is the one found.
+        with tempfile.TemporaryDirectory(prefix="agentfleet-memory-helper-") as raw, \
+                mock.patch.dict(os.environ, {"PATH": os.defpath}):
+            home = Path(raw)
+            (home / ".claude").mkdir()
+            binary = agent_brain.managed_binary(home)
+            binary.parent.mkdir(parents=True)
+            log = home / "calls.jsonl"
+            binary.write_bytes(fake_binary("0.5.7", log))
+            binary.chmod(0o755)
+            self.assertTrue(agent_brain.memory_active(home))
+            self.assertTrue(agent_brain.enable_memory(home)[0])
+            # The fake logs neither `status` nor `--version`.
+            calls = [json.loads(line)["argv"] for line in log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(calls, [["memory", "enable", "--yes"]])
+            self.assertTrue(agent_brain.disable_memory(home)[0])
+            calls = [json.loads(line)["argv"] for line in log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(calls[-1], ["memory", "disable", "--all"])
+
     def test_find_binary_prefers_path_then_the_standard_folder(self):
         self.assertIsNone(agent_brain.find_binary(self.home))
         self.target.parent.mkdir(parents=True)
@@ -400,6 +423,56 @@ class AgentBrainCliTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         # The choice is not saved, so the wizard and config still offer it.
         self.assertIsNone(agent_brain.provider_catalog.load_preferences(self.home)["agentBrain"])
+
+    def memory_preference(self):
+        return agent_brain.provider_catalog.load_preferences(self.home)["agentBrainLocalMemory"]
+
+    def test_memory_is_off_until_someone_says_yes(self):
+        self.assertIs(self.memory_preference(), False)
+
+    def test_config_memory_on_and_off(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(fake_binary("0.5.7", self.log))
+        self.target.chmod(0o755)
+        result = self.cli("config", "agent-brain-memory", "on")
+        self.assertIn("agent-brain memory is enabled.", result.stdout, result.stderr)
+        self.assertEqual(self.calls(), [["memory", "enable", "--yes"]])
+        self.assertIs(self.memory_preference(), True)
+        # Then the lanes are refreshed; no AgentFleet release is installed here.
+        self.assertIn("No downloaded release found", result.stderr)
+        result = self.cli("config", "agent-brain-memory", "off")
+        self.assertIn("existing entries are kept", result.stdout, result.stderr)
+        self.assertEqual(self.calls()[-1], ["memory", "disable", "--all"])
+        self.assertIs(self.memory_preference(), False)
+
+    def test_config_memory_on_updates_an_old_managed_copy_first(self):
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(fake_binary("0.5.6", self.log))
+        self.target.chmod(0o755)
+        self.server.publish_binary("0.5.7", fake_binary("0.5.7", self.log))
+        result = self.cli("config", "agent-brain-memory", "on")
+        self.assertIn("agent-brain memory is enabled.", result.stdout, result.stderr)
+        self.assertEqual(self.target.read_bytes(), fake_binary("0.5.7", self.log))
+        self.assertEqual(self.calls(), [["memory", "enable", "--yes"]])
+
+    def test_config_memory_on_leaves_an_old_copy_it_did_not_install(self):
+        other = self.root / "other-bin"
+        other.mkdir()
+        old = other / "agent-brain"
+        old.write_bytes(fake_binary("0.5.6", self.log))
+        old.chmod(0o755)
+        result = self.cli("config", "agent-brain-memory", "on", PATH=str(other) + os.pathsep + self.env["PATH"])
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("older than 0.5.7", result.stderr)
+        self.assertEqual(old.read_bytes(), fake_binary("0.5.6", self.log))
+        self.assertEqual(self.calls(), [])
+        self.assertIs(self.memory_preference(), False)
+
+    def test_config_memory_on_without_agent_brain(self):
+        result = self.cli("config", "agent-brain-memory", "on")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("agent-brain is not installed", result.stderr)
+        self.assertIs(self.memory_preference(), False)
 
     def hook(self, **extra: str):
         return self.cli("auto-update", "--hook", AGENTFLEET_AUTO_UPDATE_SYNC="1", **extra)

@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.10.1] - 2026-10-20
+
+### Added
+
+- A setup question, asked once: "Turn on agent-brain memory?" (default no, like agent-brain's own consent prompt, since AgentFleet answers that prompt for you). agent-brain 0.5.7 makes personal memory free and local, with no account. A yes runs `agent-brain memory enable --yes`, first updating the agent-brain AgentFleet installed when it is older than 0.5.7; an older copy from a package manager is left alone, with a message saying how to update it. If memory can't be turned on, the question comes back next time. New installs are asked when agent-brain is installed or connected; existing users are asked on their next interactive update. Background auto-updates never ask, and pressing Enter or using `--yes` leaves memory off, because memory needs a yes. It is skipped when memory is already on; a preset can turn memory on or off.
+- `agentfleet config agent-brain-memory on|off`. Off runs `agent-brain memory disable --all`; existing memories are kept. Both update the lanes.
+
+### Changed
+
+- Lanes get the `memory_search` tool and the memory instruction only when agent-brain memory is on. Before, they got them whenever agent-brain was connected, so lanes on a machine without memory spent calls on a tool that could only fail. Fleet maps written by older versions keep the previous behaviour until the next update.
+
 ## [2.10.0] - 2026-10-19
 
 ### Added

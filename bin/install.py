@@ -2437,6 +2437,15 @@ MEMORY_LIFECYCLE = " Search project memory when it helps; it may be unavailable,
 MEMORY_ANCHOR = "avoid delegated handoff writes."
 
 
+def lanes_get_memory(fleet: dict) -> bool:
+    """Whether lanes carry agent-brain's memory search tool, as in the
+    generator. Maps written before 2.10.1 have no agentBrainMemory and keep
+    the connection as the signal."""
+    integrations = fleet.get("integrations") or {}
+    memory = integrations.get("agentBrainMemory")
+    return integrations.get("agentBrain") is True and (memory if isinstance(memory, bool) else True)
+
+
 def agent_for_profile(
     source: bytes,
     model: str,
@@ -3473,9 +3482,12 @@ def profile_data(
     """
     template = load_json(bundle / "config/settings.template.json", "settings template")
     fleet_source = load_json(bundle / "config/delegate-fleet.json", "fleet configuration")
-    fleet_source.setdefault("integrations", {})["agentBrain"] = (
+    integrations = fleet_source.setdefault("integrations", {})
+    integrations["agentBrain"] = (
         agent_brain_preference is not False and agent_brain.find_binary(home) is not None
     )
+    # Lanes get the memory search tool only while agent-brain memory is on.
+    integrations["agentBrainMemory"] = integrations["agentBrain"] and agent_brain.memory_active(home)
     note = ""
     installed = carry_from if carry_from is not None else existing_fleet_map(home, config_root)
     if gateway_mode:
@@ -3844,7 +3856,7 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             fleet_hash,
             old_models,
             fleet.get("lanes", {}).get(lane, {}).get("fallbacks"),
-            agent_brain=(fleet.get("integrations") or {}).get("agentBrain") is True,
+            agent_brain=lanes_get_memory(fleet),
             effort=fleet.get("lanes", {}).get(lane, {}).get("preferredEffort"),
         )
     bundle_lanes = set(load_json(bundle / "config/delegate-fleet.json", "fleet configuration").get("lanes", {}))

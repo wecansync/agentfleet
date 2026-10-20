@@ -213,12 +213,14 @@ REVIEWER_ACCESS = ("full", "run", "read-only")
 WORK_STYLES = ("direct", "balanced", "fleet")
 # agentBrain None means "wire agent-brain when its CLI is on PATH", the
 # behaviour before 2.4.0; True or False is the user's explicit choice.
+# agentBrainLocalMemory is True only after someone said yes to memory, which
+# needs consent; the setup question merely suggests yes.
 # askFirst keeps the policy's "How to approach a task" section: investigate
 # and agree on the approach before large, unclear or risky work.
 # branchCheck keeps the "Check the branch before changing files" section.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
-                       "workStyle": "balanced", "agentBrain": None, "askFirst": True, "branchCheck": True,
-                       "prices": {}}
+                       "workStyle": "balanced", "agentBrain": None, "agentBrainLocalMemory": False,
+                       "askFirst": True, "branchCheck": True, "prices": {}}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
@@ -382,6 +384,8 @@ def load_preferences(home: Path) -> dict:
         preferences["workStyle"] = raw["workStyle"]
     if isinstance(raw.get("agentBrain"), bool):
         preferences["agentBrain"] = raw["agentBrain"]
+    if isinstance(raw.get("agentBrainLocalMemory"), bool):
+        preferences["agentBrainLocalMemory"] = raw["agentBrainLocalMemory"]
     if isinstance(raw.get("askFirst"), bool):
         preferences["askFirst"] = raw["askFirst"]
     if isinstance(raw.get("branchCheck"), bool):
@@ -404,6 +408,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError(f"workStyle must be one of {', '.join(WORK_STYLES)}")
         if key == "agentBrain" and not isinstance(value, bool):
             raise ValueError("agentBrain must be true or false")
+        if key == "agentBrainLocalMemory" and not isinstance(value, bool):
+            raise ValueError("agentBrainLocalMemory must be true or false")
         if key == "askFirst" and not isinstance(value, bool):
             raise ValueError("askFirst must be true or false")
         if key == "branchCheck" and not isinstance(value, bool):

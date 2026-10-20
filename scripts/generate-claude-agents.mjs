@@ -540,7 +540,8 @@ function laneRole(lane, config) {
 
 const memoryTools = "mcp__agent-brain-memory__memory_search";
 // The optional agent-brain memory integration is recorded in the fleet map by
-// the installer (integrations.agentBrain) rather than detected here, because
+// the installer (integrations.agentBrain, and from 2.10.1
+// integrations.agentBrainMemory) rather than detected here, because
 // hooks run with a different PATH than the installer did. Without it, agents
 // carry neither the memory tool nor the memory instruction. Lanes only search
 // memory: saving is the main agent's job, which keeps a lane run to its task.
@@ -812,7 +813,12 @@ if (fleet.version !== "delegate-fleet.v1" || !fleet.lanes || typeof fleet.lanes 
   fail(`${fleetPath} is not a delegate-fleet.v1 map`);
 }
 const picker = new Map((settings.modelPicker?.options || []).map((row) => [row.model, row]));
-const agentBrain = fleet.integrations?.agentBrain === true;
+// Lanes get the memory search tool only while agent-brain memory is on. Maps
+// written before 2.10.1 have no agentBrainMemory and keep the connection as
+// the signal.
+const agentBrainMemory = fleet.integrations?.agentBrainMemory;
+const agentBrain = fleet.integrations?.agentBrain === true &&
+  (typeof agentBrainMemory === "boolean" ? agentBrainMemory : true);
 if (picker.size === 0) fail(`${settingsPath} has no modelPicker options`);
 
 const laneNamePattern = /^[a-z0-9][a-z0-9-]*$/;
