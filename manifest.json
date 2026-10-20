@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.10.1",
+  "version": "2.10.2",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "aafc1d26952cd92982287bc46ebaf70385531e1edd65b0a3f3edae4ce160e7e2",
+      "sha256": "b2aeadcddf096f65f869f5b7066de91f19f642860c6eb731ee033c71a6f1951e",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "e42e5f088158f668c1301f80a95aa0789a251860795e3f7551e9ef4db6a48528",
+      "sha256": "f5177372994cb845328fcb3b4e8da51c6e1c1772d31f247b9f54e0b1523dab3e",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "d12baae7db73730500abbed9720ecff513f402e94b63f39118b14f2dd4b12df3",
+      "sha256": "84f27c707b57cc7e76deafc6b146d42a740d60aaff92934a40c23307ecac8ab2",
       "mode": "0o644"
     },
     {
@@ -139,12 +139,12 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "5093daf6e9ddc7c631980c25b2d16d442b6620dfc5908b8a5e06b7d92a933096",
+      "sha256": "62e427e51d8f7f8c54d06485cfeafc6f086409cfb95554e677d8f266e24576c2",
       "mode": "0o755"
     },
     {
       "path": "bin/claude-agents-doctor",
-      "sha256": "d836a51f883e9957101e90142e3a79f184e58c3a2505b3a6129c9b2a0c866f3d",
+      "sha256": "c8808670206f2828a5af79d8df21937be1251894bf96ef6fa47e5e8ae19ad405",
       "mode": "0o755"
     },
     {
@@ -159,7 +159,7 @@
     },
     {
       "path": "bin/install.py",
-      "sha256": "c06d95725e6942d0461a9839e321a9f6afc55ae4a87d61c9a2f8994b6921c63f",
+      "sha256": "3dfa059bf65ac2851835bb4d5a24903cd07488b3bb505fec133e4dff603f431d",
       "mode": "0o755"
     },
     {
@@ -479,7 +479,7 @@
     },
     {
       "path": "scripts/context_mode.py",
-      "sha256": "f5f05eedd6e51a76643d206cca8240f0a4c9019db3b522f137c3b0936e55f388",
+      "sha256": "075dd7b43316120f07545633abff2bc95b5ca659766a2757c1dce9cbbef75efb",
       "mode": "0o644"
     },
     {
@@ -579,12 +579,17 @@
     },
     {
       "path": "tests/test_context_mode.py",
-      "sha256": "8c00bd5a8dd0ccc33555335dbb453c424ba01bf84bc984517b0db57db02088b2",
+      "sha256": "95287884035d811b06a9b2df756e2edba835b2367a2d51162c69a933ee91aa8a",
       "mode": "0o644"
     },
     {
       "path": "tests/test_fleet_watch.py",
       "sha256": "987a43d56462239ad490644cb0056a9ea225ba223461f6e8c422bbf0b38b457a",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/test_hook_runtime.py",
+      "sha256": "d01aab21ea49d323063982a85ff58107e3077b8cb4b6836cf5a57f7adcd1155b",
       "mode": "0o644"
     },
     {

@@ -796,7 +796,11 @@ def node_path(require: bool = False) -> Path | None:
         if require:
             fail("Node.js >=18 is required when model discovery or fleet sync is enabled")
         return None
-    path = Path(candidate).resolve(strict=False)
+    # Keep the PATH entry rather than resolving links: hooks pin this path,
+    # and a link such as Homebrew's /opt/homebrew/bin/node survives an
+    # upgrade that deletes the versioned binary it points to. absolute() keeps
+    # ".." as is, which abspath would fold away wrongly after a link.
+    path = Path(candidate).absolute()
     try:
         result = subprocess.run([str(path), "--version"], text=True, capture_output=True, check=False)
     except OSError:
@@ -3448,9 +3452,12 @@ def print_plan(specs: dict[Path, tuple[bytes, int, str]], conflicts: list[Path],
             print(f"  {path}", file=sys.stderr)
 
 
-def run_doctor(bundle: Path | None, home: Path, config_root: Path, bin_dir: Path, profile: str | None = None) -> int:
+def run_doctor(bundle: Path | None, home: Path, config_root: Path, bin_dir: Path, profile: str | None = None,
+               check_runtimes: bool = True) -> int:
     doctor = bundle / "bin" / "claude-agents-doctor" if bundle else home / ".claude" / "claude-agents-doctor.py"
     command = [sys.executable, str(doctor), "--check", "--home", str(home), "--prefix", str(bin_dir.parent), "--config-home", str(config_root)]
+    if not check_runtimes:
+        command.append("--skip-hook-runtimes")
     if bundle:
         command += ["--bundle", str(bundle)]
     if profile:
@@ -3946,7 +3953,9 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             )
             if result.returncode != 0:
                 raise InstallerError(f"rendering lane agents failed: {(result.stderr or result.stdout).strip()}")
-        result = run_doctor(bundle, home, config_root, bin_dir, profile)
+        # A hook the user edited keeps its interpreter, so a missing one must
+        # not fail every update; `agentfleet doctor` still reports it.
+        result = run_doctor(bundle, home, config_root, bin_dir, profile, check_runtimes=False)
         if result != 0:
             raise InstallerError(f"post-install doctor failed with exit code {result}")
     except (Exception, SystemExit) as exc:

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -509,7 +510,59 @@ def validate_policy_files(home: Path, errors: list[str]) -> None:
             fail(errors, f"installed policy mode mismatch: {path} expected 0o644, found {oct(stat.S_IMODE(path.stat().st_mode))}")
 
 
-def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str], profile: str | None) -> None:
+# The installer ends each hook it owns with this comment (install.py hook_marker).
+OWNED_HOOK = re.compile(r"\s#\s*" + re.escape(MARKER) + r"([A-Za-z0-9_-]+)\s*$")
+
+
+def hook_interpreter(command: str) -> str | None:
+    """First word of a hook command: Windows quotes every part, POSIX uses sh quoting."""
+    text = OWNED_HOOK.sub("", command).strip()
+    if os.name == "nt":
+        if not text.startswith('"'):
+            return text.split(" ", 1)[0] or None
+        end = text.find('"', 1)
+        return text[1:end] if end > 1 else None
+    try:
+        parts = shlex.split(text)
+    except ValueError:
+        return None
+    return parts[0] if parts else None
+
+
+def check_hook_interpreters(settings: dict, errors: list[str]) -> None:
+    """The installer pins each hook's Node or Python; report one that has since been removed."""
+    commands = []
+    hooks = settings.get("hooks")
+    for groups in hooks.values() if isinstance(hooks, dict) else []:
+        for group in groups if isinstance(groups, list) else []:
+            entries = group.get("hooks") if isinstance(group, dict) else None
+            for hook in entries if isinstance(entries, list) else []:
+                if isinstance(hook, dict) and isinstance(hook.get("command"), str):
+                    commands.append(hook["command"])
+    status_line = settings.get("statusLine")
+    if isinstance(status_line, dict) and isinstance(status_line.get("command"), str):
+        commands.append(status_line["command"])
+    reported = set()
+    for command in commands:
+        owned = OWNED_HOOK.search(command)
+        if not owned:
+            continue
+        kind = owned.group(1)
+        runtime = hook_interpreter(command)
+        if not runtime or not Path(runtime).is_absolute() or Path(runtime).is_file() or (kind, runtime) in reported:
+            continue
+        reported.add((kind, runtime))
+        if Path(runtime).name.lower().startswith("node"):
+            fix = "run agentfleet update to use the Node.js now on your PATH (if you edited this hook, fix its path yourself)"
+        else:
+            # The agentfleet launcher pins the same Python, so only a fresh install repairs it.
+            fix = ("reinstall AgentFleet: curl -fsSL https://agentfleet.wecansync.com/install.sh | sh "
+                   "(Windows: irm https://agentfleet.wecansync.com/install.ps1 | iex)")
+        fail(errors, f"{kind} hook runs {runtime}, which no longer exists; {fix}")
+
+
+def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str], profile: str | None,
+                 check_runtimes: bool = True) -> None:
     manifest = installed_manifest(home, errors)
     check_installed_records(home, config_root, bin_dir, errors, manifest)
     validate_policy_files(home, errors)
@@ -558,6 +611,8 @@ def check_target(home: Path, config_root: Path, bin_dir: Path, errors: list[str]
     live_env = settings.get("env") if isinstance(settings, dict) and isinstance(settings.get("env"), dict) else {}
     inferred = "gateway" if live_env.get("ANTHROPIC_BASE_URL") and live_env.get("ANTHROPIC_AUTH_TOKEN") else ("direct-anthropic" if metadata else None)
     effective_profile = profile or inferred
+    if check_runtimes and isinstance(settings, dict):
+        check_hook_interpreters(settings, errors)
     if settings is not None and fleet is not None:
         validate_fleet_and_picker(fleet, settings, errors, "installed", effective_profile)
         env = settings.get("env")
@@ -660,6 +715,7 @@ def main() -> int:
     parser.add_argument("--config-home", help="configuration root")
     parser.add_argument("--bundle", help="bundle root; optional when checking an installed tree")
     parser.add_argument("--profile", choices=("direct-anthropic", "gateway"), help="expected installed profile")
+    parser.add_argument("--skip-hook-runtimes", action="store_true", help="do not check that hook interpreters still exist (the installer's own run)")
     args = parser.parse_args()
     if not args.check:
         parser.error("--check is required")
@@ -675,7 +731,7 @@ def main() -> int:
     # is explicitly supplied or when the installed verification manifest exists.
     target_requested = bool(args.home or args.prefix or args.config_home)
     if target_requested or (home / ".claude" / ".claude-agents-config-manifest.json").exists():
-        check_target(home, config_root, bin_dir, errors, args.profile)
+        check_target(home, config_root, bin_dir, errors, args.profile, check_runtimes=not args.skip_hook_runtimes)
     if errors:
         print(f"claude-agents-doctor: FAIL ({len(errors)} issue(s))", file=sys.stderr)
         for error in errors:
