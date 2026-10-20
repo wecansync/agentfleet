@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.10.2** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.11.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -54,7 +54,9 @@ state; `status` reports the user installation, not every session's effective pol
 Use it initially in the main conversation for large logs, documentation and
 MCP-heavy work. With lane-guard enabled, lanes may use Context Mode's search and
 stats tools only; execution, indexing, fetching, upgrades, deletion and unknown
-Context Mode tools are blocked. Use native tools in lanes. Without lane-guard,
+Context Mode tools are blocked. Use native tools in lanes; from lane-guard 1.4.0
+the block message names the one to use instead (Read, Grep, Glob or Bash), so a
+lane does not spend turns retrying. Without lane-guard,
 AgentFleet cannot enforce this boundary. Do not grant Context Mode execution
 tools to a lane as a workaround.
 
@@ -545,6 +547,7 @@ agentfleet config learn on|off                       # command usage learning (n
 agentfleet config agent-brain on|off                 # install and connect agent-brain, or disconnect it
 agentfleet config agent-brain-memory on|off          # agent-brain memory on this machine (off until you say yes)
 agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]  # model prices for estimated cost (default: none)
+agentfleet config provider-usage on|off              # read the spend and limits your gateway reports (default: on)
 ```
 
 Restart Claude Code after changing the work style, ask-first or branch-check.
@@ -824,17 +827,19 @@ your user permissions and are not sandboxed.
 
 ### Installed by default
 
-- **fleet-status** (v1.4.0): displays an advisory band above the prompt when
+- **fleet-status** (v1.6.0): displays an advisory band above the prompt when
   action is needed: restart after an update, inspect a failed update, review
   missing models or proposals with `/fleet-setup`, dispatch a fallback for a
-  failing lane, or review suggestions with `/fleet-suggest`. The band has a
+  failing lane, or review suggestions with `/fleet-suggest`. From 1.6.0 it also
+  warns when a Claude subscription's 5-hour or weekly limit passes 80%, and shows
+  [your gateway's](#reported-by-your-gateway) budget and limit warnings. The band has a
   Hide button. `/fleet-status` prints version, active profile ("not recorded"
   if absent), `Work style: …`, auto-update state ("enabled (default)" if
   unconfigured), model proposals, auto-compact percentage, reviewer access level, learning state,
   active outages, project suggestions, a JEV stats line, and `Options: all reviewed`
   or `Options: N new (run agentfleet configure)`; from 1.4.0 the count includes
   the work style, ask-first, token-weather and agent-brain options, and from
-  1.5.1 the agent-brain install option. The band
+  1.5.1 the agent-brain install option, and from 1.6.0 the agent-brain memory question. The band
   also names a lane that failed over to another of its models. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
@@ -860,7 +865,9 @@ your user permissions and are not sandboxed.
   token usage and, when agent-brain memory is active for the project, the project's
   memories, critical ones first (↑/↓ to move, Enter to read one in full, Esc to close).
   With [model prices](#usage-and-estimated-cost) set, it also shows this week's
-  estimated cost for the main conversation and lanes. On by default from 2.7.0; an update adds it once and never re-adds it after you
+  estimated cost for the main conversation and lanes. When your gateway reports
+  its own figures, it shows those instead: this session's cost, the month and the
+  budget left, labelled as reported by your gateway. On by default from 2.7.0; an update adds it once and never re-adds it after you
   remove it. Turn it off with `/plugin`.
 
 ### Optional mods
@@ -958,9 +965,10 @@ AgentFleet also adds up the main conversation's tokens per model and day in `~/.
 
 - **Per lane and per model:** runs, outcomes (done, partial, blocked, failed, cut off, none), API errors, average tool calls and duration, and tokens.
 - **Main conversation:** tokens per model.
-- **Estimated cost:** only when you have set prices.
+- **Estimated cost:** only when prices are known.
+- **Reported by gateway:** what your gateway itself reports, when it has a usage endpoint (see below).
 
-Model catalogs list no prices, so cost needs your own price table, in dollars per million tokens (the numbers below are examples):
+Prices come from two places. A gateway that publishes prices in its model list, in OpenRouter's `pricing` format, is priced automatically. Otherwise, or to override a published price, set your own table, in dollars per million tokens (the numbers below are examples):
 
 ```bash
 agentfleet config prices                                       # show the table
@@ -970,7 +978,27 @@ agentfleet config prices codex-luna=off                        # remove one mode
 agentfleet config prices off                                   # remove all prices
 ```
 
-A team preset can carry the same table (see [Preferences and configuration](#preferences-and-configuration)). With prices set, `agentfleet report` and `/brain` show an estimated cost, labelled as an estimate. It counts tokens at your prices; it is not a bill, and gateway discounts, batch pricing or subscription plans are not reflected. A model without a price is named and left out of the total, and cache tokens of a model without cache prices are noted as not priced. A gateway can record a model under its own name, for example `codex-luna` as `gpt-6-luna`; `agentfleet report` lists the names it recorded, so price those. Names match ignoring case, a `[1m]` suffix, and the difference between `.`, `-` and `_`, so a price for `claude-opus-5.5` also covers `claude-opus-5-5`.
+A team preset can carry the same table (see [Preferences and configuration](#preferences-and-configuration)). With prices set, `agentfleet report` and `/brain` show an estimated cost, labelled as an estimate. It counts tokens at your prices; it is not a bill, and gateway discounts, batch pricing or subscription plans are not reflected. A model without a price is named and left out of the total, and cache tokens of a model without cache prices are noted as not priced. A gateway can record a model under its own name, for example `codex-luna` as `gpt-6-luna`; `agentfleet report` lists the names it recorded, so price those. Names match ignoring case, a `[1m]` suffix, and the difference between `.`, `-` and `_`, so a price for `claude-opus-5.5` also covers `claude-opus-5-5`. From 2.11.0 each lane run also records the model it was configured to use, and is priced by that name first, so a price for `codex-luna` covers its runs even when the gateway records them as `gpt-6-luna`. Your own prices win over published ones, model by model.
+
+### Reported by your gateway
+
+Some gateways report spend and limits for the key you use. On a gateway profile, AgentFleet tries three formats once and remembers the one that answers:
+
+- **OmniRoute:** `/v1/me/status` and `/v1/me/sessions` (the key needs the `self:usage` scope).
+- **OpenRouter:** `/api/v1/key`.
+- **LiteLLM:** `/key/info`.
+
+If none answers, it tries again a day later. Claude subscription profiles are skipped.
+
+The prompt hook refreshes the figures in the background, at most every 5 minutes, so prompts never wait on the gateway. They are saved to `~/.claude/agentfleet/provider-usage.json`, readable only by you. The key goes only to the profile's own gateway URL, the same one Claude Code sends it to; redirects are refused and responses are size-capped.
+
+- **`agentfleet report`** shows a "Reported by gateway" section: the last session the prompt hook checked, today, the week and the month, the budget left, each limit's use, and the number of requests the gateway could not price.
+- **`/brain`** shows this session's cost as the gateway reports it, labelled as such, instead of the estimate.
+- **The fleet-status band** warns when a budget or limit passes 80%, or when all of a provider's accounts are exhausted, with the reset time.
+
+`agentfleet config provider-usage off` stops the requests and hides the section. AgentFleet never moves lanes to other models because of these figures; the gateway's own routing and AgentFleet's [outage handling](#outages-and-lane-reports) cover failures.
+
+**Claude subscription:** the band warns when the 5-hour or weekly limit passes 80%, using the figures Claude Code gives its status line. Hiding the band holds until use rises another 5%.
 
 ---
 
@@ -997,6 +1025,7 @@ The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current rep
 - **Outages, reports, and suggestions**: Outage records (`outages.json`), subagent execution logs (`lane-reports.jsonl`), and suggestions metadata stay completely local to your machine.
 - **Instruction check**: `agentfleet instructions` sends the text of your instruction files to your model provider through one Claude Code run, as Claude Code already does each session. It runs only when you ask for it or accept it in the wizard.
 - **Usage learning**: On by default for new installs; existing settings are preserved. It records only sanitized command names, tool identifiers, documentation sites, and slash commands without prompt text in `~/.claude/agentfleet/usage/`. Disable with `agentfleet config learn off`; erase with `agentfleet suggest --forget`.
+- **Gateway usage**: On a gateway profile, AgentFleet asks the gateway for the spend and limits of your key, using the same URL and key Claude Code already sends requests to, and saves the figures locally in `~/.claude/agentfleet/provider-usage.json` (mode 0600). Disable with `agentfleet config provider-usage off`. See [Reported by your gateway](#reported-by-your-gateway).
 - **Local mod safety**: `fleet-status` and `lane-guard` run locally, access no external network, and never read `settings.json`, profiles, or secrets.
 - **Optional JEV egress**: The opt-in `fast-jev-compaction` mod transmits main-conversation message text and tool inputs to `api.typesafe.ai` when compaction occurs, with tool results replaced by summary notes. API keys are loaded from `/plugin` or `TYPESAFE_API_KEY`; the configuration wizard can store that variable in the settings environment with hidden input. Preset exports and JEV stats never contain the key.
 

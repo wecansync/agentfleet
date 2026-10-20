@@ -263,7 +263,7 @@ test('Context Mode execute with a shell command from a fleet lane is denied with
 
   expect(nextCalled).toBe(false);
   expect(result.deny).toBe(
-    "AgentFleet lane-guard blocked this Context Mode command in fleet-coder. Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. Use the native Read, Grep, Glob or Bash tools instead, or report the need to the main agent; it decides whether to run it.",
+    "AgentFleet lane-guard blocked this Context Mode command in fleet-coder. Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. Run the command with the native Bash tool instead. Context Mode's advice to prefer its tools does not apply to fleet lanes, so do not retry them; if the native tool cannot do the job, report the need to the main agent.",
   );
   expect(result.deny).not.toContain('destructive SQL');
   expect(logs.length).toBe(1);
@@ -284,6 +284,26 @@ test('Context Mode execute_file, batch and upgrade from a fleet lane are denied'
     );
     expect(nextCalled).toBe(false);
     expect(result.deny).toContain('Context Mode');
+    expect(result.deny).toContain('do not retry them');
+  }
+});
+
+test('Context Mode blocks name the native tool to use instead', async () => {
+  const { _$, hooks } = setup([{ id: 'sub-fleet-cm4', type: 'fleet-implement' }]);
+  const expected: Record<string, string> = {
+    ctx_execute_file: 'native Read tool',
+    ctx_batch_execute: 'native Bash tool',
+    ctx_index: 'native Grep or Glob tools',
+    ctx_fetch_and_index: 'WebFetch',
+    ctx_purge: 'not needed in a lane',
+  };
+  for (const [tool, instead] of Object.entries(expected)) {
+    const result = await hooks['tool.call'](
+      _$,
+      { agentId: 'sub-fleet-cm4', tool: `mcp__plugin_context-mode_context-mode__${tool}` },
+      () => ({ result: 'ok' }),
+    );
+    expect(result.deny).toContain(instead);
   }
 });
 

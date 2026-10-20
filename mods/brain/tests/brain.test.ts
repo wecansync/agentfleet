@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import type { CoreEngineInterface, McpToolResult, On, RenderPropsOf } from 'claude-code'
-import { compactNumber, costWindowStart, estimateCost, fallbackText, formatCostLine, formatUsage, loadBrain, loadCostData, mergeMemories, parseLaneRows, parseMainUsage, parseMemoryPage, parsePrices, splitMemories, type CostData } from '../hooks/brain'
+import { compactNumber, costWindowStart, estimateCost, fallbackText, formatCostLine, formatGatewayLine, formatUsage, loadBrain, loadCostData, mergeMemories, mergePrices, parseGatewayUsage, parseLaneRows, parseMainUsage, parseMemoryPage, parsePrices, splitMemories, type CostData } from '../hooks/brain'
 
 const noData = JSON.stringify({ session: null,
   today: { since: '2026-10-15', sessions: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0 },
@@ -377,6 +377,76 @@ test('loadBrain appends the cost line after This week, using week.since, and sur
   expect(view.usage[3]).toBe('Est. cost:    $76.00 this week (main $71.00, lanes $5.00); no price for codex-luna')
   expect(fallbackText(view)).toContain(view.usage[3]!)
   expect((await loadBrain(engine({}))).usage).toHaveLength(3)
+})
+
+const publishedPrices = JSON.stringify({ format: 'agentfleet.published-prices.v1', prices: {
+  'claude-opus-5-5': { input: 99, output: 99 },
+  'gpt-6-luna': { input: 1, output: 1 },
+} })
+
+test("published prices fill gaps; the user's own prices win by model", () => {
+  const merged = mergePrices(parsePrices(costConfig), publishedPrices)
+  expect(merged.get('claude-opus-5.5')?.input).toBe(10)
+  expect(merged.has('claude-opus-5-5')).toBe(false)
+  expect(merged.get('gpt-6-luna')).toEqual({ input: 1, output: 1 })
+  expect(mergePrices(parsePrices('{}'), JSON.stringify({ prices: { x: { input: 1, output: 1 } } })).size).toBe(0)
+  expect(mergePrices(parsePrices(costConfig), null).size).toBe(2)
+})
+
+test('published prices alone are enough for a cost line', async () => {
+  const data = await loadCostData(costFiles({
+    'agentfleet/published-prices.json': publishedPrices,
+    'agentfleet/lane-reports.jsonl': laneRow('2026-10-15T00:00:00Z', 'gpt-6-luna', 2_000_000, 1_000_000),
+  }))
+  expect(formatCostLine(estimateCost(data!, Date.parse('2026-10-12')))).toBe('Est. cost:    $3.00 this week (main $0.00, lanes $3.00)')
+})
+
+const GATEWAY_NOW = Date.parse('2026-10-19T12:00:00Z')
+const gatewayUsage = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+  format: 'agentfleet.provider-usage.v1',
+  reader: 'omniroute',
+  fetchedAt: '2026-10-19T11:58:00Z',
+  usage: {
+    spend: { month: { usd: 51.75, label: 'month' }, today: { usd: 0 } },
+    budget: { limitUsd: 200, usedUsd: 51.75, remainingUsd: 148.25 },
+  },
+  sessions: { 'session-1': { usd: null, listUsd: 391.2, unpriced: 3, fetchedAt: '2026-10-19T11:58:00Z' } },
+  ...overrides,
+})
+
+test('the gateway line shows the session, month and budget left, labelled as reported', () => {
+  expect(formatGatewayLine(parseGatewayUsage(gatewayUsage(), 'session-1', GATEWAY_NOW))).toBe(
+    'Gateway:      $391.20 this session at list price, $51.75 this month, $148.25 of $200.00 budget left (reported by your gateway); 3 requests without a price')
+  const actual = gatewayUsage({ sessions: { 'session-1': { usd: 12.5, listUsd: 40, unpriced: 0, fetchedAt: '2026-10-19T11:58:00Z' } } })
+  expect(formatGatewayLine(parseGatewayUsage(actual, 'session-1', GATEWAY_NOW))).toBe(
+    'Gateway:      $12.50 this session, $51.75 this month, $148.25 of $200.00 budget left (reported by your gateway)')
+  expect(formatGatewayLine(parseGatewayUsage(gatewayUsage(), 'other-session', GATEWAY_NOW))).toBe(
+    'Gateway:      $51.75 this month, $148.25 of $200.00 budget left (reported by your gateway)')
+  const litellm = gatewayUsage({ reader: 'litellm', sessions: {}, usage: { spend: { period: { usd: 7, label: '30d' } }, budget: null } })
+  expect(formatGatewayLine(parseGatewayUsage(litellm, 'session-1', GATEWAY_NOW))).toBe('Gateway:      $7.00 (30d) (reported by your gateway)')
+})
+
+test('old, undetected or foreign gateway files show nothing', () => {
+  expect(parseGatewayUsage(gatewayUsage({ fetchedAt: '2026-10-19T10:00:00Z' }), 'session-1', GATEWAY_NOW)).toBeNull()
+  expect(parseGatewayUsage(gatewayUsage({ reader: null }), 'session-1', GATEWAY_NOW)).toBeNull()
+  expect(parseGatewayUsage(gatewayUsage({ format: 'other' }), 'session-1', GATEWAY_NOW)).toBeNull()
+  expect(parseGatewayUsage(gatewayUsage({ usage: null, sessions: {} }), 'session-1', GATEWAY_NOW)).toBeNull()
+  expect(parseGatewayUsage('not json', 'session-1', GATEWAY_NOW)).toBeNull()
+  expect(formatGatewayLine(null)).toBeNull()
+})
+
+test("loadBrain shows the gateway's figures in place of the estimate", async () => {
+  const engine = {
+    ...costFiles({ 'agentfleet/config.json': costConfig, 'agentfleet/provider-usage.json': gatewayUsage() }),
+    session: { id: async () => 'session-1' },
+    clock: { now: () => GATEWAY_NOW, after: () => ({ cancel: () => undefined }) },
+    mcp: { call: async (_server: string, tool: string) => tool === 'usage_stats'
+      ? { content: [{ type: 'text', text: JSON.stringify(stats) }], isError: false }
+      : { content: [{ type: 'text', text: 'no memories for this project' }], isError: true } },
+  } as unknown as CoreEngineInterface
+  const view = await loadBrain(engine)
+  expect(view.usage[3]).toStartWith('Gateway:      $391.20 this session at list price')
+  expect(view.usage.some(line => line.startsWith('Est. cost:'))).toBe(false)
 })
 
 test('without week.since the window is the last 7 days by an async clock', async () => {

@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.10.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 20, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.11.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 20, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -431,19 +431,27 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.10.2</span>
+        <span class="release-version" data-latest-version>v2.11.0</span>
         <span class="release-date" data-latest-date>October 20, 2026</span>
       </div>
-      <p>Hooks that keep working after a Node.js upgrade.</p>
+      <p>See what your gateway reports you spent, and get warned before you hit a limit.</p>
       <ul class="release-list">
-        <li>Hooks now use the Node.js path on your PATH, such as Homebrew's <code class="il">/opt/homebrew/bin/node</code>, instead of the versioned folder behind it, which an upgrade deletes.</li>
-        <li><code class="il">agentfleet doctor</code> reports a hook whose Node.js or Python no longer exists, and how to fix it.</li>
-        <li><code class="il">agentfleet config context-mode on|off</code> succeeds when Context Mode is already in that state, and checks the Node.js Context Mode actually runs before enabling it.</li>
+        <li>On OmniRoute, OpenRouter and LiteLLM gateways, <code class="il">agentfleet report</code> and <code class="il">/brain</code> show the spend, budget and limits the gateway reports for your key.</li>
+        <li>The status band warns when a budget or limit passes 80%, when a provider's accounts are exhausted, and when a Claude subscription's 5-hour or weekly limit passes 80%.</li>
+        <li>Prices a gateway publishes in its model list are used for estimated cost without typing them, and lane runs are priced by the model you configured.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.10.2</span><span class="release-date">October 20, 2026</span><span class="version-summary">Hooks that keep working after a Node.js upgrade.</span></summary>
+        <ul class="release-list">
+          <li>Hooks now use the Node.js path on your PATH, such as Homebrew's <code class="il">/opt/homebrew/bin/node</code>, instead of the versioned folder behind it, which an upgrade deletes.</li>
+          <li><code class="il">agentfleet doctor</code> reports a hook whose Node.js or Python no longer exists, and how to fix it.</li>
+          <li><code class="il">agentfleet config context-mode on|off</code> succeeds when Context Mode is already in that state, and checks the Node.js Context Mode actually runs before enabling it.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.10.1</span><span class="release-date">October 20, 2026</span><span class="version-summary">Free agent-brain memory, on this machine.</span></summary>
         <ul class="release-list">

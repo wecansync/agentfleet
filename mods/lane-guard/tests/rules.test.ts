@@ -109,9 +109,10 @@ for (const server of CONTEXT_MODE_SERVERS) {
   });
 }
 
-test('contextModeForbidden: denial hint names the native tools', () => {
-  const res = contextModeForbidden('mcp__context_mode__ctx_execute');
-  expect(res?.hint).toContain('Read, Grep, Glob or Bash');
+test('contextModeForbidden: denial hint names the native tool for the blocked one', () => {
+  expect(contextModeForbidden('mcp__context_mode__ctx_execute')?.hint).toContain('native Bash tool');
+  expect(contextModeForbidden('mcp__context_mode__ctx_execute_file')?.hint).toContain('native Read tool');
+  expect(contextModeForbidden('mcp__context_mode__ctx_future_tool')?.hint).toContain('not needed in a lane');
 });
 
 test('contextModeForbidden: other servers and look-alike names are not touched', () => {

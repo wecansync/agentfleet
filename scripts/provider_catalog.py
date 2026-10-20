@@ -218,9 +218,11 @@ WORK_STYLES = ("direct", "balanced", "fleet")
 # askFirst keeps the policy's "How to approach a task" section: investigate
 # and agree on the approach before large, unclear or risky work.
 # branchCheck keeps the "Check the branch before changing files" section.
+# providerUsage asks a gateway that reports usage (provider_usage.py) for its
+# spend and limits; it has no effect on any other provider.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
                        "workStyle": "balanced", "agentBrain": None, "agentBrainLocalMemory": False,
-                       "askFirst": True, "branchCheck": True, "prices": {}}
+                       "askFirst": True, "branchCheck": True, "prices": {}, "providerUsage": True}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
@@ -323,6 +325,66 @@ def price_for(prices: dict, model: str) -> dict | None:
     return None
 
 
+def _per_million(value: object) -> float | None:
+    """A per-token USD price, as gateways publish it in the OpenRouter
+    format (a decimal string or a number), in dollars per million tokens.
+    Negative values mean "variable" there and give no price."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return round(number * 1_000_000, 6)
+
+
+def catalog_prices(home: Path) -> dict:
+    """Prices the current gateway publishes in its model list (a `pricing`
+    object per model, USD per token), in dollars per million tokens. Only the
+    catalog cached for the current gateway and key counts, so a profile switch
+    never prices one provider's runs at another's rates."""
+    settings = load_json(home / ".claude" / "settings.json")
+    env = settings.get("env") if isinstance(settings, dict) else None
+    cache = load_json(home / ".claude" / "cache" / "provider-models-cache.json")
+    if not isinstance(env, dict) or not isinstance(cache, dict) or cache.get("format") != CACHE_FORMAT:
+        return {}
+    try:
+        if (cache.get("endpoint") != endpoint_scope(env.get("ANTHROPIC_BASE_URL"))
+                or cache.get("account") != account_scope(env.get("ANTHROPIC_AUTH_TOKEN"))):
+            return {}
+    except CatalogError:
+        return {}
+    prices: dict = {}
+    rows = cache.get("models")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not isinstance(row.get("pricing"), dict) or not _valid_price_model(row.get("id")):
+            continue
+        pricing = row["pricing"]
+        entry = {"input": _per_million(pricing.get("prompt")), "output": _per_million(pricing.get("completion"))}
+        if entry["input"] is None or entry["output"] is None:
+            continue
+        for key, field in (("cacheRead", "input_cache_read"), ("cacheWrite", "input_cache_write")):
+            value = _per_million(pricing.get(field))
+            if value is not None:
+                entry[key] = value
+        prices[row["id"]] = entry
+        if len(prices) >= 500:
+            break
+    return prices
+
+
+def effective_prices(home: Path, preferences: dict | None = None) -> dict:
+    """The prices estimates use: the gateway's published ones, with any the
+    user or a team preset set taking their place model by model."""
+    preferences = preferences if isinstance(preferences, dict) else load_preferences(home)
+    own = preferences.get("prices") if isinstance(preferences.get("prices"), dict) else {}
+    own_keys = {price_key(model) for model in own}
+    published = {model: entry for model, entry in catalog_prices(home).items() if price_key(model) not in own_keys}
+    return {**published, **own}
+
+
 def parse_price_spec(text: str) -> tuple[str, dict | None]:
     """Parse ``MODEL=IN,OUT[,CR,CW]`` or ``MODEL=off``."""
     expected = "expected MODEL=INPUT,OUTPUT or MODEL=INPUT,OUTPUT,CACHE_READ,CACHE_WRITE (dollars per million tokens)"
@@ -390,6 +452,8 @@ def load_preferences(home: Path) -> dict:
         preferences["askFirst"] = raw["askFirst"]
     if isinstance(raw.get("branchCheck"), bool):
         preferences["branchCheck"] = raw["branchCheck"]
+    if isinstance(raw.get("providerUsage"), bool):
+        preferences["providerUsage"] = raw["providerUsage"]
     preferences["prices"] = normalise_prices(raw.get("prices"))
     return preferences
 
@@ -414,6 +478,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError("askFirst must be true or false")
         if key == "branchCheck" and not isinstance(value, bool):
             raise ValueError("branchCheck must be true or false")
+        if key == "providerUsage" and not isinstance(value, bool):
+            raise ValueError("providerUsage must be true or false")
         if key == "prices" and not valid_prices(value):
             raise ValueError("prices must be a table of up to 100 valid model prices")
         if key not in PREFERENCE_DEFAULTS:

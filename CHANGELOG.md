@@ -3,6 +3,25 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.11.0] - 2026-10-20
+
+### Added
+
+- Usage your gateway reports. On a gateway profile, AgentFleet tries three formats once and remembers the one that answers: OmniRoute (`/v1/me/status` and `/v1/me/sessions`), OpenRouter (`/api/v1/key`) and LiteLLM (`/key/info`). The prompt hook refreshes the figures in the background, at most every 5 minutes, into `~/.claude/agentfleet/provider-usage.json` (mode 0600). The key goes only to the profile's own gateway URL; redirects are refused and responses are size-capped. Claude subscription profiles are skipped, and a gateway with none of these formats is tried again a day later. The background reader stops after 17 seconds whatever the gateway does, and figures or prices that belong to another gateway or key are deleted at session start and on each prompt, so a profile switch never shows the previous account's spend.
+- `agentfleet report` has a "Reported by gateway" section: the last session the prompt hook checked, today, the week and the month, the budget left, each limit's use, and the requests the gateway could not price. `/brain` shows this session's cost as the gateway reports it instead of the estimate, labelled as such.
+- The fleet-status band warns when a gateway budget or limit passes 80%, when all of a provider's accounts are exhausted (with the reset time), and when a Claude subscription's 5-hour or weekly limit passes 80%. Hiding a usage warning holds until use rises another 5%.
+- `agentfleet config provider-usage on|off` (default on).
+- Prices a gateway publishes in its model list, in OpenRouter's `pricing` format, are used for estimated cost without setting them. Your own prices and a team preset's still win, model by model.
+
+### Changed
+
+- Lane runs record the model they were configured to use, and estimated cost prices a run by that name first. A price for `codex-luna` now covers its runs even when the gateway records them as `gpt-6-luna`.
+- lane-guard 1.4.0: when it blocks a Context Mode tool in a lane, the message names the native tool to use instead (Read, Grep, Glob or Bash), so the lane does not spend turns retrying.
+
+### Fixed
+
+- The fleet-status options count includes 2.10.1's agent-brain memory question.
+
 ## [2.10.2] - 2026-10-20
 
 ### Fixed

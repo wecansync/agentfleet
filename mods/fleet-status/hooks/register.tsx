@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { CoreEngineInterface, Register, Timer } from 'claude-code'
 import type { FleetState, Snapshot, TasksState } from '../types'
-import { claudeDirectory, notices, snapshotFromSources, summary } from './status'
+import { claudeDirectory, notices, record, snapshotFromSources, summary } from './status'
 import { formatAgents, formatTasks, parseReports, REPORT_LIMIT_BYTES } from './tasks'
 
 export async function readSnapshot($: CoreEngineInterface): Promise<Snapshot> {
@@ -26,9 +26,12 @@ export async function readSnapshot($: CoreEngineInterface): Promise<Snapshot> {
     readSource('agentfleet/suggestions.json'),
     readSource('agentfleet/jev-stats.json'),
     readSource('agentfleet/wizard.json'),
+    readSource('agentfleet/provider-usage.json'),
   ])
   const project = await $.session.root().catch(() => null)
-  return snapshotFromSources(claudeDir, sources, project, await $.clock.now())
+  // Older Claude Code has no usage call; the band then shows no rate limits.
+  const usage = await Promise.resolve().then(() => $.session.usage()).catch(() => null)
+  return snapshotFromSources(claudeDir, sources, project, await $.clock.now(), record(usage)?.rateLimits)
 }
 
 export async function readHidden($: CoreEngineInterface): Promise<string[]> {
