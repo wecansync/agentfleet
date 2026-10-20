@@ -107,10 +107,20 @@ function sanitize(value: string): string {
 export type ModelPrice = { input: number; output: number; cacheRead?: number; cacheWrite?: number }
 export type TokenCounts = { input: number; output: number; cacheRead: number; cacheWrite: number }
 export type LaneRow = TokenCounts & { at: number; model: string }
+export type GatewayFigures = {
+  sessionUsd: number | null
+  sessionListUsd: number | null
+  sessionUnpriced: number | null
+  periodUsd: number | null
+  periodLabel: string
+  budgetRemaining: number | null
+  budgetLimit: number | null
+}
 export type CostData = {
   prices: Map<string, ModelPrice>
   main: Map<string, Map<string, TokenCounts>>
   lanes: LaneRow[]
+  gateway?: GatewayFigures | null
 }
 export type CostEstimate = {
   total: number
@@ -123,6 +133,11 @@ export type CostEstimate = {
 const COST_FILE_LIMIT_BYTES = 1024 * 1024
 const WEEK_MS = 7 * 86_400_000
 const MAX_UNPRICED_NAMES = 4
+const PUBLISHED_PRICES_FORMAT = 'agentfleet.published-prices.v1'
+const PROVIDER_USAGE_FORMAT = 'agentfleet.provider-usage.v1'
+// The prompt hook refreshes gateway figures every few minutes while you work;
+// older ones are left out rather than shown as current.
+const GATEWAY_MAX_AGE_MS = 3_600_000
 
 // Only the installer's known layout may select a Claude directory.
 export function claudeDirectory(root: string): string | null {
@@ -157,6 +172,48 @@ export function parsePrices(source: string | null | undefined): Map<string, Mode
     prices.set(model, parsed)
   }
   return prices
+}
+
+// The gateway's published prices, with the user's or a team preset's own
+// prices taking their place model by model, as `agentfleet report` does.
+export function mergePrices(own: Map<string, ModelPrice>, publishedSource: string | null | undefined): Map<string, ModelPrice> {
+  if (record(jsonValue(publishedSource))?.format !== PUBLISHED_PRICES_FORMAT) return own
+  const ownKeys = new Set([...own.keys()].map(model => priceKey(model)))
+  const merged = new Map<string, ModelPrice>()
+  for (const [model, entry] of parsePrices(publishedSource)) {
+    if (!ownKeys.has(priceKey(model))) merged.set(model, entry)
+  }
+  for (const [model, entry] of own) merged.set(model, entry)
+  return merged
+}
+
+function amount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+}
+
+export function parseGatewayUsage(source: string | null | undefined, sessionId: string | null, now: number): GatewayFigures | null {
+  const document = record(jsonValue(source))
+  if (document?.format !== PROVIDER_USAGE_FORMAT || typeof document.reader !== 'string') return null
+  const fetched = typeof document.fetchedAt === 'string' ? Date.parse(document.fetchedAt) : NaN
+  if (!Number.isFinite(fetched) || now - fetched > GATEWAY_MAX_AGE_MS) return null
+  const session = sessionId ? record(record(document.sessions)?.[sessionId]) : null
+  const usage = record(document.usage)
+  const spend = record(usage?.spend)
+  const month = record(spend?.month)
+  const period = month ?? record(spend?.period)
+  const rawLabel = typeof period?.label === 'string' ? sanitize(period.label).slice(0, 20) : ''
+  const budget = record(usage?.budget)
+  const figures: GatewayFigures = {
+    sessionUsd: amount(session?.usd),
+    sessionListUsd: amount(session?.listUsd),
+    sessionUnpriced: amount(session?.unpriced),
+    periodUsd: amount(period?.usd),
+    periodLabel: month ? 'month' : rawLabel || 'total',
+    budgetRemaining: amount(budget?.remainingUsd),
+    budgetLimit: amount(budget?.limitUsd),
+  }
+  const shown = figures.sessionUsd ?? figures.sessionListUsd ?? figures.periodUsd ?? figures.budgetLimit
+  return shown === null ? null : figures
 }
 
 function tokenCounts(entry: Record<string, unknown>): TokenCounts {
@@ -265,6 +322,26 @@ export function formatCostLine(estimate: CostEstimate | null): string | null {
   return line
 }
 
+export function formatGatewayLine(figures: GatewayFigures | null): string | null {
+  if (!figures) return null
+  const parts: string[] = []
+  if (figures.sessionUsd !== null) parts.push(`${dollars(figures.sessionUsd)} this session`)
+  else if (figures.sessionListUsd !== null) parts.push(`${dollars(figures.sessionListUsd)} this session at list price`)
+  if (figures.periodUsd !== null) {
+    parts.push(figures.periodLabel === 'month' ? `${dollars(figures.periodUsd)} this month`
+      : figures.periodLabel === 'total' ? `${dollars(figures.periodUsd)} in total`
+      : `${dollars(figures.periodUsd)} (${figures.periodLabel})`)
+  }
+  if (figures.budgetLimit !== null && figures.budgetRemaining !== null) {
+    parts.push(`${dollars(figures.budgetRemaining)} of ${dollars(figures.budgetLimit)} budget left`)
+  }
+  if (parts.length === 0) return null
+  const unpriced = figures.sessionUnpriced !== null && figures.sessionUnpriced > 0
+    ? `; ${count(figures.sessionUnpriced)} ${figures.sessionUnpriced === 1 ? 'request' : 'requests'} without a price`
+    : ''
+  return `Gateway:      ${parts.join(', ')} (reported by your gateway)${unpriced}`
+}
+
 // Reads the optional cost inputs. Any problem means "no data", never an error.
 export async function loadCostData($: CoreEngineInterface): Promise<CostData | null> {
   try {
@@ -279,27 +356,41 @@ export async function loadCostData($: CoreEngineInterface): Promise<CostData | n
         return await $.fs.read(knownPath)
       } catch { return null }
     }
-    const [config, main, laneCurrent, laneOlder] = await Promise.all([
+    const [config, published, usage, main, laneCurrent, laneOlder] = await Promise.all([
       readSource('agentfleet/config.json'),
+      readSource('agentfleet/published-prices.json'),
+      readSource('agentfleet/provider-usage.json'),
       readSource('agentfleet/main-usage.json'),
       readSource('agentfleet/lane-reports.jsonl'),
       readSource('agentfleet/lane-reports.jsonl.1'),
     ])
-    const prices = parsePrices(config)
-    if (prices.size === 0) return null
-    return { prices, main: parseMainUsage(main), lanes: parseLaneRows([laneCurrent, laneOlder]) }
+    const prices = mergePrices(parsePrices(config), published)
+    let sessionId: string | null = null
+    try {
+      const id: unknown = await $.session.id()
+      sessionId = typeof id === 'string' ? id : null
+    } catch { /* Without the session's id, only the month and budget show. */ }
+    const gateway = parseGatewayUsage(usage, sessionId, await now($))
+    if (prices.size === 0 && !gateway) return null
+    return { prices, main: parseMainUsage(main), lanes: parseLaneRows([laneCurrent, laneOlder]), gateway }
   } catch { return null }
 }
 
+async function now($: CoreEngineInterface): Promise<number> {
+  try {
+    const clock: unknown = await $.clock.now()
+    if (typeof clock === 'number' && Number.isFinite(clock)) return clock
+  } catch { /* The system clock is close enough for these windows. */ }
+  return Date.now()
+}
+
+// What the gateway reports takes the place of AgentFleet's own estimate.
 async function costLine(data: CostData | null, since: unknown, $: CoreEngineInterface): Promise<string | null> {
   if (!data) return null
   try {
-    let now = Date.now()
-    try {
-      const clock: unknown = await $.clock.now()
-      if (typeof clock === 'number' && Number.isFinite(clock)) now = clock
-    } catch { /* The system clock is close enough for a weekly window. */ }
-    return formatCostLine(estimateCost(data, costWindowStart(since, now)))
+    const reported = formatGatewayLine(data.gateway ?? null)
+    if (reported) return reported
+    return formatCostLine(estimateCost(data, costWindowStart(since, await now($))))
   } catch { return null }
 }
 

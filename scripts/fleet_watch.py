@@ -22,10 +22,16 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 try:
-    from provider_catalog import load_preferences, price_for
+    from provider_catalog import catalog_prices, effective_prices, load_preferences, price_for
 except ImportError:  # An incomplete installation must not break a hook.
+    catalog_prices = None
+    effective_prices = None
     load_preferences = None
     price_for = None
+try:
+    import provider_usage
+except ImportError:
+    provider_usage = None
 
 STORE_FORMAT = "agentfleet.watch-state.v1"
 OUTAGE_FORMAT = "agentfleet.outages.v1"
@@ -1372,7 +1378,7 @@ def _lane_model_for_report(lane: object, home: Path | None = None) -> str:
     return _clean_text(model, 100)
 
 
-def _report_payload(session_id: str, state: dict, home: Path | None = None) -> dict:
+def _report_payload(session_id: str, state: dict, home: Path | None = None, configured: str = "") -> dict:
     usage = state.get("usage") if isinstance(state.get("usage"), dict) else {}
     started = _parse_time(state.get("firstAt"))
     ended = _parse_time(state.get("lastAt"))
@@ -1393,6 +1399,10 @@ def _report_payload(session_id: str, state: dict, home: Path | None = None) -> d
         "agentId": _clean_text(state.get("agentId", ""), 80),
         "lane": _clean_lane(state.get("lane")),
         "model": _clean_text(state.get("model", ""), 100) or _lane_model_for_report(state.get("lane"), home),
+        # The model the lane was set to run on, as fleet.json names it; a
+        # gateway may record another name (codex-luna as gpt-6-luna), and
+        # prices are set under this one.
+        "configuredModel": _clean_text(configured, 100),
         "description": _clean_text(state.get("description", ""), 80),
         "files": sorted(set(state.get("files", [])))[:50],
         "forbidden": [
@@ -2097,16 +2107,20 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
         if consumed and agent.get("lastAssistantSeen") and (finished or idle_seconds > IDLE_DONE_SECONDS):
             agent["done"] = True
         if agent.get("done") and not agent.get("reported"):
-            row = _report_payload(session_id, agent, home)
+            # The model the lane was configured to run on: the one lane-guard
+            # switched it to, else the lane's own. The API's name for it
+            # (row["model"]) can differ from fleet.json's. A model the caller
+            # chose itself is not the lane's, so none is recorded then.
+            lane_row = lane_rows.get(_clean_lane(agent.get("lane")))
+            configured = "" if agent.get("explicitModel") else (
+                _model_key(agent.get("failoverModel"))
+                or (_model_id(lane_row.get("model")) if isinstance(lane_row, dict) else ""))
+            row = _report_payload(session_id, agent, home, configured)
             if _append_report(home, row):
                 agent["reported"] = True
                 lane_name = row["lane"]
                 error = row["apiError"]
                 ended = _parse_time(agent.get("lastAt")) or _utcnow()
-                # The model the lane was configured to run on: the one
-                # lane-guard switched it to, else the lane's own. The API's
-                # name for it (row["model"]) can differ from fleet.json's.
-                lane_row = lane_rows.get(lane_name)
                 model = (_model_key(agent.get("failoverModel"))
                          or (_model_id(lane_row.get("model")) if isinstance(lane_row, dict) else "")
                          or row["model"])
@@ -2199,6 +2213,53 @@ def _scan_session(payload: dict, home: Path, state: dict, session_id: str, cwd: 
     return _bounded_context(lines)
 
 
+def _start_usage_refresh(home: Path, session_id: str) -> None:
+    """Ask the gateway for its usage figures in the background when they are
+    due (provider_usage.refresh_due); the prompt never waits on the network."""
+    if provider_usage is None:
+        return
+    try:
+        # Drop another gateway's or key's figures and prices (or any, on the
+        # Claude subscription profile) so the mods never show them as current.
+        provider_usage.discard_foreign(home)
+        if provider_usage.gateway(home) is None:
+            return
+        if provider_usage.refresh_due(home, session_id or None):
+            provider_usage.spawn_refresh(home, session_id or None)
+    except Exception:
+        pass
+
+
+PUBLISHED_PRICES_FORMAT = "agentfleet.published-prices.v1"
+
+
+def _publish_prices(home: Path) -> None:
+    """Copy the prices the current gateway publishes to a small file the brain
+    mod reads, so /brain estimates with the same prices as `agentfleet report`.
+    The file changes only when the prices do; a profile without published
+    prices empties it. It names the gateway and key hash it belongs to, so
+    provider_usage.discard_foreign can remove it after a profile switch."""
+    if catalog_prices is None or provider_usage is None:
+        return
+    try:
+        current = provider_usage.scope(home)
+        if current is None:
+            return
+        path = _store(home) / provider_usage.PUBLISHED_PRICES_NAME
+        payload = {"format": PUBLISHED_PRICES_FORMAT, "endpoint": current[0], "account": current[1],
+                   "prices": catalog_prices(home)}
+        data = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+        try:
+            if path.read_bytes() == data:
+                return
+        except OSError:
+            if not payload["prices"]:
+                return
+        _atomic_write(path, data)
+    except Exception:
+        pass
+
+
 def on_prompt(payload: dict, home: Path) -> list[str]:
     """Update bounded local state and return context notices; never break a prompt."""
     try:
@@ -2243,6 +2304,8 @@ def on_prompt(payload: dict, home: Path) -> list[str]:
                 if isinstance(session, dict):
                     session["updated"] = _iso(now)
             _atomic_write(state_path, (json.dumps(state, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8"))
+            _start_usage_refresh(home, session_id)
+            _publish_prices(home)
             return _bounded_context(lines)
         finally:
             os.close(lock_fd)
@@ -2327,9 +2390,13 @@ def report(home: Path, days: int = 7) -> dict:
     cutoff = now - timedelta(days=day_count)
     try:
         preferences = load_preferences(home) if load_preferences is not None else {}
-        prices = preferences.get("prices", {}) if isinstance(preferences, dict) else {}
+        if effective_prices is not None:
+            prices = effective_prices(home, preferences)
+        else:
+            prices = preferences.get("prices", {}) if isinstance(preferences, dict) else {}
         prices = prices if isinstance(prices, dict) else {}
     except Exception:
+        preferences = {}
         prices = {}
     has_prices = bool(prices)
 
@@ -2341,10 +2408,19 @@ def report(home: Path, days: int = 7) -> dict:
     cache_not_priced: set[str] = set()
     all_rows = _new_report_stats()
 
-    def add_cost(target: dict, costs: dict, name: str, row: dict) -> None:
+    def add_cost(target: dict, costs: dict, names: list, row: dict) -> None:
+        """Price ``row`` at the first of ``names`` that has a price: the
+        model the lane was configured with, then the one the gateway
+        recorded. A miss is listed under the first name known."""
         if not has_prices:
             return
-        price = price_for(prices, name) if price_for is not None else None
+        known = [name for name in names if name]
+        price = None
+        for candidate in known:
+            price = price_for(prices, candidate) if price_for is not None else None
+            if price is not None:
+                break
+        name = known[0] if known else "unknown"
         tokens = {field: max(0, _as_int(row.get(field))) for field in _TOKEN_FIELDS}
         if price is None:
             if any(tokens.values()):
@@ -2390,8 +2466,9 @@ def report(home: Path, days: int = 7) -> dict:
                     if has_prices:
                         lane_stats.setdefault("_costKey", lane)
                         model_stats.setdefault("_costKey", model_name)
-                        add_cost(lane_stats, lane_costs, model_name, row)
-                        add_cost(model_stats, model_costs, model_name, row)
+                        configured = _clean_text(row.get("configuredModel", ""), 100)
+                        add_cost(lane_stats, lane_costs, [configured, model_name], row)
+                        add_cost(model_stats, model_costs, [configured, model_name], row)
         except OSError:
             continue
 
@@ -2457,7 +2534,29 @@ def report(home: Path, days: int = 7) -> dict:
         "totals": totals,
         "outages": current_outages(home),
         "cost": cost,
+        "gateway": _gateway_usage(home, preferences),
     }
+
+
+def _gateway_usage(home: Path, preferences: dict) -> dict | None:
+    """What the current gateway itself reported about the key's spend and
+    limits (provider_usage.py), or None when it reports nothing, the setting
+    is off, or the saved figures belong to another gateway or key."""
+    if provider_usage is None or not isinstance(preferences, dict) or preferences.get("providerUsage") is False:
+        return None
+    try:
+        stored = provider_usage.load(home)
+    except Exception:
+        return None
+    if not isinstance(stored, dict) or not stored.get("reader") or not isinstance(stored.get("usage"), dict):
+        return None
+    # `agentfleet report` runs outside any session, so it shows the session
+    # the prompt hook refreshed most recently.
+    sessions = stored.get("sessions") if isinstance(stored.get("sessions"), dict) else {}
+    rows = [row for row in sessions.values() if isinstance(row, dict) and _parse_time(row.get("fetchedAt"))]
+    latest = max(rows, key=lambda row: _parse_time(row["fetchedAt"])) if rows else None
+    return {"reader": stored["reader"], "fetchedAt": stored.get("fetchedAt"), **stored["usage"],
+            "latestSession": latest}
 
 
 def _compact_number(value: object) -> str:
@@ -2522,6 +2621,78 @@ def _stats_table_header(label: str, with_cost: bool) -> str:
     return " ".join(columns)
 
 
+def _usd(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+        return None
+    return float(value)
+
+
+def _reset_text(value: object) -> str:
+    moment = _parse_time(value)
+    return moment.strftime("%Y-%m-%d %H:%M UTC") if moment else ""
+
+
+def _gateway_lines(gateway: dict) -> list[str]:
+    """The figures the gateway itself reported, labelled so, after the
+    estimate: they come from the gateway's own records, not from tokens."""
+    reader = _clean_text(gateway.get("reader", ""), 30) or "gateway"
+    fetched = _reset_text(gateway.get("fetchedAt"))
+    lines = ["", f"Reported by your gateway ({reader}{', as of ' + fetched if fetched else ''})"]
+    session = gateway.get("latestSession") if isinstance(gateway.get("latestSession"), dict) else {}
+    usd, list_usd = _usd(session.get("usd")), _usd(session.get("listUsd"))
+    if usd is not None or list_usd is not None:
+        text = _money(usd) if usd is not None else f"{_money(list_usd)} at list price"
+        extras = []
+        requests = _as_int(session.get("requests"))
+        if requests > 0:
+            extras.append(f"{_compact_number(requests)} request{'s' if requests != 1 else ''}")
+        unpriced = _as_int(session.get("unpriced"))
+        if unpriced > 0:
+            extras.append(f"{_compact_number(unpriced)} unpriced")
+        lines.append(f"{'Last session':<12} {text}" + (f" ({'; '.join(extras)})" if extras else ""))
+    spend = gateway.get("spend") if isinstance(gateway.get("spend"), dict) else {}
+    for key, label in (("today", "Today"), ("week", "This week"), ("month", "This month"),
+                       ("period", "This period"), ("total", "All time")):
+        entry = spend.get(key)
+        if not isinstance(entry, dict):
+            continue
+        usd, list_usd = _usd(entry.get("usd")), _usd(entry.get("listUsd"))
+        if usd is None and list_usd is None:
+            continue
+        if key == "period" and entry.get("label"):
+            label = f"Period ({_clean_text(entry['label'], 20)})"
+        text = _money(usd) if usd is not None else f"{_money(list_usd)} at list price"
+        extras = []
+        if usd is not None and list_usd is not None:
+            extras.append(f"list price {_money(list_usd)}")
+        unpriced = _as_int(entry.get("unpriced"))
+        if unpriced > 0:
+            extras.append(f"{_compact_number(unpriced)} request{'s' if unpriced != 1 else ''} unpriced")
+        lines.append(f"{label:<12} {text}" + (f" ({'; '.join(extras)})" if extras else ""))
+    budget = gateway.get("budget") if isinstance(gateway.get("budget"), dict) else None
+    if budget and _usd(budget.get("limitUsd")):
+        percent = _usd(budget.get("percent"))
+        reset = _reset_text(budget.get("resetAt"))
+        used = _usd(budget.get("usedUsd"))
+        text = f"{percent:.0f}% used" if percent is not None else "set"
+        if used is not None:
+            text += f" ({_money(used)} of {_money(budget['limitUsd'])})"
+        lines.append(f"{'Budget':<12} {text}" + (f", resets {reset}" if reset else ""))
+    for limit in gateway.get("limits") if isinstance(gateway.get("limits"), list) else []:
+        if not isinstance(limit, dict) or _usd(limit.get("percent")) is None:
+            continue
+        reset = _reset_text(limit.get("resetAt"))
+        lines.append(f"{'Limit':<12} {_clean_text(limit.get('name', ''), 60) or 'unnamed'} "
+                     f"{limit['percent']:.0f}% used" + (f", resets {reset}" if reset else ""))
+    for item in gateway.get("exhausted") if isinstance(gateway.get("exhausted"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        reset = _reset_text(item.get("resetAt"))
+        lines.append(f"{'Exhausted':<12} all {_clean_text(item.get('provider', ''), 60) or 'unknown'} accounts"
+                     + (f" until {reset}" if reset else ""))
+    return lines
+
+
 def format_report(data: dict) -> str:
     """Render a compact, stable text report from ``report`` output."""
     data = data if isinstance(data, dict) else {}
@@ -2574,7 +2745,8 @@ def format_report(data: dict) -> str:
     if with_cost:
         lines.append(
             f"Estimated cost: {_money(cost.get('total'))} (lanes {_money(cost.get('lanes'))}, "
-            f"main {_money(cost.get('main'))}) at your prices; an estimate, not a bill."
+            f"main {_money(cost.get('main'))}) at the model prices set or published by your gateway; "
+            "an estimate, not a bill."
         )
         notices = []
         if cost.get("unpriced"):
@@ -2585,6 +2757,10 @@ def format_report(data: dict) -> str:
             lines.append(" ".join(notices))
     else:
         lines.append("Estimated cost: not shown; set model prices with agentfleet config prices.")
+
+    gateway = data.get("gateway") if isinstance(data.get("gateway"), dict) else None
+    if gateway:
+        lines.extend(_gateway_lines(gateway))
 
     outages = data.get("outages", {}).get("lanes", {}) if isinstance(data.get("outages"), dict) else {}
     for lane, value in sorted(outages.items()) if isinstance(outages, dict) else []:

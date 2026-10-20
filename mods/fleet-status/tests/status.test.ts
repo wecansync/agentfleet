@@ -263,7 +263,60 @@ test('2.6.0 adds the agent-brain install option to the count', () => {
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, null]).newOptions).toBe(12)
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, wizardSource(keys25)]).newOptions).toBe(1)
   expect(snapshotFromSources(null, [JSON.stringify({ version: '2.6.0' }), null, null, null, null, null, null, null, wizardSource(keys26)]).newOptions).toBe(0)
-  expect(snapshotFromSources(null, [JSON.stringify({ version: '3.0.0' }), null, null, null, null, null, null, null, wizardSource(keys26)]).newOptions).toBe(0)
+  expect(snapshotFromSources(null, [JSON.stringify({ version: '2.10.0' }), null, null, null, null, null, null, null, wizardSource(keys26)]).newOptions).toBe(0)
+})
+
+test('2.10.1 adds the agent-brain memory question to the count', () => {
+  const keys26 = [...wizardKeys24, 'askFirst', 'tokenWeather', 'agentBrainInstall']
+  const count = (version: string, asked: string[]) =>
+    snapshotFromSources(null, [JSON.stringify({ version }), null, null, null, null, null, null, null, wizardSource(asked)]).newOptions
+  expect(count('2.10.1', keys26)).toBe(1)
+  expect(count('2.11.0', keys26)).toBe(1)
+  expect(count('3.0.0', keys26)).toBe(1)
+  expect(count('2.11.0', [...keys26, 'agentBrainLocalMemory'])).toBe(0)
+})
+
+const NOW = Date.parse('2026-10-20T12:00:00Z')
+const gatewayFile = (overrides: Record<string, unknown> = {}) => JSON.stringify({
+  format: 'agentfleet.provider-usage.v1', reader: 'omniroute', fetchedAt: '2026-10-20T11:55:00Z',
+  notices: [
+    { text: 'Gateway budget 85% used ($170.00 of $200.00), resets 2026-11-01.', until: '2026-11-01T00:00:00Z' },
+    { text: 'All antigravity accounts are exhausted until 06:35 UTC.', until: '2026-10-20T06:35:00Z' },
+    { text: 'Gateway limit daily 90% used.', until: null },
+  ],
+  ...overrides,
+})
+const withGateway = (source: string | null, now = NOW, rateLimits: unknown = null) =>
+  snapshotFromSources(null, [null, null, null, null, null, null, null, null, null, source], null, now, rateLimits)
+
+test("the gateway's current notices show in the band; expired and old ones do not", () => {
+  expect(withGateway(gatewayFile()).usageNotices).toEqual([
+    'Gateway budget 85% used ($170.00 of $200.00), resets 2026-11-01.',
+    'Gateway limit daily 90% used.',
+  ])
+  expect(notices(withGateway(gatewayFile()), null)).toContain('Gateway limit daily 90% used.')
+  expect(withGateway(gatewayFile({ fetchedAt: '2026-10-20T11:00:00Z' })).usageNotices).toEqual([])
+  expect(withGateway(gatewayFile({ reader: null })).usageNotices).toEqual([])
+  expect(withGateway(gatewayFile({ format: 'other' })).usageNotices).toEqual([])
+  expect(withGateway(gatewayFile({ notices: [{ text: 'bad\u0007text', until: null }] })).usageNotices).toEqual([])
+  expect(withGateway('{bad').usageNotices).toEqual([])
+  expect(withGateway(null).usageNotices).toEqual([])
+})
+
+test('Claude subscription limits show at 80% in 5% steps, until they reset', () => {
+  const limits = [
+    { kind: 'five_hour', percentUsed: 87.4, resetsAt: '2026-10-20T14:00:00.000Z' },
+    { kind: 'seven_day', percentUsed: 81, resetsAt: '2026-10-23T09:00:00.000Z' },
+    { kind: 'spend_limit', percentUsed: 79.9, resetsAt: '2026-11-01T00:00:00.000Z' },
+    { kind: 'five_hour', percentUsed: 99, resetsAt: '2026-10-20T11:00:00.000Z' },
+    { kind: 'unknown', percentUsed: 99 },
+  ]
+  expect(withGateway(null, NOW, limits).usageNotices).toEqual([
+    'Claude 5-hour limit 85% used, resets 14:00 UTC.',
+    'Claude weekly limit 80% used, resets 2026-10-23 09:00 UTC.',
+  ])
+  expect(withGateway(null, NOW, 'not a list').usageNotices).toEqual([])
+  expect(withGateway(null, NOW, [{ kind: 'seven_day', percentUsed: 100 }]).usageNotices).toEqual(['Claude weekly limit 100% used.'])
 })
 
 test('wizard notice uses guarded read and stays hidden after refresh', async ($, on) => {

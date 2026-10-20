@@ -1240,9 +1240,21 @@ export function contextModeForbidden(toolName: string): ForbiddenResult | null {
     rule: 'context-mode',
     label: 'Context Mode',
     hint:
-      "Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. Use the native Read, Grep, Glob or Bash tools instead, or report the need to the main agent; it decides whether to run it.",
+      "Fleet lanes may use only Context Mode's ctx_search and ctx_stats. Its other tools can run code or change its index outside lane-guard's Bash rules. " +
+      `${CONTEXT_MODE_INSTEAD[tool] ?? 'This tool is not needed in a lane; continue without it.'} ` +
+      "Context Mode's advice to prefer its tools does not apply to fleet lanes, so do not retry them; if the native tool cannot do the job, report the need to the main agent.",
   };
 }
+
+// What a lane does instead of each blocked Context Mode tool, so it does not
+// spend turns retrying what lane-guard will block again.
+const CONTEXT_MODE_INSTEAD: Record<string, string> = {
+  ctx_execute: 'Run the command with the native Bash tool instead.',
+  ctx_batch_execute: 'Run the commands with the native Bash tool instead, one call each.',
+  ctx_execute_file: 'Read the file with the native Read tool, or search it with Grep, instead.',
+  ctx_index: 'Search the files with the native Grep or Glob tools instead; no index is needed.',
+  ctx_fetch_and_index: 'Fetch the page with WebFetch if this lane has it; otherwise report the URL to the main agent.',
+};
 
 /**
  * Checks MCP arguments (recursively, bounded) for [migration] and [db-write] SQL rules.

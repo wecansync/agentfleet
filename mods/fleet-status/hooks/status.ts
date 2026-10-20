@@ -95,6 +95,48 @@ export function parseNew(value: unknown): Suggestion['new'] {
   return result
 }
 
+// The prompt hook refreshes the gateway's figures every few minutes while you
+// work; older notices are dropped rather than shown as current.
+const GATEWAY_FRESH_MS = 30 * 60_000
+const MAX_USAGE_NOTICES = 3
+
+export function parseGatewayNotices(source: string | null | undefined, now: number): string[] {
+  const data = jsonRecord(source)
+  if (data?.format !== 'agentfleet.provider-usage.v1' || typeof data.reader !== 'string' || !Array.isArray(data.notices)) return []
+  const fetched = typeof data.fetchedAt === 'string' ? Date.parse(data.fetchedAt) : NaN
+  if (!Number.isFinite(fetched) || now - fetched > GATEWAY_FRESH_MS) return []
+  const result: string[] = []
+  for (const raw of data.notices.slice(0, 50)) {
+    const item = record(raw)
+    const line = text(item?.text, /^.{1,180}$/u)
+    const until = item?.until === null || item?.until === undefined ? null : Date.parse(String(item.until))
+    if (line && (until === null || (Number.isFinite(until) && until > now))) result.push(line)
+  }
+  return result.slice(0, MAX_USAGE_NOTICES)
+}
+
+const RATE_LIMIT_NAMES: Record<string, string> = { five_hour: '5-hour', seven_day: 'weekly', spend_limit: 'extra usage' }
+
+// Claude subscription limits from $.session.usage(); third-party gateways
+// report none, so this stays quiet for them.
+export function rateLimitNotices(value: unknown, now: number): string[] {
+  if (!Array.isArray(value)) return []
+  const result: string[] = []
+  for (const raw of value.slice(0, 10)) {
+    const item = record(raw)
+    const name = typeof item?.kind === 'string' ? RATE_LIMIT_NAMES[item.kind] : undefined
+    const percent = item?.percentUsed
+    if (!name || typeof percent !== 'number' || !Number.isFinite(percent) || percent < 80) continue
+    const resets = typeof item?.resetsAt === 'string' ? Date.parse(item.resetsAt) : NaN
+    if (Number.isFinite(resets) && resets <= now) continue
+    const at = Number.isFinite(resets) ? new Date(resets).toISOString() : null
+    const when = at ? `, resets ${item?.kind === 'seven_day' ? `${at.slice(0, 10)} ` : ''}${utcTime(at)}` : ''
+    // Steps of 5% keep the line, and a hidden band, steady between updates.
+    result.push(`Claude ${name} limit ${Math.floor(percent / 5) * 5}% used${when}.`)
+  }
+  return result
+}
+
 export function parseJev(source: string | null | undefined): JevStats | null {
   const data = jsonRecord(source)
   const totals = record(data?.totals)
@@ -121,10 +163,12 @@ const optionKeys23 = ['compact', 'jev', 'reviewerAccess', 'learn', 'statusBand',
 const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
 const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
 const optionKeys26 = [...optionKeys25, 'agentBrainInstall']
+const optionKeys2101 = [...optionKeys26, 'agentBrainLocalMemory']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
   const minor = releaseMinor(version)
-  const optionKeys = minor >= 6 ? optionKeys26 : minor === 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
+  const optionKeys = minor > 10 || (minor === 10 && releasePatch(version) >= 1) ? optionKeys2101
+    : minor >= 6 ? optionKeys26 : minor === 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
       !data.asked.every(key => typeof key === 'string')) return optionKeys.length
@@ -141,6 +185,11 @@ function releaseMinor(version: string | null): number {
   return major > 2 ? Number.MAX_SAFE_INTEGER : major === 2 ? minor : 3
 }
 
+function releasePatch(version: string | null): number {
+  if (!version || !versionPattern.test(version) || /-/.test(version)) return 0
+  return Number(version.split(/[.+-]/)[2])
+}
+
 export function hasWizardOptions(version: string | null): boolean {
   if (!version || !versionPattern.test(version)) return false
   const [major, minor, patch] = version.split(/[.+-]/).slice(0, 3).map(Number)
@@ -148,7 +197,7 @@ export function hasWizardOptions(version: string | null): boolean {
     (patch > 0 || (patch === 0 && !version.split('+')[0].includes('-'))))))
 }
 
-export function snapshotFromSources(claudeDir: string | null, sources: (string | null)[], project: string | null = null, now = Date.now()): Snapshot {
+export function snapshotFromSources(claudeDir: string | null, sources: (string | null)[], project: string | null = null, now = Date.now(), rateLimits: unknown = null): Snapshot {
   function json(source: string | null | undefined): Record<string, unknown> | null {
     try { return record(JSON.parse(source ?? 'null')) } catch { return null }
   }
@@ -171,6 +220,7 @@ export function snapshotFromSources(claudeDir: string | null, sources: (string |
     suggestion: parseSuggestion(sources[6], project),
     jev: parseJev(sources[7]),
     newOptions: parseNewOptions(sources[8], manifestVersion),
+    usageNotices: [...rateLimitNotices(rateLimits, now), ...parseGatewayNotices(sources[9], now)],
     claudeDir,
     version: manifestVersion,
     profile: text(profile, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
@@ -207,6 +257,7 @@ export function notices(snapshot: Snapshot, versionAtStart: string | null, hidde
     const alt = outage.alternative
     lines.push(`fleet-${outage.lane} is failing (${outage.status} at ${utcTime(outage.at)}; ${outage.model}). ${alt ? `Dispatch fleet-${alt} until ${utcTime(outage.until)}.` : `Retry it after ${utcTime(outage.until)}.`}`)
   }
+  lines.push(...(snapshot.usageNotices ?? []))
   const suggestion = snapshot.suggestion
   const first = suggestion?.new.find(item => !hiddenIds.includes(item.id))
   if (suggestion && suggestion.pending > 0 && first) {
