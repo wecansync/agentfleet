@@ -49,6 +49,19 @@ def agent_brain_applies(paths, key):
     return installed
 
 
+def local_memory_state(paths, asked):
+    """Where the memory question stands: "ask"; "active" when memory is
+    already on; "skip" when agent-brain was declined or is off, so there is
+    nothing to turn on; "later" while agent-brain's install question is still
+    open or its install failed."""
+    if not agent_brain_available(paths):
+        return "skip" if "agentBrainInstall" in asked else "later"
+    if agent_brain.memory_active(paths.home):
+        # Even with agent-brain disconnected, so a preset can turn it off.
+        return "active"
+    return "skip" if provider_catalog.load_preferences(paths.home)["agentBrain"] is False else "ask"
+
+
 def plugins(paths):
     global _plugin_cache
     if _plugin_cache is not None:
@@ -75,6 +88,10 @@ def current(api, paths, key):
         return agent_brain_available(paths) if value is None else value
     if key == "agentBrainInstall":
         return agent_brain_available(paths)
+    if key == "agentBrainLocalMemory":
+        # What agent-brain reports, not the saved choice: memory turned off
+        # with agent-brain itself leaves that choice behind.
+        return agent_brain.memory_active(paths.home)
     if key in ACTIONS:
         return False
     if key == "autoUpdate":
@@ -85,13 +102,13 @@ def current(api, paths, key):
 
 
 def apply(api, paths, key, value):
-    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain", "agentBrainInstall"):
+    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory"):
         setting = {
             "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
             "workStyle": "work-style", "askFirst": "ask-first", "agentBrain": "agent-brain",
-            "agentBrainInstall": "agent-brain",
+            "agentBrainInstall": "agent-brain", "agentBrainLocalMemory": "agent-brain-memory",
         }[key]
-        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain", "agentBrainInstall") else str(value)
+        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -134,6 +151,7 @@ class Feature:
 # summary does not list them.
 ACTIONS = ("instructions",)
 AGENT_BRAIN_KEYS = ("agentBrainInstall", "agentBrain")
+LOCAL_MEMORY_KEY = "agentBrainLocalMemory"
 
 FEATURES = (
     Feature("compact", "2.3.0", "Auto-compact at what percent of each model's context? (20-95, or off)", "20-95 or off"),
@@ -148,6 +166,7 @@ FEATURES = (
     Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
     Feature("agentBrainInstall", "2.6.0", "Install agent-brain, the free tool that records the tokens and cost of each session? It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
     Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code, so it records the tokens and cost of each session? (Y/n)", "yes/no"),
+    Feature("agentBrainLocalMemory", "2.10.1", "Turn on agent-brain memory? Claude saves decisions and project context on this machine and reads them back in later sessions. It's free, nothing leaves this machine, and Claude takes a short save step about every 10 tool calls. (y/N)", "yes/no"),
     Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
 
@@ -351,11 +370,20 @@ def run(api, paths, args):
     # run succeeds, so the status band does not count it.
     skipped_brain = [] if install_pending() else [
         f.key for f in unasked if f.key in AGENT_BRAIN_KEYS and not agent_brain_applies(paths, f.key)]
-    applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS) and f.key not in skipped_brain]
+    # The memory question likewise, and memory already on counts as a yes.
+    skipped_local_memory = []
+    if LOCAL_MEMORY_KEY not in asked:
+        memory_state = local_memory_state(paths, asked)
+        if memory_state in ("skip", "active"):
+            skipped_local_memory.append(LOCAL_MEMORY_KEY)
+        if memory_state == "active":
+            provider_catalog.write_preferences(paths.home, {LOCAL_MEMORY_KEY: True})
+    applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS)
+                  and f.key not in skipped_brain and f.key not in skipped_local_memory]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
     if args.after_install and not tty:
-        if skipped_brain:
-            asked = save_state(api, paths, state_path, [*asked, *skipped_brain])
+        if skipped_brain or skipped_local_memory:
+            asked = save_state(api, paths, state_path, [*asked, *skipped_brain, *skipped_local_memory])
         # The instruction check is offered interactively but is not a new option.
         if any(f.key != "instructions" for f in applicable):
             print("New AgentFleet options are available: run agentfleet configure")
@@ -392,8 +420,8 @@ def run(api, paths, args):
         else:
             selected = list(FEATURES)
         if args.after_install and not selected:
-            if skipped_brain:
-                save_state(api, paths, state_path, [*asked, *skipped_brain])
+            if skipped_brain or skipped_local_memory:
+                save_state(api, paths, state_path, [*asked, *skipped_brain, *skipped_local_memory])
             return 0
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
@@ -422,6 +450,32 @@ def run(api, paths, args):
                     provider_catalog.write_preferences(paths.home, {"agentBrain": values[key]})
                 if not install_pending():
                     asked = save_state(api, paths, state_path, [*asked, key])
+                continue
+            if key == LOCAL_MEMORY_KEY:
+                memory_state = local_memory_state(paths, asked)
+                if memory_state in ("skip", "later"):
+                    if memory_state == "skip":
+                        asked = save_state(api, paths, state_path, [*asked, key])
+                    continue
+                active = memory_state == "active"
+                if key in values:
+                    want = values[key]
+                elif active:
+                    want = True
+                else:
+                    # Memory needs a yes: Enter and --yes keep it off, as
+                    # agent-brain's own [y/N] consent prompt does.
+                    want = interactive and prompt(feature, False)
+                if want != active:
+                    # The config command turns memory on or off and refreshes
+                    # the lanes. On failure it said why; the question stays
+                    # open for the next run.
+                    if feature.apply(api, paths, want):
+                        continue
+                else:
+                    provider_catalog.write_preferences(paths.home, {key: want})
+                values[key] = want
+                asked = save_state(api, paths, state_path, asked if key in asked else [*asked, key])
                 continue
             if key == "agentBrainInstall":
                 want = values[key] if key in values else interactive and prompt(feature, True)

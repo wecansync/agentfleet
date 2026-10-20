@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.10.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.10.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -484,7 +484,7 @@ differs from auto-ranking.
 Run `agentfleet configure` in a terminal to ask every question: work style,
 ask-first, auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, token-weather,
 automatic updates, and [agent-brain](#agent-brain) (install it when it is
-missing, connect it when it is installed). It ends by
+missing, connect it when it is installed, and turn on its memory). It ends by
 offering the [instruction check](#instruction-check).
 Enter keeps the current value. When enabling JEV without an available
 key, the wizard offers hidden TypeSafe API key input and can store it as
@@ -503,12 +503,12 @@ invalid values, and any other key containing "key", "token", or "secret" are rej
 Example `team.json`:
 
 ```json
-{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrainInstall":true,"agentBrain":true,"askFirst":true}
+{"format":"agentfleet.preset.v1","workStyle":"balanced","compact":70,"jev":true,"reviewerAccess":"full","learn":true,"statusBand":true,"laneGuard":true,"tokenWeather":true,"autoUpdate":true,"agentBrainInstall":true,"agentBrain":true,"agentBrainLocalMemory":true,"askFirst":true}
 ```
 
 `workStyle` and `agentBrain` are accepted from 2.4.0, `askFirst` and
-`tokenWeather` from 2.5.0, and `agentBrainInstall` from 2.6.0. A preset never
-runs the instruction check.
+`tokenWeather` from 2.5.0, `agentBrainInstall` from 2.6.0, and
+`agentBrainLocalMemory` from 2.10.1. A preset never runs the instruction check.
 
 From 2.8.0 a preset can also set the team's models. `lanes` gives each listed
 lane its models (the first is its model, the rest its fallbacks, nothing else)
@@ -543,6 +543,7 @@ agentfleet config compact <20-95|off>                # set auto-compact percenta
 agentfleet config reviewer-access full|run|read-only # set reviewer tool access (default: full)
 agentfleet config learn on|off                       # command usage learning (new installs: on)
 agentfleet config agent-brain on|off                 # install and connect agent-brain, or disconnect it
+agentfleet config agent-brain-memory on|off          # agent-brain memory on this machine (off until you say yes)
 agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]  # model prices for estimated cost (default: none)
 ```
 
@@ -551,9 +552,10 @@ Restart Claude Code after changing the work style, ask-first or branch-check.
 ### agent-brain
 
 [agent-brain](https://agentbrain.wecansync.com) is a free tool that records
-the tokens and cost of each Claude Code session. AgentFleet installs and
-connects the free tool only; it never asks you to sign in or create an
-agent-brain account.
+the tokens and cost of each Claude Code session and, from agent-brain 0.5.7,
+keeps a free project memory on your machine. AgentFleet installs and connects
+the free tool only; it never asks you to sign in or create an agent-brain
+account.
 
 - **Install:** when agent-brain is missing, the wizard offers to install it
   (default: yes). AgentFleet downloads the release for your system from
@@ -570,6 +572,18 @@ agent-brain account.
   start. It only replaces the copy in agent-brain's standard folder, never a dev
   build or one a package manager installed, and never moves to an older
   version.
+- **Memory:** the wizard asks once whether to turn on agent-brain memory
+  (default: no; memory needs a yes, as in agent-brain's own consent prompt).
+  Claude then saves decisions and project context on this
+  machine and reads them back in later sessions; nothing leaves the machine,
+  and Claude takes a short save step about every 10 tool calls. A yes runs
+  `agent-brain memory enable --yes`, first updating the agent-brain AgentFleet
+  installed when it is older than 0.5.7. Existing users are asked on their next
+  interactive update; background updates and `--yes` never turn it on.
+  `agentfleet config agent-brain-memory off` runs
+  `agent-brain memory disable --all` and keeps existing memories. Lanes get the
+  memory search tool only while memory is on; they search memory but leave
+  saving it to the main conversation.
 
 Before 2.6.0 AgentFleet wrote agent-brain's hooks itself; an update removes
 those copies and lets agent-brain write its own.
@@ -715,7 +729,7 @@ install command (or an update) keeps the gateway you switched to.
 | `agentfleet add <name> --gateway-url URL` | Add a gateway profile without reinstalling (`--token-env VAR`, `--use`, `--force`, `--allow-insecure-http`). |
 | `agentfleet remove <name> [--yes]` | Delete a saved profile and its token. The active profile and `native` cannot be removed. |
 | `agentfleet configure [--yes\|--preset FILE\|--export FILE]` | Revisit every feature; keep values and mark questions answered, apply a team preset, or export settings without secrets. |
-| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `ask-first`, `branch-check`, `compact`, `reviewer-access`, `learn`, or `agent-brain`. |
+| `agentfleet config [setting] [value]` | View every feature or configure `work-style`, `ask-first`, `branch-check`, `compact`, `reviewer-access`, `learn`, `agent-brain`, or `agent-brain-memory`. |
 | `agentfleet instructions [--project DIR] [--check]` | Check your Claude Code instruction files for stale lane names, duplicates, and contradictions; apply edits only with your approval. `--check` reports without editing. |
 | `agentfleet jev <on\|off\|status>` | Enable, disable, or inspect optional `fast-jev-compaction` plugin. |
 | `agentfleet report [--days N] [--json]` | Summarize subagent runs (files changed, blocked commands) and active provider outages. |

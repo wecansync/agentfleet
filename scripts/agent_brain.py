@@ -343,3 +343,67 @@ def connect(home: Path, binary: Path) -> tuple[int, str]:
 def disconnect(home: Path, binary: Path) -> tuple[int, str]:
     """Let agent-brain remove its hooks and MCP server; its data stays."""
     return _run(home, binary, "uninstall", "--assistant", "claude-code")
+
+
+MEMORY_MIN_VERSION = (0, 5, 7)
+
+
+def memory_active(home: Path) -> bool:
+    """Whether agent-brain status reports local memory as active."""
+    try:
+        binary = find_binary(home)
+        if binary is None:
+            return False
+        code, output = _run(home, binary, "status", timeout=5)
+        if code != 0:
+            return False
+        for line in output.splitlines():
+            match = re.match(r"^\s*Memory:\s*(.*?)\s*$", line, re.IGNORECASE)
+            if match:
+                return match.group(1).lower().startswith("active")
+        return False
+    except Exception:
+        # Memory detection is used by background hooks and must never interrupt
+        # AgentFleet if the optional CLI is missing or broken.
+        return False
+
+
+def enable_memory(home: Path) -> tuple[bool, str]:
+    """Enable local memory in the agent-brain Claude Code runs. A managed copy
+    older than 0.5.7 is updated first; any other copy is left to whatever
+    installed it, as automatic updates do."""
+    try:
+        binary = find_binary(home)
+        if binary is None:
+            return False, "agent-brain is not installed; run: agentfleet config agent-brain on"
+        current = version_of(binary, home)
+        if current is None:
+            return False, "Could not verify the installed agent-brain version."
+        if current < MEMORY_MIN_VERSION:
+            if binary.resolve(strict=False) != managed_binary(home).resolve(strict=False):
+                return False, (f"agent-brain at {binary} is older than 0.5.7; "
+                               "update it with the tool that installed it.")
+            update(home)
+            current = version_of(binary, home)
+            if current is None or current < MEMORY_MIN_VERSION:
+                return False, "The installed agent-brain does not support local memory yet."
+        code, _output = _run(home, binary, "memory", "enable", "--yes", timeout=30)
+        if code != 0:
+            return False, "Could not enable agent-brain memory."
+        return True, "agent-brain memory is enabled."
+    except (AgentBrainError, OSError, ValueError):
+        return False, "Could not enable agent-brain memory."
+
+
+def disable_memory(home: Path) -> tuple[bool, str]:
+    """Disable local memory everywhere without deleting its entries."""
+    try:
+        binary = find_binary(home)
+        if binary is None:
+            return False, "agent-brain is not installed."
+        code, _output = _run(home, binary, "memory", "disable", "--all", timeout=30)
+        if code != 0:
+            return False, "Could not disable agent-brain memory."
+        return True, "agent-brain memory is off; existing entries are kept."
+    except (OSError, ValueError):
+        return False, "Could not disable agent-brain memory."
