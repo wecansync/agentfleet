@@ -47,6 +47,31 @@ def fake_binary(version: str, log: Path | None = None, memory_state: str = "acti
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def memory_binary(version: str, log: Path, backend: str = "sqlite", v2: bool = False, upgrade_fails: bool = False) -> bytes:
+    """An agent-brain stand-in for the Memory V2 upgrade: `memory status`
+    reports the store, and `upgrade-v2 --apply` records itself and turns V2 on."""
+    state = log.with_suffix(".v2")
+    lines = ["#!" + PYTHON, "import json, os, sys",
+             f"log, state = {str(log)!r}, {str(state)!r}",
+             "if sys.argv[1:] == ['--version']:",
+             f"    print('agent-brain version {version}')",
+             "    sys.exit(0)",
+             "with open(log, 'a', encoding='utf-8') as out:",
+             "    out.write(json.dumps(sys.argv[1:]) + '\\n')",
+             "if sys.argv[1:] == ['memory', 'status']:",
+             f"    print(json.dumps({{'schema': 16, 'backend': {backend!r}, 'v2_active': {v2!r} or os.path.exists(state)}}, indent=2))",
+             "    sys.exit(0)",
+             "if sys.argv[1:] == ['memory', 'upgrade-v2', '--apply']:"]
+    if upgrade_fails:
+        lines += ["    print('Error: database is locked', file=sys.stderr)", "    sys.exit(1)"]
+    else:
+        lines += ["    open(state, 'w').close()",
+                  "    print('Memory V2 is on.')",
+                  "    print('A copy of the store from before the upgrade is at /usr/local/backup.db.')",
+                  "    sys.exit(0)"]
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def tar_archive(members: list[tuple[str, bytes | None]]) -> bytes:
     """A .tar.gz with regular files, or symlinks where the content is None."""
     buffer = io.BytesIO()
@@ -302,6 +327,96 @@ class AgentBrainTests(unittest.TestCase):
         self.assertFalse(agent_brain.connected(self.home))
         write("/usr/local/bin/agent-brain hook stop")
         self.assertTrue(agent_brain.connected(self.home))
+
+    # -- Memory V2 ------------------------------------------------------------------
+    def install_memory_binary(self, version: str, **kwargs) -> Path:
+        log = self.root / "calls.log"
+        self.target.parent.mkdir(parents=True, exist_ok=True)
+        self.target.write_bytes(memory_binary(version, log, **kwargs))
+        self.target.chmod(0o755)
+        return log
+
+    def calls(self, log: Path) -> list[list[str]]:
+        if not log.exists():
+            return []
+        return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_upgrades_a_local_store_and_reports_the_backup(self):
+        log = self.install_memory_binary("0.5.11")
+        state, message = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "upgraded")
+        self.assertIn("/usr/local/backup.db", message)
+        self.assertIn(["memory", "upgrade-v2", "--apply"], self.calls(log))
+        # A second run finds V2 on and changes nothing.
+        self.assertEqual(agent_brain.ensure_memory_v2(self.home), ("current", ""))
+        self.assertEqual(self.calls(log).count(["memory", "upgrade-v2", "--apply"]), 1)
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_leaves_a_shared_postgres_store_to_the_user(self):
+        log = self.install_memory_binary("0.5.11", backend="postgres")
+        state, message = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "manual")
+        self.assertIn("agent-brain memory upgrade-v2 --apply", message)
+        self.assertNotIn(["memory", "upgrade-v2", "--apply"], self.calls(log))
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_updates_an_old_managed_copy_before_upgrading(self):
+        old_log = self.install_memory_binary("0.5.10")
+        new_log = self.root / "new.log"
+        self.server.publish_binary("0.5.11", memory_binary("0.5.11", new_log))
+        state, _ = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "upgraded")
+        self.assertEqual(agent_brain.version_of(self.target, self.home), (0, 5, 11))
+        self.assertNotIn(["memory", "upgrade-v2", "--apply"], self.calls(old_log))
+        self.assertIn(["memory", "upgrade-v2", "--apply"], self.calls(new_log))
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_never_upgrades_through_a_release_without_backups(self):
+        log = self.install_memory_binary("0.5.10")
+        self.server.publish_binary("0.5.10", memory_binary("0.5.10", log))
+        state, _ = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "failed")
+        self.assertNotIn(["memory", "upgrade-v2", "--apply"], self.calls(log))
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_leaves_an_old_unmanaged_copy_to_the_user(self):
+        folder = self.root / "bin"
+        folder.mkdir()
+        log = self.root / "calls.log"
+        other = folder / "agent-brain"
+        other.write_bytes(memory_binary("0.5.10", log))
+        other.chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{folder}{os.pathsep}{os.defpath}"}):
+            state, message = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "manual")
+        self.assertIn(str(other), message)
+        self.assertEqual(self.calls(log), [])
+        self.assertFalse(self.target.exists())
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_reports_a_failed_upgrade(self):
+        self.install_memory_binary("0.5.11", upgrade_fails=True)
+        state, message = agent_brain.ensure_memory_v2(self.home)
+        self.assertEqual(state, "failed")
+        self.assertIn("database is locked", message)
+
+    def test_memory_v2_without_agent_brain_does_nothing(self):
+        self.assertEqual(agent_brain.ensure_memory_v2(self.home), ("unavailable", ""))
+
+    @unittest.skipUnless(POSIX, "fake binary is a script")
+    def test_memory_v2_is_forced_only_on_an_agent_brain_agentfleet_connects(self):
+        log = self.install_memory_binary("0.5.11")
+        # Not connected: agent-brain wrote no hooks.
+        self.assertEqual(agent_brain.ensure_connected_memory_v2(self.home), ("unavailable", ""))
+        settings = self.home / ".claude" / "settings.json"
+        settings.write_text(json.dumps({"hooks": {"Stop": [{"hooks": [
+            {"type": "command", "command": f"{self.target} hook stop"}]}]}}), encoding="utf-8")
+        agent_brain.provider_catalog.write_preferences(self.home, {"agentBrain": False})
+        self.assertEqual(agent_brain.ensure_connected_memory_v2(self.home), ("unavailable", ""))
+        self.assertEqual(self.calls(log), [])
+        agent_brain.provider_catalog.write_preferences(self.home, {"agentBrain": True})
+        self.assertEqual(agent_brain.ensure_connected_memory_v2(self.home)[0], "upgraded")
 
     def test_hooks_run_matches_the_executable_in_either_slash_form(self):
         settings = self.home / ".claude" / "settings.json"

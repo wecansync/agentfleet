@@ -3696,6 +3696,15 @@ def reconnect_agent_brain(home: Path) -> None:
         print("Warning: agent-brain could not reconnect to Claude Code; run: agent-brain install --assistant claude-code", file=sys.stderr)
 
 
+def upgrade_agent_brain_memory(home: Path) -> None:
+    """Bring agent-brain's memory store to the current format (Memory V2),
+    which session capture and summaries need. agent-brain backs a local store
+    up first; a shared PostgreSQL store is never changed, only reported."""
+    state, message = agent_brain.ensure_connected_memory_v2(home)
+    if message:
+        print(message, file=sys.stderr if state == "failed" else sys.stdout)
+
+
 def run_configure(args: argparse.Namespace, home: Path) -> None:
     """Configure only after the install transaction and its lock have finished."""
     if args.no_wizard or args.no_configure or os.environ.get("AGENTFLEET_NO_CONFIGURE") == "1":
@@ -4443,6 +4452,7 @@ def main() -> int:
         if marked_agent_brain:
             reconnect_agent_brain(target_home(args))
         run_configure(args, target_home(args))
+        upgrade_agent_brain_memory(target_home(args))
     return result
 
 

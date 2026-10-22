@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Features — AgentFleet</title>
+<meta name="description" content="Every AgentFleet feature in one place: what it does, whether it is on by default, and the command to turn it on, off or configure it.">
+<link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/site.css?v=3">
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('agentfleet-theme');
+    if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+  document.documentElement.classList.add('js');
+})();
+</script>
+
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/">
+      <img src="/favicon.svg?v=1" alt="" width="26" height="26">
+      AgentFleet
+    </a>
+    <nav class="main-nav" id="primary-nav" data-main-nav aria-label="Primary">
+      <a href="/features/" aria-current="page">Features</a>
+      <a href="/#how-it-works">How it works</a>
+      <a href="/#lanes">Lanes</a>
+      <a href="/docs/">Docs</a>
+      <a href="https://github.com/wecansync/claude-agents-config">GitHub</a>
+    </nav>
+    <div class="header-actions">
+      <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>
+      </button>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+<div class="container">
+  <button class="docs-toc-toggle" type="button" data-docs-toc-toggle aria-expanded="false" aria-controls="docs-sidebar">
+    Groups
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+
+  <div class="docs-shell">
+    <nav class="docs-sidebar" id="docs-sidebar" data-docs-sidebar aria-label="Feature groups">
+      <ul class="docs-nav">
+        <li><a href="#lanes-and-routing">Lanes and routing</a></li>
+        <li><a href="#work-style">Work style</a></li>
+        <li><a href="#context-and-compaction">Context and compaction</a></li>
+        <li><a href="#mods">Mods</a></li>
+        <li><a href="#usage-cost-and-reports">Usage, cost and reports</a></li>
+        <li><a href="#agent-brain">agent-brain</a></li>
+        <li><a href="#setup-and-maintenance">Setup and maintenance</a></li>
+        <li><a href="#suggestions">Suggestions</a></li>
+      </ul>
+    </nav>
+
+    <div class="docs-main container-narrow" style="padding:0">
+
+      <div class="features-intro">
+        <h1>All AgentFleet features</h1>
+        <p class="lede">Every feature in one list: what it does, whether it is on by default, and the command to turn it on, off or configure it. Each row links to the matching section of the docs when there is one.</p>
+        <p><strong>On</strong> means it is active after a normal install. <strong>Off</strong> and <strong>Opt-in</strong> mean you turn it on. <strong>Automatic</strong> means it works without a setting. <strong>On request</strong> means you run it when you need it. Restart Claude Code after you change a setting. Commands starting with <code class="il">/</code> run inside Claude Code; the others run in a terminal.</p>
+      </div>
+
+      <section id="lanes-and-routing">
+        <h2 class="anchor-heading">Lanes and routing<a class="anchor-link" href="#lanes-and-routing" aria-label="Link to this section">#</a></h2>
+        <p>Lanes are the subagents Claude hands work to. These features decide which model each lane uses and what happens when a model fails.</p>
+        <div class="table-wrap" role="region" aria-label="Lanes and routing features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Role-named lanes</th><td>AgentFleet installs 19 subagents named for a role, such as <code class="il">fleet-implement</code> and <code class="il">fleet-review</code>, never for a model. The names stay the same when you change provider. <a href="/docs/#lanes">Lanes in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">After install.</p></td><td><div class="cmd-line"><span class="cmd-label">Rebuild</span> <code class="il">agentfleet sync</code></div><div class="cmd-line"><span class="cmd-label">Remove</span> <code class="il">agentfleet uninstall</code></div></td></tr>
+              <tr><th scope="row">Capability tiers and ranking</th><td>Each model your provider offers gets a tier: cheap, fast, balanced or deep. Each lane takes the best live model for its tier and falls back to the next one. <a href="/docs/#tiers">Tiers in the docs</a>.</td><td><span class="tag tag-rw">Automatic</span></td><td><div class="cmd-line"><span class="cmd-label">Configure</span> <code class="il">claude-fleet-setup --tier MODEL=TIER</code></div><div class="cmd-line"><span class="cmd-label">Refresh</span> <code class="il">claude-fleet-setup --reconcile</code></div></td></tr>
+              <tr><th scope="row">Lane model preferences</th><td>Pin a lane to models you choose, keep models out of every lane, or reserve models for the lanes that name them. <a href="/docs/#tuning">Tuning in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">No pins until you set them.</p></td><td><div class="cmd-line"><span class="cmd-label">Pin</span> <code class="il">claude-fleet-setup --prefer LANE=MODEL</code></div><div class="cmd-line"><span class="cmd-label">Unpin</span> <code class="il">claude-fleet-setup --prefer LANE=</code></div><div class="cmd-line"><span class="cmd-label">Exclude</span> <code class="il">claude-fleet-setup --exclude MODEL</code></div><div class="cmd-line"><span class="cmd-label">Undo</span> <code class="il">claude-fleet-setup --include MODEL</code></div></td></tr>
+              <tr><th scope="row">Lane effort</th><td>Sets how much reasoning a lane uses: low, medium, high, xhigh or max. AgentFleet sets a default for each lane. <a href="/docs/#work-style-effort">Lane effort in the docs</a>.</td><td><span class="tag tag-rw">Automatic</span></td><td><div class="cmd-line"><span class="cmd-label">Configure</span> <code class="il">claude-fleet-setup --effort LANE=LEVEL</code></div><div class="cmd-line"><span class="cmd-label">Reset</span> <code class="il">claude-fleet-setup --effort LANE=</code></div></td></tr>
+              <tr><th scope="row">Custom lanes</th><td>Add your own <code class="il">fleet-*</code> lane by editing <code class="il">~/.claude/fleet.json</code>. Custom lanes survive updates and profile switches. <a href="/docs/#custom-lanes">Custom lanes in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span></td><td><div class="cmd-line"><span class="cmd-label">Add</span> Edit <code class="il">~/.claude/fleet.json</code>, then run <code class="il">claude-fleet-setup --reconcile</code></div><div class="cmd-line"><span class="cmd-label">Guided</span> <code class="il">/fleet-setup</code></div></td></tr>
+              <tr><th scope="row">Project lane overrides</th><td>Pin a lane to a model for one project only. The pin lives in that project and does not change your other projects. <a href="/docs/#project-lane-overrides">Project lane overrides in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span></td><td><div class="cmd-line"><span class="cmd-label">Pin</span> <code class="il">agentfleet project pin LANE MODEL</code></div><div class="cmd-line"><span class="cmd-label">Unpin</span> <code class="il">agentfleet project unpin LANE</code></div><div class="cmd-line"><span class="cmd-label">Show</span> <code class="il">agentfleet project show</code></div></td></tr>
+              <tr><th scope="row">Outage failover</th><td>When a gateway fails with a server error, AgentFleet marks the lane as failing for 15 minutes. Routing avoids it and tells Claude which lane to use instead. This is part of the lane-guard mod. <a href="/docs/#outages">Outages and lane reports in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Runs with the lane-guard mod.</p></td><td><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">claude plugin disable lane-guard@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">claude plugin enable lane-guard@agentfleet</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="work-style">
+        <h2 class="anchor-heading">Work style<a class="anchor-link" href="#work-style" aria-label="Link to this section">#</a></h2>
+        <p>These settings change how Claude approaches your tasks. Restart Claude Code after you change one.</p>
+        <div class="table-wrap" role="region" aria-label="Work style features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Work style</th><td>Sets how readily Claude hands work to a lane. <code class="il">balanced</code> uses lanes for independent parts and risky reviews. <code class="il">direct</code> uses a lane only when you ask. <code class="il">fleet</code> delegates by default. <a href="/docs/#work-style">Work style in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Default: balanced.</p></td><td><div class="cmd-line"><span class="cmd-label">Configure</span> <code class="il">agentfleet config work-style direct|balanced|fleet</code></div></td></tr>
+              <tr><th scope="row">Reviews, fixes and retries</th><td>Claude reviews each lane's changes itself. It sends larger findings back to the lane that wrote the code, and retries a failed lane once. This works in every style that uses lanes. <a href="/docs/#work-style-reviews">Reviews, fixes and retries in the docs</a>.</td><td><span class="tag tag-rw">Automatic</span><p class="feature-note">No setting.</p></td><td><div class="cmd-line"><span class="cmd-label">Change</span> No command. Pick a work style instead.</div></td></tr>
+              <tr><th scope="row">Ask first</th><td>For large, unclear or risky tasks, Claude agrees on an approach with you before it starts. Small, clear tasks start straight away. <a href="/docs/#ask-first">Ask first in the docs</a>.</td><td><span class="tag tag-rw">On</span></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config ask-first on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config ask-first off</code></div></td></tr>
+              <tr><th scope="row">Branch check</th><td>Before Claude changes files in a git repository, it checks the branch and asks whether to continue on it, switch, or start a new one. It never switches or pulls without your answer. <a href="/docs/#branch-check">Branch check in the docs</a>.</td><td><span class="tag tag-rw">On</span></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config branch-check on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config branch-check off</code></div></td></tr>
+              <tr><th scope="row">Reviewer access</th><td>Sets which tools the review lanes get: <code class="il">full</code> (read, Bash, Edit, Write), <code class="il">run</code> (read and Bash) or <code class="il">read-only</code>. Reviewers edit only in an explicit FIX MODE. <a href="/docs/#reviewer-modes">Reviewer modes in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Default: full.</p></td><td><div class="cmd-line"><span class="cmd-label">Configure</span> <code class="il">agentfleet config reviewer-access full|run|read-only</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="context-and-compaction">
+        <h2 class="anchor-heading">Context and compaction<a class="anchor-link" href="#context-and-compaction" aria-label="Link to this section">#</a></h2>
+        <p>These features keep the context window from filling up, or show you how full it is.</p>
+        <div class="table-wrap" role="region" aria-label="Context and compaction features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Auto-compact percentage</th><td>One percentage of usable context for every model. Claude compacts when the context reaches it. Choose 20 to 95, or off. <a href="/docs/#auto-compact">Auto-compact in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Default: 70%.</p></td><td><div class="cmd-line"><span class="cmd-label">Configure</span> <code class="il">agentfleet config compact 20-95</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config compact off</code></div></td></tr>
+              <tr><th scope="row">token-weather</th><td>A forecast of how full the context window is, drawn above the prompt. It is a sample mod from Anthropic. <a href="/docs/#mods-token-weather">token-weather in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">On since 2.5.0.</p></td><td><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">claude plugin disable token-weather@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">claude plugin enable token-weather@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">Ask</span> <code class="il">agentfleet configure</code></div></td></tr>
+              <tr><th scope="row">JEV (fast-jev-compaction)</th><td>A mod that replaces Claude Code's compaction summary. A fast Jev model decides which old tool calls to drop. It needs a paid TypeSafe API key and sends main-conversation text to api.typesafe.ai when it compacts. <a href="/docs/#mods-optional">Optional mods in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">Not installed by default.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet jev on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet jev off</code></div><div class="cmd-line"><span class="cmd-label">Check</span> <code class="il">agentfleet jev status</code></div></td></tr>
+              <tr><th scope="row">Context Mode</th><td>An upstream plugin that indexes large tool output on your machine and returns only the excerpts Claude needs. Lanes may use only its search and stats tools. AgentFleet has not measured total-token savings. <a href="/docs/#context-mode">Context Mode in the docs</a>.</td><td><span class="tag tag-ro">Off</span><p class="feature-note">Opt-in pilot.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config context-mode on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config context-mode off</code></div><div class="cmd-line"><span class="cmd-label">Check</span> <code class="il">agentfleet config context-mode status</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="mods">
+        <h2 class="anchor-heading">Mods<a class="anchor-link" href="#mods" aria-label="Link to this section">#</a></h2>
+        <p>Mods are plugins that run inside Claude Code and can draw in its interface. They need Claude Code 2.1.287 or later. They show in the terminal and the Code tab of the desktop app. token-weather and JEV are mods too; you find them under Context and compaction.</p>
+        <div class="table-wrap" role="region" aria-label="Mods features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Mods catalog</th><td>AgentFleet installs a local plugin catalog named <code class="il">agentfleet</code>. It holds fleet-status, lane-guard, token-weather and brain, which are on by default, and fast-jev-compaction, which is opt-in. <a href="/docs/#mods">Mods in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Turn all mods off at install time.</p></td><td><div class="cmd-line"><span class="cmd-label">Manage</span> <code class="il">/plugin</code></div><div class="cmd-line"><span class="cmd-label">Skip</span> <code class="il">AGENTFLEET_MODS=0</code></div><div class="cmd-line"><span class="cmd-label">Or flag</span> <code class="il">--no-mods</code></div></td></tr>
+              <tr><th scope="row">fleet-status (status band)</th><td>A band above the prompt that appears only when something needs action: a restart after an update, a failing lane, a usage warning above 80%, or a new suggestion. <code class="il">/fleet-status</code> prints your version, profile and settings. <code class="il">/fleet-tasks</code> opens a pane of this session's lanes. <a href="/docs/#mods-fleet-status">fleet-status in the docs</a>.</td><td><span class="tag tag-rw">On</span></td><td><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">claude plugin disable fleet-status@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">claude plugin enable fleet-status@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">Open</span> <code class="il">/fleet-status</code></div><div class="cmd-line"><span class="cmd-label">Open</span> <code class="il">/fleet-tasks</code></div></td></tr>
+              <tr><th scope="row">lane-guard</th><td>Blocks covered git changes, GitHub writes, publishing, deployments, migrations, destructive SQL and dangerous deletions in fleet subagents. It never blocks your main conversation. Turning it off also turns off outage failover. <a href="/docs/#lane-guard">Lane guard in the docs</a>.</td><td><span class="tag tag-rw">On</span></td><td><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">claude plugin disable lane-guard@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">claude plugin enable lane-guard@agentfleet</code></div></td></tr>
+              <tr><th scope="row">/brain</th><td>Opens a scrollable pane with agent-brain token usage, this week's estimated cost, and your project's memories when memory is on. <a href="/docs/#mods-brain">brain in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">On since 2.7.0.</p></td><td><div class="cmd-line"><span class="cmd-label">Open</span> <code class="il">/brain</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">claude plugin disable brain@agentfleet</code></div><div class="cmd-line"><span class="cmd-label">Ask</span> <code class="il">agentfleet configure</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="usage-cost-and-reports">
+        <h2 class="anchor-heading">Usage, cost and reports<a class="anchor-link" href="#usage-cost-and-reports" aria-label="Link to this section">#</a></h2>
+        <p>See what your lanes and your main conversation use, and what it costs.</p>
+        <div class="table-wrap" role="region" aria-label="Usage, cost and reports features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Usage report</th><td>Summarizes recent lane runs and main-conversation tokens per model. For each lane it shows runs, outcomes, errors, forbidden commands and tokens. <a href="/docs/#usage-report">Usage and estimated cost in the docs</a>.</td><td><span class="tag tag-rw">Automatic</span><p class="feature-note">Recorded locally.</p></td><td><div class="cmd-line"><span class="cmd-label">Run</span> <code class="il">agentfleet report</code></div><div class="cmd-line"><span class="cmd-label">Period</span> <code class="il">agentfleet report --days N</code></div><div class="cmd-line"><span class="cmd-label">Script</span> <code class="il">agentfleet report --json</code></div></td></tr>
+              <tr><th scope="row">Prices and estimated cost</th><td>With prices set, the report and <code class="il">/brain</code> show an estimated cost. Prices are in dollars per million tokens. A gateway that publishes prices in its model list is priced automatically. <a href="/docs/#usage-report">Usage and estimated cost in the docs</a>.</td><td><span class="tag tag-ro">Off</span><p class="feature-note">Until prices are set.</p></td><td><div class="cmd-line"><span class="cmd-label">Show</span> <code class="il">agentfleet config prices</code></div><div class="cmd-line"><span class="cmd-label">Set</span> <code class="il">agentfleet config prices MODEL=INPUT,OUTPUT[,CACHE_READ,CACHE_WRITE]</code></div><div class="cmd-line"><span class="cmd-label">Remove</span> <code class="il">agentfleet config prices off</code></div></td></tr>
+              <tr><th scope="row">Gateway usage</th><td>On a gateway profile, AgentFleet reads the spend and limits your gateway reports for your key (OmniRoute, OpenRouter or LiteLLM). The report, <code class="il">/brain</code> and the status band show them. <a href="/docs/#gateway-usage">Reported by your gateway in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Gateway profiles only.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config provider-usage on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config provider-usage off</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="agent-brain">
+        <h2 class="anchor-heading">agent-brain<a class="anchor-link" href="#agent-brain" aria-label="Link to this section">#</a></h2>
+        <p>agent-brain is a free tool that records the tokens and cost of each Claude Code session and can keep project memory on your machine. AgentFleet installs and connects it. It never asks you to sign in. See <a href="https://agentbrain.wecansync.com">the agent-brain site</a> for its own documentation.</p>
+        <div class="table-wrap" role="region" aria-label="agent-brain features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">agent-brain usage tracking</th><td>Installs agent-brain from a checksum-verified release and connects it to Claude Code. With automatic updates on, AgentFleet also keeps it up to date. <a href="/docs/#agent-brain">agent-brain in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">The wizard offers it; the default answer is yes.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config agent-brain on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config agent-brain off</code></div></td></tr>
+              <tr><th scope="row">agent-brain memory</th><td>Claude saves decisions and project context on your machine and reads them back in later sessions. Nothing leaves the machine. <a href="/docs/#agent-brain">agent-brain in the docs</a>.</td><td><span class="tag tag-ro">Off</span><p class="feature-note">Until you say yes.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config agent-brain-memory on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config agent-brain-memory off</code></div></td></tr>
+              <tr><th scope="row">Memory export and import</th><td>Moves a project's memories to another machine or to a colleague. Export writes a file. Import shows a summary and asks before it writes, and skips entries you already have. <a href="https://agentbrain.wecansync.com">Memory export and import on the agent-brain site</a>.</td><td><span class="tag tag-ro">On request</span><p class="feature-note">Needs agent-brain.</p></td><td><div class="cmd-line"><span class="cmd-label">Export</span> <code class="il">agent-brain memory export --format json --out FILE</code></div><div class="cmd-line"><span class="cmd-label">Import</span> <code class="il">agent-brain memory import FILE</code></div><div class="cmd-line"><span class="cmd-label">Preview</span> <code class="il">agent-brain memory import FILE --dry-run</code></div></td></tr>
+              <tr><th scope="row">Memory V2 upgrade</th><td><span class="tag tag-rw">New in 2.12.0</span> AgentFleet upgrades agent-brain's memory to the current storage format, Memory V2, after it makes a backup copy. It never upgrades a shared PostgreSQL memory store automatically. <a href="https://agentbrain.wecansync.com">Memory storage on the agent-brain site</a>.</td><td><span class="tag tag-rw">Automatic</span><p class="feature-note">On install, update and <code class="il">agentfleet doctor</code>.</p></td><td><div class="cmd-line"><span class="cmd-label">Run now</span> <code class="il">agentfleet doctor</code></div><div class="cmd-line"><span class="cmd-label">Preview</span> <code class="il">agent-brain memory upgrade-v2</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="setup-and-maintenance">
+        <h2 class="anchor-heading">Setup and maintenance<a class="anchor-link" href="#setup-and-maintenance" aria-label="Link to this section">#</a></h2>
+        <p>Install AgentFleet, answer its questions, switch providers, check the install and keep it up to date.</p>
+        <div class="table-wrap" role="region" aria-label="Setup and maintenance features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Installer</th><td>One command installs or updates a checksum-verified release. Run it again to update. It keeps your provider profile. <a href="/docs/#install">Install in the docs</a>.</td><td><span class="tag tag-ro">On request</span></td><td><div class="cmd-line"><span class="cmd-label">macOS, Linux</span> <code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></div><div class="cmd-line"><span class="cmd-label">Windows</span> <code class="il">irm https://agentfleet.wecansync.com/install.ps1 | iex</code></div></td></tr>
+              <tr><th scope="row">First-run wizard and <code class="il">agentfleet configure</code></th><td><span class="tag tag-rw">New in 2.12.0</span> After an interactive install or update, the wizard asks only the questions you have not answered. <code class="il">agentfleet configure</code> asks about every setting, grouped under headings, including branch check, Context Mode, gateway usage and the /brain mod. Enter keeps the current value. <a href="/docs/#first-run-wizard">First-run wizard in the docs</a>.</td><td><span class="tag tag-rw">Automatic</span><p class="feature-note">Runs after a terminal install or update.</p></td><td><div class="cmd-line"><span class="cmd-label">Run</span> <code class="il">agentfleet configure</code></div><div class="cmd-line"><span class="cmd-label">Keep all</span> <code class="il">agentfleet configure --yes</code></div><div class="cmd-line"><span class="cmd-label">Skip</span> <code class="il">AGENTFLEET_NO_CONFIGURE=1</code></div><div class="cmd-line"><span class="cmd-label">Show</span> <code class="il">agentfleet config</code></div></td></tr>
+              <tr><th scope="row">Presets for teams</th><td>Apply a team's settings without questions, or export your own. Exports never contain secrets. <a href="/docs/#preferences">Preferences in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span></td><td><div class="cmd-line"><span class="cmd-label">Apply</span> <code class="il">agentfleet configure --preset team.json</code></div><div class="cmd-line"><span class="cmd-label">Export</span> <code class="il">agentfleet configure --export team.json</code></div></td></tr>
+              <tr><th scope="row">Provider profiles</th><td>Save the setup for each provider, and switch between them without reinstalling. Lanes keep their names. Use <code class="il">native</code> for your Claude login. <a href="/docs/#profiles">Profiles in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">Starts with one profile.</p></td><td><div class="cmd-line"><span class="cmd-label">List</span> <code class="il">agentfleet profiles</code></div><div class="cmd-line"><span class="cmd-label">Switch</span> <code class="il">agentfleet use NAME</code></div><div class="cmd-line"><span class="cmd-label">Add</span> <code class="il">agentfleet add NAME --gateway-url URL</code></div><div class="cmd-line"><span class="cmd-label">Save</span> <code class="il">agentfleet save NAME</code></div><div class="cmd-line"><span class="cmd-label">Delete</span> <code class="il">agentfleet remove NAME</code></div></td></tr>
+              <tr><th scope="row">/fleet-setup</th><td>An interactive wizard inside Claude Code. It audits the fleet, fixes stale model settings, tunes lanes and lets you add a provider. It never asks for a token in chat. <a href="/docs/#fleet-setup">fleet-setup in the docs</a>.</td><td><span class="tag tag-ro">On request</span></td><td><div class="cmd-line"><span class="cmd-label">Run</span> <code class="il">/fleet-setup</code></div></td></tr>
+              <tr><th scope="row">Doctor and status</th><td>Checks the install: models, settings, hooks, agents, skills, plugins and MCP health. It also runs the Memory V2 upgrade for agent-brain. <a href="/docs/#commands-doctor">Doctor in the docs</a>.</td><td><span class="tag tag-ro">On request</span></td><td><div class="cmd-line"><span class="cmd-label">Verify</span> <code class="il">agentfleet doctor</code></div><div class="cmd-line"><span class="cmd-label">Audit</span> <code class="il">agentfleet status</code></div></td></tr>
+              <tr><th scope="row">Automatic updates</th><td>Once a day at Claude Code start, AgentFleet installs a newer release with the same major version in the background. A new major version is never installed automatically. <a href="/docs/#upgrading-auto">Automatic updates in the docs</a>.</td><td><span class="tag tag-rw">On</span></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet auto-update on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet auto-update off</code></div><div class="cmd-line"><span class="cmd-label">Check</span> <code class="il">agentfleet auto-update status</code></div></td></tr>
+              <tr><th scope="row">Update, roll back and uninstall</th><td>Update by hand, restore the settings from before the last install or update, or remove AgentFleet and restore your earlier settings. <a href="/docs/#upgrading">Upgrading in the docs</a>.</td><td><span class="tag tag-ro">On request</span></td><td><div class="cmd-line"><span class="cmd-label">Update</span> <code class="il">agentfleet update</code></div><div class="cmd-line"><span class="cmd-label">Roll back</span> <code class="il">agentfleet rollback</code></div><div class="cmd-line"><span class="cmd-label">Remove</span> <code class="il">agentfleet uninstall</code></div></td></tr>
+              <tr><th scope="row">Instruction check</th><td>Checks your Claude Code instruction files for stale lane names, duplicate lines and contradictions. It asks before it edits and backs up the file first. <a href="/docs/#instruction-check">Instruction check in the docs</a>.</td><td><span class="tag tag-ro">On request</span><p class="feature-note">The wizard offers it.</p></td><td><div class="cmd-line"><span class="cmd-label">Check and edit</span> <code class="il">agentfleet instructions</code></div><div class="cmd-line"><span class="cmd-label">Report only</span> <code class="il">agentfleet instructions --check</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="suggestions">
+        <h2 class="anchor-heading">Suggestions<a class="anchor-link" href="#suggestions" aria-label="Link to this section">#</a></h2>
+        <p>AgentFleet scans a project on your machine and suggests plugins, mods, hooks and tools that fit it. It installs only what you pick.</p>
+        <div class="table-wrap" role="region" aria-label="Suggestions features" tabindex="0">
+          <table class="feature-table">
+            <thead><tr><th scope="col">Feature</th><th scope="col">What it does</th><th scope="col">Default</th><th scope="col">Commands</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">/fleet-suggest</th><td>Scans the project locally, makes no network requests and never reads <code class="il">.env</code> values. It explains what each suggestion can access before it installs anything. <a href="/docs/#suggestions">Suggestions in the docs</a>.</td><td><span class="tag tag-ro">On request</span><p class="feature-note">The status band shows one new suggestion at a time.</p></td><td><div class="cmd-line"><span class="cmd-label">Run</span> <code class="il">/fleet-suggest</code></div><div class="cmd-line"><span class="cmd-label">From a shell</span> <code class="il">agentfleet suggest</code></div><div class="cmd-line"><span class="cmd-label">Dismiss</span> <code class="il">agentfleet suggest --dismiss ID</code></div></td></tr>
+              <tr><th scope="row">Usage learning</th><td>Counts command names, tools, documentation sites and slash commands for each project, never prompt text, to improve suggestions. <a href="/docs/#suggestions">Suggestions in the docs</a>.</td><td><span class="tag tag-rw">On</span><p class="feature-note">On for new installs.</p></td><td><div class="cmd-line"><span class="cmd-label">On</span> <code class="il">agentfleet config learn on</code></div><div class="cmd-line"><span class="cmd-label">Off</span> <code class="il">agentfleet config learn off</code></div><div class="cmd-line"><span class="cmd-label">Delete data</span> <code class="il">agentfleet suggest --forget</code></div></td></tr>
+              <tr><th scope="row">Spec Kit</th><td>For a new or small project, /fleet-suggest offers Spec Kit. It writes a spec, a plan and a task list before code. <a href="/docs/#suggestions">Suggestions in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">Installed only if you pick it.</p></td><td><div class="cmd-line"><span class="cmd-label">Offer</span> <code class="il">/fleet-suggest</code></div></td></tr>
+              <tr><th scope="row">mcpvault</th><td><span class="tag tag-rw">New in 2.12.0</span> An Obsidian vault tool that works without the Obsidian app. /fleet-suggest offers it when a project contains an Obsidian vault. <a href="/docs/#suggestions">Suggestions in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">Installed only if you pick it.</p></td><td><div class="cmd-line"><span class="cmd-label">Offer</span> <code class="il">/fleet-suggest</code></div></td></tr>
+              <tr><th scope="row">Graphify</th><td><span class="tag tag-rw">New in 2.12.0</span> A code knowledge-graph tool. /fleet-suggest offers it for large repositories. <a href="/docs/#suggestions">Suggestions in the docs</a>.</td><td><span class="tag tag-ro">Opt-in</span><p class="feature-note">Installed only if you pick it.</p></td><td><div class="cmd-line"><span class="cmd-label">Offer</span> <code class="il">/fleet-suggest</code></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="maker-credit">
+        <span>An open-source project by</span>
+        <a href="https://wecansync.com">
+          <img class="logo-dark" src="/assets/logo-dark.png?v=1" alt="WeCanSync" width="59" height="20">
+          <img class="logo-light" src="/assets/logo-light.png?v=1" alt="WeCanSync" width="59" height="20">
+        </a>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/wecansync/claude-agents-config">GitHub</a>
+        <a href="https://github.com/wecansync/claude-agents-config/blob/main/LICENSE">MIT License</a>
+        <a href="/docs/">Docs</a>
+      </div>
+    </div>
+    <p class="disclaimer">AgentFleet is an independent project by WeCanSync. It is not affiliated with or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.</p>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>

@@ -55,7 +55,8 @@ For every item the user selects:
   - Show the finished section and where it goes: appended to the project's `CLAUDE.md`, which is created with just this section if it does not exist.
   - Write it only after the user confirms. Never reword the user's existing CLAUDE.md content.
 - **Workflow Tools (`kind: tool`):**
-  - Show the item's access line and the exact install command, then ask before running it. If a required program is missing (for example `uv`), stop and tell the user how to install it rather than installing it yourself.
+  - Fill the install command's `<placeholders>` as its template describes (for example the vault folder from the matched file); ask when unsure.
+  - Show the item's access line and the exact install command, then ask before running it. If a required program is missing (for example `uv` or Node.js), stop and tell the user how to install it rather than installing it yourself.
   - After it succeeds, show the template's usage note.
 
 ## Phase 3: Dismiss & Finalize

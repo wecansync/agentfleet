@@ -395,6 +395,72 @@ def enable_memory(home: Path) -> tuple[bool, str]:
         return False, "Could not enable agent-brain memory."
 
 
+# The first release that backs up a local store before upgrading it to Memory
+# V2, which session capture and summaries need.
+MEMORY_V2_MIN_VERSION = (0, 5, 11)
+
+
+def memory_store(home: Path, binary: Path) -> dict | None:
+    """The schema facts `agent-brain memory status` reports, or None."""
+    code, output = _run(home, binary, "memory", "status", timeout=30)
+    if code != 0:
+        return None
+    try:
+        report = json.loads(output[output.index("{"):])
+    except ValueError:
+        return None
+    return report if isinstance(report, dict) else None
+
+
+def ensure_memory_v2(home: Path) -> tuple[str, str]:
+    """Upgrade agent-brain's local store to Memory V2, after agent-brain backs
+    it up. Returns a state and a message for the user. The states:
+    "current" (nothing to do), "upgraded", "manual" (a shared PostgreSQL store,
+    or a copy AgentFleet does not manage, which only the user may change),
+    "unavailable" (no agent-brain), "failed". A managed copy older than 0.5.11
+    is updated first, since older releases upgrade without a backup."""
+    try:
+        binary = find_binary(home)
+        if binary is None:
+            return "unavailable", ""
+        current = version_of(binary, home)
+        if current is not None and current < MEMORY_V2_MIN_VERSION:
+            if binary.resolve(strict=False) != managed_binary(home).resolve(strict=False):
+                return "manual", (f"agent-brain at {binary} is older than 0.5.11; update it with the tool that installed it, "
+                                  "then run: agent-brain memory upgrade-v2 --apply")
+            update(home)
+            current = version_of(binary, home)
+            if current is None or current < MEMORY_V2_MIN_VERSION:
+                return "failed", "Could not update agent-brain to 0.5.11, which the memory upgrade needs."
+        report = memory_store(home, binary)
+        if report is None:
+            return "failed", "Could not read agent-brain's memory store."
+        if report.get("v2_active") is True:
+            return "current", ""
+        if report.get("backend") != "sqlite":
+            # A shared PostgreSQL store: teammates' agent-brain must be updated
+            # first, and only its owner can back it up.
+            return "manual", ("agent-brain's shared PostgreSQL store uses the older memory format. Back it up, update every "
+                              "teammate's agent-brain, then run: agent-brain memory upgrade-v2 --apply")
+        code, output = _run(home, binary, "memory", "upgrade-v2", "--apply", timeout=300)
+        if code != 0:
+            return "failed", "agent-brain could not upgrade its memory store: " + (output.splitlines() or ["no output"])[-1]
+        backup = next((line.strip() for line in output.splitlines() if line.startswith("A copy of the store")), "")
+        return "upgraded", " ".join(part for part in (
+            "Upgraded agent-brain memory to the current format (Memory V2).", backup,
+            "Restart Claude Code so open sessions use it.") if part)
+    except (AgentBrainError, OSError, ValueError):
+        return "failed", "Could not check agent-brain's memory store."
+
+
+def ensure_connected_memory_v2(home: Path) -> tuple[str, str]:
+    """ensure_memory_v2, only for an agent-brain AgentFleet connects: one the
+    user declined or connected by hand is left alone."""
+    if provider_catalog.load_preferences(home)["agentBrain"] is False or not connected(home):
+        return "unavailable", ""
+    return ensure_memory_v2(home)
+
+
 def disable_memory(home: Path) -> tuple[bool, str]:
     """Disable local memory everywhere without deleting its entries."""
     try:

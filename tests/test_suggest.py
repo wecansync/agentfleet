@@ -340,6 +340,38 @@ services:
         (new / ".specify" / "memory" / "constitution.md").write_text("# Principles\n", encoding="utf-8")
         self.assertNotIn("spec-kit", {s["id"] for s in fleet_suggest.suggest(self.home, new)})
 
+    def test_mcpvault_offered_for_an_obsidian_vault_at_any_depth(self):
+        plain = self.root / "plain_proj"
+        plain.mkdir()
+        self.assertNotIn("mcpvault", {s["id"] for s in fleet_suggest.suggest(self.home, plain)})
+        for vault in ("", "docs/"):
+            with self.subTest(vault=vault or "root"):
+                project = self.root / f"vault_proj_{len(vault)}"
+                (project / vault / ".obsidian").mkdir(parents=True)
+                (project / vault / ".obsidian" / "app.json").write_text("{}", encoding="utf-8")
+                suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, project)}
+                self.assertIn("mcpvault", suggs)
+                self.assertEqual(suggs["mcpvault"]["kind"], "tool")
+                self.assertIn("--read-only", suggs["mcpvault"]["install"])
+                self.assertIn("<vault folder>", suggs["mcpvault"]["template"])
+
+    def test_graphify_offered_for_large_projects_only(self):
+        small = self.root / "small_proj"
+        small.mkdir()
+        for index in range(30):
+            (small / f"module_{index}.py").write_text("x = 1\n", encoding="utf-8")
+        self.assertNotIn("graphify", {s["id"] for s in fleet_suggest.suggest(self.home, small)})
+        large = self.root / "large_proj"
+        for package in range(10):
+            folder = large / f"pkg_{package}"
+            folder.mkdir(parents=True)
+            for index in range(100):
+                (folder / f"module_{index}.py").write_text("", encoding="utf-8")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, large)}
+        self.assertIn("graphify", suggs)
+        self.assertTrue(suggs["graphify"]["why"].startswith("Large project (1000+ files)"))
+        self.assertIn("uv tool install graphifyy==", suggs["graphify"]["install"])
+
     def test_ranking_strength_and_kind_order(self):
         proj = self.root / "ranked_proj"
         proj.mkdir()
