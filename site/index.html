@@ -9,7 +9,7 @@
 <meta property="og:description" content="A fleet of native Claude Code subagents. One command to install. Works with your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway.">
 <meta property="og:type" content="website">
 <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
-<link rel="stylesheet" href="/assets/site.css?v=2">
+<link rel="stylesheet" href="/assets/site.css?v=3">
 <script>
 (function(){
   try {
@@ -30,7 +30,7 @@
       AgentFleet
     </a>
     <nav class="main-nav" id="primary-nav" data-main-nav aria-label="Primary">
-      <a href="#features">Features</a>
+      <a href="/features/">Features</a>
       <a href="#how-it-works">How it works</a>
       <a href="#lanes">Lanes</a>
       <a href="#changelog">Changelog</a>
@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.11.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 20, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.12.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 22, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -215,6 +215,7 @@ How should Claude Code reach its models?
         </div>
       </div>
     </div>
+    <p class="center" style="margin-top:2rem"><a class="btn btn-secondary" href="/features/">See all features</a></p>
   </div>
 </section>
 
@@ -431,19 +432,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.11.1</span>
-        <span class="release-date" data-latest-date>October 20, 2026</span>
+        <span class="release-version" data-latest-version>v2.12.0</span>
+        <span class="release-date" data-latest-date>October 22, 2026</span>
       </div>
-      <p>Gateway figures survive a slow or briefly failing gateway.</p>
+      <p>Set every feature in one pass, and agent-brain memory that saves session summaries again.</p>
       <ul class="release-list">
-        <li>A gateway that was slow, down or returning server errors was taken for one without a usage report, hiding its figures for a day. Now the figures already shown stay, and AgentFleet tries again after 5 minutes.</li>
-        <li>Each request to the gateway waits up to 8 seconds, since a first answer after a quiet spell can be slow.</li>
-        <li><code class="il">agentfleet config</code> says when the gateway hasn't been reached yet, instead of reporting no usage.</li>
+        <li><code class="il">agentfleet configure</code> now covers every feature, grouped under headings: it adds Context Mode, the branch check, the <code class="il">/brain</code> command and gateway usage. After an update it asks only the new questions.</li>
+        <li>Install, <code class="il">agentfleet doctor</code> and agent-brain's background update upgrade an older agent-brain memory store, after agent-brain backs it up, so session capture and summaries work.</li>
+        <li><code class="il">/fleet-suggest</code> offers MCPVault for a project with an Obsidian vault, and Graphify for a large repository. Both are optional and installed only after you approve.</li>
+        <li>A new <a href="/features/">features page</a> lists everything AgentFleet adds.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.11.1</span><span class="release-date">October 20, 2026</span><span class="version-summary">Gateway figures survive a slow or briefly failing gateway.</span></summary>
+        <ul class="release-list">
+          <li>A gateway that was slow, down or returning server errors was taken for one without a usage report, hiding its figures for a day. Now the figures already shown stay, and AgentFleet tries again after 5 minutes.</li>
+          <li>Each request to the gateway waits up to 8 seconds, since a first answer after a quiet spell can be slow.</li>
+          <li><code class="il">agentfleet config</code> says when the gateway hasn't been reached yet, instead of reporting no usage.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.11.0</span><span class="release-date">October 20, 2026</span><span class="version-summary">See what your gateway reports you spent, and get warned before you hit a limit.</span></summary>
         <ul class="release-list">

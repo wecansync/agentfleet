@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.11.1** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.12.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -483,12 +483,23 @@ differs from auto-ranking.
 
 ## Preferences and configuration
 
-Run `agentfleet configure` in a terminal to ask every question: work style,
-ask-first, auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, token-weather,
-automatic updates, and [agent-brain](#agent-brain) (install it when it is
-missing, connect it when it is installed, and turn on its memory). It ends by
-offering the [instruction check](#instruction-check).
-Enter keeps the current value. When enabling JEV without an available
+Run `agentfleet configure` in a terminal to set every feature in one pass. It
+asks each question with the current value as the default, grouped under:
+
+- **Context:** auto-compact percentage, JEV, Context Mode, token-weather.
+- **Lanes:** work style, ask-first, the branch check, reviewer access,
+  lane-guard.
+- **Status and reports:** the status band, the `/brain` command, gateway usage,
+  usage learning.
+- **agent-brain:** install it when it is missing, connect it when it is
+  installed, and turn on its [memory](#agent-brain).
+- **Updates and checks:** automatic updates, then the
+  [instruction check](#instruction-check).
+
+It ends with what has its own tool: lane models (`/fleet-setup`), provider
+profiles (`agentfleet use`) and model prices (`agentfleet config prices`).
+Enter keeps the current value. After an update, the wizard asks only the
+questions that are new since you last answered. When enabling JEV without an available
 key, the wizard offers hidden TypeSafe API key input and can store it as
 `TYPESAFE_API_KEY` in `~/.claude/settings.json`'s `env` (mode 0600), where
 commands Claude runs can read it. For private storage, leave the key empty and
@@ -579,7 +590,7 @@ account.
   (default: no; memory needs a yes, as in agent-brain's own consent prompt).
   Claude then saves decisions and project context on this
   machine and reads them back in later sessions; nothing leaves the machine,
-  and Claude takes a short save step about every 10 tool calls. A yes runs
+  and Claude takes a short save step now and then, less often when there is nothing to save. A yes runs
   `agent-brain memory enable --yes`, first updating the agent-brain AgentFleet
   installed when it is older than 0.5.7. Existing users are asked on their next
   interactive update; background updates and `--yes` never turn it on.
@@ -587,6 +598,15 @@ account.
   `agent-brain memory disable --all` and keeps existing memories. Lanes get the
   memory search tool only while memory is on; they search memory but leave
   saving it to the main conversation.
+- **Memory format:** session capture and summaries need agent-brain's current
+  store format (Memory V2). Install, `agentfleet doctor` and the background
+  agent-brain update upgrade a local store that still uses the older format:
+  they first update the agent-brain AgentFleet installed to 0.5.11 or newer,
+  which copies the store to `<store>.pre-v2-<time>.bak` next to it before
+  upgrading. A
+  copy installed some other way, or a shared PostgreSQL store, is left alone;
+  `agentfleet doctor` says what to run. Fresh stores from agent-brain 0.5.11
+  start in the current format.
 
 Before 2.6.0 AgentFleet wrote agent-brain's hooks itself; an update removes
 those copies and lets agent-brain write its own.
@@ -1006,9 +1026,10 @@ The prompt hook refreshes the figures in the background, at most every 5 minutes
 
 The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current repository to recommend relevant capabilities:
 - **Local repository inspection**: Scans project files and configuration locally without network requests and never reads `.env` files or secret values.
-- **Curated catalog**: Evaluates a 59-entry catalog (`config/suggestions.json`) including official-marketplace plugins (language servers, MCP server integrations), AgentFleet optional mods, pre-drafted hooks (`format-after-edit`, `protect-secrets`), project skill generators for repeated tasks, and `/init` if `CLAUDE.md` is absent.
+- **Curated catalog**: Evaluates a 62-entry catalog (`config/suggestions.json`) including official-marketplace plugins (language servers, MCP server integrations), AgentFleet optional mods, pre-drafted hooks (`format-after-edit`, `protect-secrets`), project skill generators for repeated tasks, and `/init` if `CLAUDE.md` is absent.
 - **Project workflow**: For a repository with a GitHub remote, it offers a drafted "Git workflow" section for the project's `CLAUDE.md`: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It fills in your main branch and test command, shows the draft, and writes it only after you approve. It is not offered once the section exists.
 - **Spec Kit**: For a new or small project, it offers [Spec Kit](https://github.com/github/spec-kit), which writes a spec, a plan and a task list before code. It suits new projects and large features; small changes don't need it. Installing it runs `uv tool install specify-cli` and `specify init --here --integration claude`, after you approve.
+- **Obsidian and Graphify**: For a project with an Obsidian vault (a `.obsidian/` folder) it offers [MCPVault](https://github.com/bitbonsai/mcpvault), added read-only and for that project only, so Claude can search the notes without the Obsidian app running. For a large repository (1,000 files or more) it offers [Graphify](https://github.com/Graphify-Labs/graphify), which maps how files and functions connect and adds a `/graphify` skill to the project. Both are third-party and installed only after you approve; Graphify needs Python 3.10+ and uv, MCPVault Node.js 20+. Graphify's token-saving figures compare against reading every file whole, so measure it with `agentfleet report` before keeping it.
 - **Local availability**: Recommends only plugins available in your local marketplaces that are not yet installed.
 - **Controlled presentation**: The status band shows one new suggestion at a time ("AgentFleet suggests …"). Opening `/fleet-suggest` marks suggestions seen and clears the band; installed items drop out on the next prompt. Hide remembers the suggestion. The model-facing notice is skipped when the band is enabled, and nothing is installed without explicit selection.
 - **Usage learning**: On by default for new installs; existing installs keep their setting and are asked once by the configuration wizard. AgentFleet tallies command names, tool names, documentation sites, and slash commands per project, never prompt text, under `~/.claude/agentfleet/usage/`. Turn it off with `agentfleet config learn off`; run `agentfleet suggest --forget` to erase recorded usage and suggestion history.

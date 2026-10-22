@@ -12,11 +12,12 @@ import re
 import sys
 
 import agent_brain
+import context_mode
 import provider_catalog
 
 MODS_MESSAGE = "AgentFleet mods are not registered; run the installer with --mods to use this"
 PLUGIN_IDS = {"jev": "fast-jev-compaction@agentfleet", "statusBand": "fleet-status@agentfleet", "laneGuard": "lane-guard@agentfleet",
-              "tokenWeather": "token-weather@agentfleet"}
+              "tokenWeather": "token-weather@agentfleet", "brainMod": "brain@agentfleet"}
 
 
 def read_json(path):
@@ -35,6 +36,10 @@ def mods_registered(paths):
 # One `claude plugin list` per wizard step instead of one per read: each call
 # starts the Claude CLI, and a run reads every plugin feature several times.
 _plugin_cache: list | None = None
+
+
+def claude_cli_available():
+    return provider_catalog.claude_cli_executable() is not None
 
 
 def agent_brain_available(paths):
@@ -80,9 +85,11 @@ def plugins(paths):
 
 def current(api, paths, key):
     pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn", "workStyle": "workStyle",
-            "askFirst": "askFirst"}
+            "askFirst": "askFirst", "branchCheck": "branchCheck", "providerUsage": "providerUsage"}
     if key in pref:
         return provider_catalog.load_preferences(paths.home)[pref[key]]
+    if key == "contextMode":
+        return context_mode.status(paths.home) in {"installed, enabled", "installed, state unknown"}
     if key == "agentBrain":
         value = provider_catalog.load_preferences(paths.home)["agentBrain"]
         return agent_brain_available(paths) if value is None else value
@@ -102,13 +109,15 @@ def current(api, paths, key):
 
 
 def apply(api, paths, key, value):
-    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory"):
+    if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "branchCheck", "providerUsage", "contextMode",
+               "agentBrain", "agentBrainInstall", "agentBrainLocalMemory"):
         setting = {
             "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
-            "workStyle": "work-style", "askFirst": "ask-first", "agentBrain": "agent-brain",
+            "workStyle": "work-style", "askFirst": "ask-first", "branchCheck": "branch-check",
+            "providerUsage": "provider-usage", "contextMode": "context-mode", "agentBrain": "agent-brain",
             "agentBrainInstall": "agent-brain", "agentBrainLocalMemory": "agent-brain-memory",
         }[key]
-        text = ("on" if value else "off") if key in ("learn", "askFirst", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory") else str(value)
+        text = ("on" if value else "off") if key in ("learn", "askFirst", "branchCheck", "providerUsage", "contextMode", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -154,19 +163,28 @@ AGENT_BRAIN_KEYS = ("agentBrainInstall", "agentBrain")
 LOCAL_MEMORY_KEY = "agentBrainLocalMemory"
 
 FEATURES = (
+    # Context
     Feature("compact", "2.3.0", "Auto-compact at what percent of each model's context? (20-95, or off)", "20-95 or off"),
     Feature("jev", "2.3.0", "Use JEV compaction? It keeps messages word-for-word instead of a summary and sends conversation text to api.typesafe.ai. (y/N)", "yes/no"),
-    Feature("reviewerAccess", "2.3.0", "Reviewer lanes: full (run commands, fix in FIX MODE), run (commands only), or read-only?", "full, run, read-only"),
-    Feature("learn", "2.3.0", "Learn from your usage to suggest skills, plugins and hooks? It counts command names, tool names, documentation sites and slash commands only, never prompt text. (Y/n)", "yes/no"),
-    Feature("statusBand", "2.3.0", "Show the AgentFleet status band (updates, outages, suggestions, JEV) above the prompt? (Y/n)", "yes/no"),
-    Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
-    Feature("autoUpdate", "2.3.0", "Install AgentFleet updates automatically in the background? (Y/n)", "yes/no"),
+    Feature("contextMode", "2.12.0", "Install Context Mode, a third-party plugin (ELv2 license) that indexes large tool output locally and adds its own hooks? It promises no measured token savings. (y/N)", "yes/no"),
+    Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
+    # Lanes
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
     Feature("askFirst", "2.5.0", "Before large, unclear or risky tasks, should Claude check the docs, investigate, and agree on the approach with you (workflow, worktrees, new-project setup)? Small, clear tasks are done straight away. (Y/n)", "yes/no"),
-    Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
+    Feature("branchCheck", "2.12.0", "Check the git branch before Claude's first file change in a task? (Y/n)", "yes/no"),
+    Feature("reviewerAccess", "2.3.0", "Reviewer lanes: full (run commands, fix in FIX MODE), run (commands only), or read-only?", "full, run, read-only"),
+    Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
+    # Status and reports
+    Feature("statusBand", "2.3.0", "Show the AgentFleet status band (updates, outages, suggestions, JEV) above the prompt? (Y/n)", "yes/no"),
+    Feature("brainMod", "2.12.0", "Add the /brain command? It shows the tokens and cost of this session and week, your latest project memories, and what your gateway reports. (Y/n)", "yes/no"),
+    Feature("providerUsage", "2.12.0", "Show the spend and limits your gateway reports in agentfleet report, /brain and the status band? Your gateway key is sent only to the gateway's own URL. (Y/n)", "yes/no"),
+    Feature("learn", "2.3.0", "Learn from your usage to suggest skills, plugins and hooks? It counts command names, tool names, documentation sites and slash commands only, never prompt text. (Y/n)", "yes/no"),
+    # agent-brain, in dependency order
     Feature("agentBrainInstall", "2.6.0", "Install agent-brain, the free tool that records the tokens and cost of each session? It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
     Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code, so it records the tokens and cost of each session? (Y/n)", "yes/no"),
-    Feature("agentBrainLocalMemory", "2.10.1", "Turn on agent-brain memory? Claude saves decisions and project context on this machine and reads them back in later sessions. It's free, nothing leaves this machine, and Claude takes a short save step about every 10 tool calls. (y/N)", "yes/no"),
+    Feature("agentBrainLocalMemory", "2.10.1", "Turn on agent-brain memory? Claude saves decisions and project context on this machine and reads them back in later sessions. It's free, nothing leaves this machine, and Claude takes a short save step now and then, less often when there is nothing to save. (y/N)", "yes/no"),
+    # Updates and checks
+    Feature("autoUpdate", "2.3.0", "Install AgentFleet updates automatically in the background? (Y/n)", "yes/no"),
     Feature("instructions", "2.4.0", "Check your instruction files (CLAUDE.md, rules) for conflicts with AgentFleet now? Uses Claude, about 10–30 seconds. (Y/n)", "yes/no"),
 )
 
@@ -357,6 +375,8 @@ def run(api, paths, args):
     state = read_json(state_path)
     asked = state.get("asked", []) if state.get("format") == "agentfleet.wizard.v1" else []
     asked = [k for k in asked if isinstance(k, str)] if isinstance(asked, list) else []
+    # Nothing answered yet: the first-run wizard, which asks every question.
+    first_run = not asked
     registered = mods_registered(paths)
     unasked = [f for f in FEATURES if f.key not in asked]
 
@@ -378,8 +398,9 @@ def run(api, paths, args):
             skipped_local_memory.append(LOCAL_MEMORY_KEY)
         if memory_state == "active":
             provider_catalog.write_preferences(paths.home, {LOCAL_MEMORY_KEY: True})
+    skipped_context_mode = [f.key for f in unasked if f.key == "contextMode" and not claude_cli_available()]
     applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS)
-                  and f.key not in skipped_brain and f.key not in skipped_local_memory]
+                  and f.key not in skipped_brain and f.key not in skipped_local_memory and f.key not in skipped_context_mode]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
     if args.after_install and not tty:
         if skipped_brain or skipped_local_memory:
@@ -425,11 +446,23 @@ def run(api, paths, args):
             return 0
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
+        groups = (
+            ("Context", {"compact", "jev", "contextMode", "tokenWeather"}),
+            ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard"}),
+            ("Status and reports", {"statusBand", "brainMod", "providerUsage", "learn"}),
+            ("agent-brain", {"agentBrainInstall", "agentBrain", "agentBrainLocalMemory"}),
+            ("Updates and checks", {"autoUpdate", "instructions"}),
+        )
+        group_names = {key: title for title, keys in groups for key in keys}
+        printed_groups = set()
         answered = set()
         for feature in selected:
             key = feature.key
-            if (key in PLUGIN_IDS and not registered) or key in answered:
+            if (key in PLUGIN_IDS and not registered) or key in answered or key in skipped_context_mode:
                 continue
+            if interactive and key in group_names and group_names[key] not in printed_groups:
+                print(group_names[key])
+                printed_groups.add(group_names[key])
             if key == "instructions":
                 # An action, not a setting: its output must stay visible and a
                 # failed check never fails the wizard.
@@ -540,6 +573,11 @@ def run(api, paths, args):
         if args.preset and "prices" in values:
             count = len(values["prices"])
             print(f"prices: {count} model{'s' if count != 1 else ''}")
+        if interactive and (first_run or not args.after_install):
+            # Where the settings this wizard does not ask about are changed.
+            print("Lane models: /fleet-setup inside Claude Code")
+            print("Provider and profiles: agentfleet use")
+            print("Model prices: agentfleet config prices")
         print("Restart Claude Code to apply.")
         return 0
     except (OSError, ValueError, RuntimeError, EOFError, KeyboardInterrupt):

@@ -3,6 +3,19 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.12.0] - 2026-10-22
+
+### Added
+
+- `agentfleet configure` covers every feature: it adds Context Mode, the branch check, the `/brain` command and gateway usage, and groups the questions under Context, Lanes, Status and reports, agent-brain, and Updates and checks. A first run or a full `configure` ends with what has its own tool: `/fleet-setup`, `agentfleet use` and `agentfleet config prices`. After an update, existing users are asked only the four new questions. The Context Mode question is skipped when the `claude` CLI is missing.
+- agent-brain memory is kept in its current store format (Memory V2), which session capture and summaries need; on the older format, saving a session summary failed. Install, `agentfleet doctor` and the background agent-brain update upgrade a local store that still uses it. They first update the agent-brain AgentFleet installed to 0.5.11, which copies the store to `<store>.pre-v2-<time>.bak` before upgrading; an older copy is never used to upgrade. An agent-brain installed some other way and shared PostgreSQL stores are left alone, and `agentfleet doctor` prints the command to run. Only an agent-brain AgentFleet connects is touched.
+- `/fleet-suggest` offers [MCPVault](https://github.com/bitbonsai/mcpvault) 0.17.0, read-only and for that project only, when a project has an Obsidian vault, and [Graphify](https://github.com/Graphify-Labs/graphify) 0.9.93 for a repository of 1,000 files or more. A new `minFiles` match key in the suggestions catalog detects large repositories. Tool install commands may now contain `<placeholders>`, which the skill fills in before asking.
+- A features page on the website lists what AgentFleet adds.
+
+### Changed
+
+- The memory question no longer says Claude saves "about every 10 tool calls": since agent-brain 0.5.8 the save step comes less often when there is nothing to save.
+
 ## [2.11.1] - 2026-10-20
 
 ### Fixed

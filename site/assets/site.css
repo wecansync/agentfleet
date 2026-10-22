@@ -622,3 +622,19 @@ main section[id], .docs-main section[id] { scroll-margin-top: 5.5rem; }
 .docs-main { min-width: 0; width: 100%; }
 .docs-main section { padding-bottom: 3rem; margin-bottom: 3rem; border-bottom: 1px solid var(--border); }
 .docs-main section:last-child { border-bottom: none; margin-bottom: 0; }
+
+/* --------------------------------------------------------------------------
+   Features page
+   -------------------------------------------------------------------------- */
+.features-intro { padding-bottom: 2rem; margin-bottom: 2.5rem; border-bottom: 1px solid var(--border); }
+.features-intro h1 { margin-bottom: .75rem; }
+.feature-table { min-width: 720px; }
+.feature-table th[scope="row"] { width: 17%; }
+.feature-table td:nth-child(3) { width: 14%; }
+.feature-table td:nth-child(4) { width: 38%; }
+.feature-table td code.il { white-space: normal; word-break: break-word; }
+.feature-table .feature-note { margin: .35rem 0 0; font-size: .82rem; color: var(--text-muted); }
+.feature-table .cmd-line { margin: 0 0 .4rem; }
+.feature-table .cmd-line:last-child { margin-bottom: 0; }
+.feature-table .cmd-label { display: inline-block; min-width: 4.6rem; font-size: .72rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); }
+.table-wrap:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }

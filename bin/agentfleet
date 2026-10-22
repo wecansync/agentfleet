@@ -876,7 +876,14 @@ def cmd_status(paths: Paths, _args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(paths: Paths, _args: argparse.Namespace) -> int:
-    return run_tool(paths, "claude-agents-doctor.py", ["--check"])
+    code = run_tool(paths, "claude-agents-doctor.py", ["--check"])
+    # Session capture and summaries need agent-brain's current memory format.
+    state, message = agent_brain.ensure_connected_memory_v2(paths.home)
+    if state == "current":
+        print("agent-brain memory: current format (Memory V2)")
+    elif message:
+        print("agent-brain memory: " + message, file=sys.stderr if state == "failed" else sys.stdout)
+    return code
 
 
 def cmd_sync(paths: Paths, _args: argparse.Namespace) -> int:
@@ -1976,6 +1983,8 @@ def _agent_brain_update_hook(paths: Paths, state: dict) -> None:
     result = state.get("agentBrainResult")
     if isinstance(result, dict) and state.get("agentBrainReported") is False:
         print(f"agent-brain was updated to {result.get('version', '?')} automatically.")
+        if isinstance(result.get("memory"), str):
+            print(result["memory"])
         _update_auto_update_state(paths, lambda current: current.update(agentBrainReported=True), timeout=2.0, required=True)
     if not _agent_brain_update_due(paths, state):
         return
@@ -2018,6 +2027,12 @@ def _agent_brain_update_run(paths: Paths) -> None:
         if code != 0:
             _append_log(log_path, f"[{_now_iso()}] agent-brain could not refresh its Claude Code hooks: {output}\n")
     result = {"version": version, "ok": True, "time": _now_iso()}
+    # A release that can back up the store first may now upgrade it.
+    memory_state, memory_message = agent_brain.ensure_connected_memory_v2(paths.home)
+    if memory_message:
+        _append_log(log_path, f"[{_now_iso()}] agent-brain memory: {memory_message}\n")
+    if memory_state == "upgraded":
+        result["memory"] = memory_message
     _update_auto_update_state(paths, lambda state: state.update(agentBrainResult=result, agentBrainReported=False),
                               timeout=LOCK_TIMEOUT, required=True)
 

@@ -23,8 +23,8 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "reviewerAccess", "learn", "statusBand", "laneGuard", "autoUpdate", "workStyle", "askFirst", "tokenWeather",
-        "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "instructions"]
+KEYS = ["compact", "jev", "contextMode", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
+        "statusBand", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
 ACTIONS = {"instructions"}
 
 
@@ -151,16 +151,100 @@ class ConfigureTests(unittest.TestCase):
     def test_no_hint_without_mods_when_only_plugin_features_remain(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
         self.paths.store.mkdir(parents=True, exist_ok=True)
-        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": ['compact', 'reviewerAccess', 'learn', 'autoUpdate', 'workStyle', 'askFirst', 'agentBrainInstall', 'agentBrain', 'instructions'], "version": "2.3.0"}))
+        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod"}]
+        (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": asked, "version": "2.3.0"}))
         self.assertEqual(self.cli('--after-install').stdout, "")
 
     def test_registry_order(self):
         self.assertEqual([f.key for f in wizard.FEATURES], KEYS)
         self.assertIn("prices", wizard.FLEET_KEYS)
-        self.assertTrue(all(f.introduced == "2.3.0" for f in wizard.FEATURES[:7]))
-        later = {f.key: f.introduced for f in wizard.FEATURES[7:]}
-        self.assertEqual(later, {"workStyle": "2.4.0", "askFirst": "2.5.0", "tokenWeather": "2.5.0", "agentBrainInstall": "2.6.0",
-                                 "agentBrain": "2.4.0", "agentBrainLocalMemory": "2.10.1", "instructions": "2.4.0"})
+        introduced = {f.key: f.introduced for f in wizard.FEATURES}
+        self.assertEqual({k for k, v in introduced.items() if v == "2.12.0"}, {"contextMode", "branchCheck", "brainMod", "providerUsage"})
+        self.assertEqual([f.key for f in wizard.FEATURES[12:15]], ["learn", "agentBrainInstall", "agentBrain"])
+
+    def test_groups_and_closing_pointers_are_interactive_only(self):
+        _, _, output = self.interactive_run({"agentBrainInstall": False, "instructions": False})
+        for heading in ("Context", "Lanes", "Status and reports", "agent-brain", "Updates and checks"):
+            self.assertEqual(output.count(heading), 1)
+        self.assertIn("Lane models: /fleet-setup inside Claude Code", output)
+        self.assertIn("Provider and profiles: agentfleet use", output)
+        self.assertIn("Model prices: agentfleet config prices", output)
+        noninteractive = self.cli("--yes")
+        self.assertNotIn("Context\n", noninteractive.stdout)
+        self.assertNotIn("Lane models:", noninteractive.stdout)
+
+    def test_all_skipped_plugin_group_is_not_printed(self):
+        (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
+        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod"}]
+        self.paths.store.mkdir(parents=True, exist_ok=True)
+        (self.paths.store / "wizard.json").write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": asked}))
+        class Terminal(io.StringIO):
+            def isatty(self): return True
+        output = Terminal()
+        args = argparse.Namespace(after_install=True, yes=False, export=None, preset=None)
+        with patch.object(sys, "stdin", Terminal()), contextlib.redirect_stdout(output), patch.object(wizard, "claude_cli_available", return_value=False):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertNotIn("Context", output.getvalue())
+        self.assertNotIn("Status and reports", output.getvalue())
+
+    def test_new_preferences_read_apply_and_validate(self):
+        wizard.provider_catalog.write_preferences(self.home, {"branchCheck": False, "providerUsage": False})
+        (self.paths.claude / "plugins" / "installed_plugins.json").parent.mkdir(parents=True, exist_ok=True)
+        (self.paths.claude / "plugins" / "installed_plugins.json").write_text(json.dumps({"plugins": {"context-mode@context-mode": [{"scope": "user"}]}}))
+        settings = self.paths.claude / "settings.json"
+        settings.write_text(json.dumps({"enabledPlugins": {"context-mode@context-mode": True}}))
+        fake_env = {**self.env, "PATH": self.env["PATH"]}
+        with patch.dict(os.environ, fake_env):
+            self.assertFalse(wizard.current(api, self.paths, "branchCheck"))
+            self.assertFalse(wizard.current(api, self.paths, "providerUsage"))
+            self.assertTrue(wizard.current(api, self.paths, "contextMode"))
+        for key, setting in (("branchCheck", "branch-check"), ("providerUsage", "provider-usage"), ("contextMode", "context-mode")):
+            with patch.object(api, "cmd_config", return_value=0) as config:
+                self.assertEqual(wizard.apply(api, self.paths, key, True), 0)
+            self.assertEqual((config.call_args.args[1].setting, config.call_args.args[1].value), (setting, "on"))
+        self.assertEqual(wizard.PLUGIN_IDS["brainMod"], "brain@agentfleet")
+        for key in ("branchCheck", "providerUsage", "contextMode", "brainMod"):
+            self.assertTrue(wizard.validate_preset({"format": "agentfleet.preset.v1", key: True})[key])
+        for key in ("branchCheck", "providerUsage", "contextMode", "brainMod"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                wizard.validate_preset({"format": "agentfleet.preset.v1", key: "on"})
+
+    def test_update_asks_existing_users_only_the_new_questions(self):
+        new = ["contextMode", "branchCheck", "brainMod", "providerUsage"]
+        self.paths.store.mkdir(parents=True, exist_ok=True)
+        asked = [f.key for f in wizard.FEATURES if f.key not in new]
+        (self.paths.store / "wizard.json").write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": asked}))
+        class Terminal(io.StringIO):
+            def isatty(self): return True
+        output = Terminal()
+        prompted = []
+        args = argparse.Namespace(after_install=True, yes=False, export=None, preset=None)
+        with patch.object(wizard, "claude_cli_available", return_value=True), \
+                patch.object(wizard, "prompt", side_effect=lambda feature, value: prompted.append(feature.key) or value), \
+                patch.object(wizard, "apply", return_value=0), \
+                patch.object(sys, "stdin", Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertEqual(prompted, new)
+        self.assertNotIn("Updates and checks", output.getvalue())
+        self.assertNotIn("Lane models:", output.getvalue())
+        state = json.loads((self.paths.store / "wizard.json").read_text())
+        self.assertTrue(set(new).issubset(state["asked"]))
+
+    def test_context_mode_skips_when_claude_cli_is_missing(self):
+        original = wizard.current
+        class Terminal(io.StringIO):
+            def isatty(self): return True
+        output = Terminal()
+        prompted = []
+        args = argparse.Namespace(after_install=False, yes=False, export=None, preset=None)
+        with patch.object(wizard, "claude_cli_available", return_value=False), \
+                patch.object(wizard, "current", side_effect=lambda api, paths, key: original(api, paths, key) if key != "contextMode" else False), \
+                patch.object(wizard, "prompt", side_effect=lambda feature, value: prompted.append(feature.key) or value), \
+                patch.object(sys, "stdin", Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(wizard.run(api, self.paths, args), 0)
+        self.assertNotIn("contextMode", prompted)
+        state = json.loads((self.paths.store / "wizard.json").read_text())
+        self.assertNotIn("contextMode", state["asked"])
 
     def test_validation(self):
         for data in ({"unknown": True}, {"apiKey": "x"}, {"token": "x"}, {"secret": "x"}, {"tokenSecret": "x"}, {"compact": True}, {"compact": 19}, {"compact": 96}, {"reviewerAccess": []}, {"learn": 1}, {"jev": "yes"}, {"workStyle": "bogus"}, {"instructions": True}, {"agentBrainMemory": True}, {"agentBrainInstall": "yes"}):
@@ -212,13 +296,14 @@ class ConfigureTests(unittest.TestCase):
 
     def test_plugin_install_enable_disable(self):
         for value in (True, False, True):
-            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value, 'tokenWeather': value})))
+            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value, 'tokenWeather': value, 'brainMod': value})))
             self.assertEqual(result.returncode, 0, result.stderr)
         calls = [json.loads(line) for line in (self.home / 'commands.log').read_text().splitlines()]
         for ident in wizard.PLUGIN_IDS.values():
             self.assertIn(['plugin', 'install', ident], calls)
             self.assertIn(['plugin', 'disable', ident], calls)
             self.assertIn(['plugin', 'enable', ident], calls)
+        self.assertIn(["plugin", "install", "brain@agentfleet"], calls)
 
     def test_key_skip_and_environment(self):
         with patch.object(wizard.getpass, 'getpass', return_value='') as ask, contextlib.redirect_stdout(io.StringIO()) as output:
@@ -370,8 +455,12 @@ class ConfigureTests(unittest.TestCase):
             return answers.get(feature.key, value)
         args = argparse.Namespace(after_install=after_install, yes=False, export=None, preset=None)
         output = Terminal()
+        original_current = wizard.current
         with patch.object(wizard, "prompt", side_effect=fake_prompt), \
+                patch.object(wizard, "plugins", return_value=[]), \
                 patch.object(api, "cmd_config", side_effect=self.fake_agent_brain_install) as config, \
+                patch.object(wizard, "claude_cli_available", return_value=True), \
+                patch.object(wizard, "current", side_effect=lambda api, paths, key: False if key in {"branchCheck", "providerUsage", "contextMode"} else original_current(api, paths, key)), \
                 patch.object(sys, "stdin", Terminal()), contextlib.redirect_stdout(output):
             self.assertEqual(wizard.run(api, self.paths, args), 0)
         return prompted, [(c.args[1].setting, c.args[1].value) for c in config.call_args_list], output.getvalue()
@@ -392,7 +481,8 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("agentBrainLocalMemory", prompted)
                 self.assertEqual(calls, [("agent-brain", "on")] + ([("agent-brain-memory", "on")] if memory else []))
                 self.assertIn("agent-brain is installed and connected", output)
-                for word in ("Pro", "login", "sign in"):
+                self.assertIn("Lane models: /fleet-setup inside Claude Code", output)
+                for word in ("login", "sign in"):
                     self.assertNotIn(word, output)
                 asked = json.loads((self.paths.store / 'wizard.json').read_text())['asked']
                 self.assertTrue({'agentBrainInstall', 'agentBrain', 'agentBrainLocalMemory'}.issubset(asked))

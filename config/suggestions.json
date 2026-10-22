@@ -1,6 +1,6 @@
 {
   "format": "agentfleet.suggestions-catalog.v1",
-  "version": "2026.10.18",
+  "version": "2026.10.22",
   "entries": [
     {
       "id": "init-claude-md",
@@ -1151,6 +1151,38 @@
       "source": "mksglu/context-mode",
       "access": "Installs the upstream ELv2 plugin with local indexing, execution tools and lifecycle hooks. Opt-in; lane-guard restricts lanes to search and stats. No measured total-token savings are promised.",
       "template": "Run /context-mode:ctx-doctor after restarting. Compare tokens, elapsed time and correctness on equivalent tasks. agentfleet config context-mode off disables the plugin without deleting indexed data."
+    },
+    {
+      "id": "mcpvault",
+      "kind": "tool",
+      "title": "MCPVault (read-only access to this project's Obsidian vault)",
+      "why": "Project contains an Obsidian vault; lets Claude search and read its notes without the Obsidian app running",
+      "match": {
+        "files": [
+          "*.obsidian/*"
+        ]
+      },
+      "install": {
+        "command": "claude mcp add obsidian -- npx -y @bitbonsai/mcpvault@0.17.0 \"<vault folder>\" --read-only"
+      },
+      "source": "bitbonsai/mcpvault",
+      "access": "Runs an MIT-licensed Node.js MCP server (needs Node.js 20 or newer) that reads the vault's Markdown files. Added read-only and for this project only; its tools load in every session of this project.",
+      "template": "<vault folder> is the absolute path of the folder that holds .obsidian/. Restart Claude Code, then ask about your notes. To let Claude edit notes, remove it with claude mcp remove obsidian and add it again without --read-only."
+    },
+    {
+      "id": "graphify",
+      "kind": "tool",
+      "title": "Graphify (code map for large repositories)",
+      "why": "Large repository; Graphify builds a map of how its files and functions connect, which Claude can query instead of searching file by file",
+      "match": {
+        "minFiles": 1000
+      },
+      "install": {
+        "command": "uv tool install graphifyy==0.9.93 && graphify install --project"
+      },
+      "source": "Graphify-Labs/graphify",
+      "access": "Installs an Apache-2.0 Python CLI (needs Python 3.10+ and uv) with tree-sitter parsers and graph libraries, and adds a /graphify skill under this project's .claude/skills. Code is parsed locally without tokens; documents, images and URLs it reads go through Claude and cost tokens.",
+      "template": "Build the map with /graphify . (it writes graphify-out/; add that folder to .gitignore). Then ask with graphify query \"<question>\" or graphify explain <name>. Its token-saving figures compare against reading every file whole, so measure: run the same task with and without it and compare in agentfleet report. Optional: graphify claude install adds a hook that steers file reads toward the map. uv tool uninstall graphifyy removes the CLI."
     }
   ]
 }

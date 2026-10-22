@@ -991,6 +991,15 @@ def suggest(home: Path, project: Path) -> list[dict]:
                     matched_signal = f"New project ({len(signals['files'])} files)"
                     strength = 1
 
+            # 12. A large project. The scan stops at MAX_WALK_ENTRIES, so the
+            # count is a lower bound.
+            if not matched and "minFiles" in match_spec:
+                limit = match_spec["minFiles"]
+                if isinstance(limit, int) and not isinstance(limit, bool) and len(signals["files"]) >= limit:
+                    matched = True
+                    matched_signal = f"Large project ({len(signals['files'])}+ files)"
+                    strength = 1
+
         if matched:
             install_cmd = "AgentFleet drafts this for you"
             if entry.get("install") and isinstance(entry["install"], dict) and "plugin" in entry["install"]:

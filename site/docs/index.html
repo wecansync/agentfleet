@@ -6,7 +6,7 @@
 <title>Docs — AgentFleet</title>
 <meta name="description" content="AgentFleet documentation: install, the 19 lanes, capability tiers, provider profiles, commands, safety guarantees, and troubleshooting.">
 <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
-<link rel="stylesheet" href="/assets/site.css?v=2">
+<link rel="stylesheet" href="/assets/site.css?v=3">
 <script>
 (function(){
   try {
@@ -28,7 +28,7 @@
       AgentFleet
     </a>
     <nav class="main-nav" id="primary-nav" data-main-nav aria-label="Primary">
-      <a href="/#features">Features</a>
+      <a href="/features/">Features</a>
       <a href="/#how-it-works">How it works</a>
       <a href="/#lanes">Lanes</a>
       <a href="/docs/">Docs</a>
@@ -885,7 +885,15 @@ claude plugin install lane-guard@agentfleet</code></pre>
 
       <section id="preferences">
         <h2 class="anchor-heading">Preferences<a class="anchor-link" href="#preferences" aria-label="Link to this section">#</a></h2>
-        <p>Run <code class="il">agentfleet configure</code> in a terminal to ask every question: work style, ask-first, auto-compact percentage, JEV, reviewer access, learning, fleet-status, lane-guard, token-weather, automatic updates, and <a href="#agent-brain">agent-brain</a> (install it when it is missing, connect it when it is installed, and turn on its memory). It ends by offering the <a href="#instruction-check">instruction check</a>. Enter keeps the current value. When enabling JEV without an available key, hidden input can save your TypeSafe key as <code class="il">TYPESAFE_API_KEY</code> in <code class="il">~/.claude/settings.json</code>'s <code class="il">env</code> (mode 0600), where commands Claude runs can read it. For private storage, leave the key empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure.</p>
+        <p>Run <code class="il">agentfleet configure</code> in a terminal to set every feature in one pass. It asks each question with the current value as the default, grouped under:</p>
+        <ul>
+          <li><strong>Context:</strong> auto-compact percentage, JEV, Context Mode, token-weather.</li>
+          <li><strong>Lanes:</strong> work style, ask-first, the branch check, reviewer access, lane-guard.</li>
+          <li><strong>Status and reports:</strong> the status band, the <code class="il">/brain</code> command, gateway usage, usage learning.</li>
+          <li><strong>agent-brain:</strong> install it when it is missing, connect it when it is installed, and turn on its <a href="#agent-brain">memory</a>.</li>
+          <li><strong>Updates and checks:</strong> automatic updates, then the <a href="#instruction-check">instruction check</a>.</li>
+        </ul>
+        <p>It ends with what has its own tool: lane models (<code class="il">/fleet-setup</code>), provider profiles (<code class="il">agentfleet use</code>) and model prices (<code class="il">agentfleet config prices</code>). Enter keeps the current value. After an update, the wizard asks only the questions that are new since you last answered. When enabling JEV without an available key, hidden input can save your TypeSafe key as <code class="il">TYPESAFE_API_KEY</code> in <code class="il">~/.claude/settings.json</code>'s <code class="il">env</code> (mode 0600), where commands Claude runs can read it. For private storage, leave the key empty and use <code class="il">/plugin</code> → fast-jev-compaction → Configure.</p>
         <div class="code-wrap">
           <pre><code>agentfleet configure --yes              # keep values; mark questions answered
 agentfleet configure --preset team.json # apply a preset without prompts
@@ -916,7 +924,8 @@ agentfleet configure --export team.json # export settings without secrets</code>
           <li><strong>Install:</strong> when agent-brain is missing, the wizard offers to install it (default: yes). AgentFleet downloads the release for your system from agentbrain.wecansync.com, checks it against the release manifest's size and SHA-256, and puts the <code class="il">agent-brain</code> executable in <code class="il">~/.local/bin</code> (on Windows, <code class="il">%LOCALAPPDATA%\Programs\agent-brain</code>). <code class="il">agentfleet config agent-brain on</code> does the same.</li>
           <li><strong>Connect:</strong> agent-brain adds its own hooks to Claude Code with <code class="il">agent-brain install --assistant claude-code</code>, using its recommended settings. <code class="il">agentfleet config agent-brain off</code> runs <code class="il">agent-brain uninstall --assistant claude-code</code>.</li>
           <li><strong>Updates:</strong> with automatic updates on, AgentFleet checks once a day for a newer agent-brain and installs it in the background, then says so at the next start. It only replaces the copy in agent-brain's standard folder, never a dev build or one a package manager installed, and never moves to an older version.</li>
-          <li><strong>Memory:</strong> the wizard asks once whether to turn on agent-brain memory (default: no; memory needs a yes, as in agent-brain's own consent prompt). Claude then saves decisions and project context on this machine and reads them back in later sessions; nothing leaves the machine, and Claude takes a short save step about every 10 tool calls. A yes runs <code class="il">agent-brain memory enable --yes</code>, first updating the agent-brain AgentFleet installed when it is older than 0.5.7. Existing users are asked on their next interactive update; background updates and <code class="il">--yes</code> never turn it on. <code class="il">agentfleet config agent-brain-memory off</code> runs <code class="il">agent-brain memory disable --all</code> and keeps existing memories. Lanes get the memory search tool only while memory is on; they search memory but leave saving it to the main conversation.</li>
+          <li><strong>Memory:</strong> the wizard asks once whether to turn on agent-brain memory (default: no; memory needs a yes, as in agent-brain's own consent prompt). Claude then saves decisions and project context on this machine and reads them back in later sessions; nothing leaves the machine, and Claude takes a short save step now and then, less often when there is nothing to save. A yes runs <code class="il">agent-brain memory enable --yes</code>, first updating the agent-brain AgentFleet installed when it is older than 0.5.7. Existing users are asked on their next interactive update; background updates and <code class="il">--yes</code> never turn it on. <code class="il">agentfleet config agent-brain-memory off</code> runs <code class="il">agent-brain memory disable --all</code> and keeps existing memories. Lanes get the memory search tool only while memory is on; they search memory but leave saving it to the main conversation.</li>
+          <li><strong>Memory format:</strong> session capture and summaries need agent-brain's current store format (Memory V2). Install, <code class="il">agentfleet doctor</code> and the background agent-brain update upgrade a local store that still uses the older format: they first update the agent-brain AgentFleet installed to 0.5.11 or newer, which copies the store to <code class="il">&lt;store&gt;.pre-v2-&lt;time&gt;.bak</code> next to it before upgrading. A copy installed some other way, or a shared PostgreSQL store, is left alone; <code class="il">agentfleet doctor</code> says what to run. Fresh stores from agent-brain 0.5.11 start in the current format.</li>
         </ul>
         <p>Before 2.6.0 AgentFleet wrote agent-brain's hooks itself; an update removes those copies and lets agent-brain write its own.</p>
       </section>
@@ -1003,8 +1012,9 @@ claude-fleet-setup --compaction 200000</code></pre>
 
       <section id="suggestions">
         <h2 class="anchor-heading">Suggestions<a class="anchor-link" href="#suggestions" aria-label="Link to this section">#</a></h2>
-        <p>Run <code class="il">/fleet-suggest</code> in a project to find useful capabilities. The scan is local, makes no network requests, and never reads <code class="il">.env</code> values. The 59-entry catalog covers official-marketplace plugins (including language servers and MCP-server plugins), AgentFleet's optional mods, drafted hooks, a project-skill generator, and <code class="il">/init</code>.</p>
+        <p>Run <code class="il">/fleet-suggest</code> in a project to find useful capabilities. The scan is local, makes no network requests, and never reads <code class="il">.env</code> values. The 62-entry catalog covers official-marketplace plugins (including language servers and MCP-server plugins), AgentFleet's optional mods, drafted hooks, a project-skill generator, and <code class="il">/init</code>.</p>
         <p>For a repository with a GitHub remote it offers a drafted "Git workflow" section for the project's <code class="il">CLAUDE.md</code>: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It is written only after you approve the draft. For a new or small project it offers <a href="https://github.com/github/spec-kit">Spec Kit</a>, which writes a spec, a plan and a task list before code; it suits new projects and large features, not small changes.</p>
+        <p>For a project with an Obsidian vault (a <code class="il">.obsidian/</code> folder) it offers <a href="https://github.com/bitbonsai/mcpvault">MCPVault</a>, added read-only and for that project only, so Claude can search the notes without the Obsidian app running. For a large repository (1,000 files or more) it offers <a href="https://github.com/Graphify-Labs/graphify">Graphify</a>, which maps how files and functions connect and adds a <code class="il">/graphify</code> skill to the project. Both are third-party and installed only after you approve; Graphify needs Python 3.10+ and uv, MCPVault Node.js 20+. Graphify's token-saving figures compare against reading every file whole, so measure it with <code class="il">agentfleet report</code> before keeping it.</p>
         <p>The wizard explains each suggestion's access, installs only what you pick, and shows drafted hooks or skills for confirmation before writing. Plugin installation can access the network and runs third-party code with your user permissions. Configure credentials through <code class="il">/plugin</code> or your shell, never in chat.</p>
         <div class="cmd-ref">
           <div class="cmd-ref-item"><code class="il">agentfleet suggest [--project DIR] [--json] [--dismiss ID…] [--seen] [--forget]</code><p>Scan the current or named project, print JSON, dismiss selected suggestions, mark them seen, or delete stored usage counters and suggestion history.</p></div>
