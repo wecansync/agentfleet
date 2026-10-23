@@ -238,7 +238,7 @@ class Install220Tests(unittest.TestCase):
 
         meta = self.metadata(home)
         self.assertEqual(meta.get("modsState"), "registered")
-        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
+        self.assertEqual(meta.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain", "session-info"])
 
     def test_lane_guard_added_once_on_update_from_210_style_metadata(self):
         home = self.home_for()
@@ -266,7 +266,7 @@ class Install220Tests(unittest.TestCase):
         self.assertIn(["plugin", "install", "lane-guard@agentfleet"], [c["argv"] for c in self.calls()])
 
         meta_after = self.metadata(home)
-        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
+        self.assertEqual(meta_after.get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain", "session-info"])
 
         # Second update: lane-guard must not be installed again
         self.log_path.write_text("")
@@ -294,7 +294,7 @@ class Install220Tests(unittest.TestCase):
         calls = [c["argv"] for c in self.calls()]
         self.assertIn(["plugin", "install", "token-weather@agentfleet"], calls)
         self.assertNotIn(["plugin", "install", "lane-guard@agentfleet"], calls)
-        self.assertEqual(self.metadata(home).get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain"])
+        self.assertEqual(self.metadata(home).get("modsInstalled"), ["fleet-status", "lane-guard", "token-weather", "brain", "session-info"])
 
         # The user removes it: later updates leave it removed.
         state = json.loads(self.state_path.read_text())
@@ -305,6 +305,38 @@ class Install220Tests(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
         self.assertNotIn(["plugin", "install", "token-weather@agentfleet"], [c["argv"] for c in self.calls()])
         self.assertNotIn("Added the token-weather mod", again.stdout)
+
+    def test_session_info_added_once_on_update_from_212_and_never_readded(self):
+        home = self.home_for()
+        self.assertEqual(self.install(home).returncode, 0)
+        # A 2.12.0 install: the four earlier defaults recorded, session-info never installed.
+        earlier = ["fleet-status", "lane-guard", "token-weather", "brain"]
+        meta_path = home / ".claude" / ".claude-agents-config-install.json"
+        meta = json.loads(meta_path.read_text())
+        meta["modsInstalled"] = earlier
+        meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+        state = json.loads(self.state_path.read_text())
+        state["plugins"] = [{"id": f"{name}@agentfleet", "enabled": True} for name in earlier]
+        self.set_fake_state(state)
+        self.log_path.write_text("")
+
+        up = self.install(home)
+        self.assertEqual(up.returncode, 0, up.stderr + up.stdout)
+        self.assertIn("Added the session-info mod", up.stdout)
+        calls = [c["argv"] for c in self.calls()]
+        self.assertIn(["plugin", "install", "session-info@agentfleet"], calls)
+        self.assertFalse(any(c[:2] == ["plugin", "install"] and c[2] != "session-info@agentfleet" for c in calls), calls)
+        self.assertEqual(self.metadata(home).get("modsInstalled"), [*earlier, "session-info"])
+
+        # The user removes it: later updates leave it removed.
+        state = json.loads(self.state_path.read_text())
+        state["plugins"] = [p for p in state.get("plugins", []) if p.get("id") != "session-info@agentfleet"]
+        self.set_fake_state(state)
+        self.log_path.write_text("")
+        again = self.install(home)
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertNotIn(["plugin", "install", "session-info@agentfleet"], [c["argv"] for c in self.calls()])
+        self.assertNotIn("Added the session-info mod", again.stdout)
 
     def test_lane_guard_not_readded_when_modsinstalled_lists_it_but_cli_does_not(self):
         home = self.home_for()

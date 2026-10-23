@@ -42,7 +42,7 @@ config/       delegate-fleet.json (fleet map), provider-policy.json,
               settings.template.json, suggestions.json,
               agentfleet.md (rendered to ~/.claude/rules/agentfleet.md)
 mods/         Claude Code mods catalog (fleet-status, lane-guard,
-              fast-jev-compaction, token-weather, brain)
+              fast-jev-compaction, token-weather, session-info, brain)
 agents/       generated lane templates
 skills/       skills (/fleet-setup, /fleet-suggest)
 tests/        test suite (tests/test_*.py)

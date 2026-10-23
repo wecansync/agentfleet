@@ -1,0 +1,9 @@
+{
+  "name": "session-info",
+  "version": "1.0.0",
+  "description": "One row above the prompt: the current model and effort, uptime, running subagents, git branch, prompts sent and cost at list price.",
+  "author": { "name": "WeCanSync" },
+  "homepage": "https://agentfleet.wecansync.com",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

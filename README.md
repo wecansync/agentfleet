@@ -9,14 +9,14 @@ It also installs a routing hook, a model-sync startup hook, a context-budget
 hook, a privacy-safe status line, a short delegation policy in
 `~/.claude/rules/agentfleet.md`, the `/fleet-setup` and `/fleet-suggest` skills,
 and a local Claude Code mods catalog with `fleet-status`, `lane-guard`,
-`token-weather` and `brain` on by default. Everything lives under your home directory; no root or admin access is
+`token-weather`, `session-info` and `brain` on by default. Everything lives under your home directory; no root or admin access is
 required. AgentFleet never edits your own `~/.claude/CLAUDE.md`.
 
 By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.12.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.13.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -489,8 +489,8 @@ asks each question with the current value as the default, grouped under:
 - **Context:** auto-compact percentage, JEV, Context Mode, token-weather.
 - **Lanes:** work style, ask-first, the branch check, reviewer access,
   lane-guard.
-- **Status and reports:** the status band, the `/brain` command, gateway usage,
-  usage learning.
+- **Status and reports:** the status band, session info, the `/brain` command,
+  gateway usage, usage learning.
 - **agent-brain:** install it when it is missing, connect it when it is
   installed, and turn on its [memory](#agent-brain).
 - **Updates and checks:** automatic updates, then the
@@ -783,8 +783,8 @@ install command (or an update) keeps the gateway you switched to.
   an optional fallback model chain (at most three entries, for provider
   unavailability or overload only).
 - `~/.claude/agentfleet/mods/` — the local `agentfleet` plugin catalog.
-  `fleet-status`, `lane-guard`, `token-weather` and `brain` are installed and on by
-  default; `fast-jev-compaction` is opt-in. See [Mods](#mods).
+  `fleet-status`, `lane-guard`, `token-weather`, `session-info` and `brain` are
+  installed and on by default; `fast-jev-compaction` is opt-in. See [Mods](#mods).
 - `~/.claude/settings.json` — merged settings. Unrelated permissions, hooks,
   plugins, and environment values are preserved. Mode 0600 because it can
   contain a gateway token.
@@ -859,7 +859,8 @@ your user permissions and are not sandboxed.
   active outages, project suggestions, a JEV stats line, and `Options: all reviewed`
   or `Options: N new (run agentfleet configure)`; from 1.4.0 the count includes
   the work style, ask-first, token-weather and agent-brain options, and from
-  1.5.1 the agent-brain install option, and from 1.6.0 the agent-brain memory question. The band
+  1.5.1 the agent-brain install option, from 1.6.0 the agent-brain memory question,
+  and from 1.6.1 the questions added in 2.12.0 and 2.13.0. The band
   also names a lane that failed over to another of its models. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
@@ -881,6 +882,17 @@ your user permissions and are not sandboxed.
   other mods' bands and never replaces them. On by default from 2.5.0; an update
   adds it once and never re-adds it after you remove it. Turn it off with
   `/plugin` or `agentfleet configure`.
+- **session-info** (from 2.13.0): one row above the prompt with the current
+  model and effort, how long this Claude Code has been running, the subagents
+  running now, the git branch, the prompts sent and the session's cost at list
+  price, for example
+  `◆ claude-opus-5.5[1m]  ·  effort high  ·  up 1h 05m  ·  1 agent running  ·  ⎇ main  ·  12 prompts  ·  $4.21 at list price`.
+  On a narrow terminal it leaves out the last parts first. It reads only what
+  Claude Code already knows and the repository's `.git/HEAD`; it runs no
+  commands and sends nothing anywhere. The uptime and branch refresh every
+  minute; the rest after each prompt and turn. On by default; an update adds it
+  once and never re-adds it after you remove it. Turn it off with `/plugin` or
+  `agentfleet configure`.
 - **brain**: adds a `/brain` command that opens a scrollable pane with agent-brain
   token usage and, when agent-brain memory is active for the project, the project's
   memories, critical ones first (↑/↓ to move, Enter to read one in full, Esc to close).

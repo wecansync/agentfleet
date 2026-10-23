@@ -20,6 +20,11 @@
       "description": "A live forecast of the context window above the prompt (Anthropic sample, Apache-2.0)."
     },
     {
+      "name": "session-info",
+      "source": "./session-info",
+      "description": "One row above the prompt: the current model and effort, uptime, running subagents, git branch, prompts sent and cost at list price."
+    },
+    {
       "name": "brain",
       "source": "./brain",
       "description": "A /brain command: agent-brain token usage and the latest project memories."
