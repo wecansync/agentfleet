@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.12.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 22, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.13.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 23, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,20 +432,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.12.0</span>
-        <span class="release-date" data-latest-date>October 22, 2026</span>
+        <span class="release-version" data-latest-version>v2.13.0</span>
+        <span class="release-date" data-latest-date>October 23, 2026</span>
       </div>
-      <p>Set every feature in one pass, and agent-brain memory that saves session summaries again.</p>
+      <p>See the model, uptime and branch of your session above the prompt.</p>
       <ul class="release-list">
-        <li><code class="il">agentfleet configure</code> now covers every feature, grouped under headings: it adds Context Mode, the branch check, the <code class="il">/brain</code> command and gateway usage. After an update it asks only the new questions.</li>
-        <li>Install, <code class="il">agentfleet doctor</code> and agent-brain's background update upgrade an older agent-brain memory store, after agent-brain backs it up, so session capture and summaries work.</li>
-        <li><code class="il">/fleet-suggest</code> offers MCPVault for a project with an Obsidian vault, and Graphify for a large repository. Both are optional and installed only after you approve.</li>
-        <li>A new <a href="/features/">features page</a> lists everything AgentFleet adds.</li>
+        <li>A new <strong>session-info</strong> mod, on by default, shows one row above the prompt: the current model and effort, uptime, running subagents, git branch, prompts sent and cost at list price.</li>
+        <li><code class="il">agentfleet configure</code> asks whether to show it, under Status and reports. An update adds it once; remove it and it stays removed.</li>
+        <li>The status band counts the wizard questions added in 2.12.0 and 2.13.0, so it tells you when there are new ones to answer.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.12.0</span><span class="release-date">October 22, 2026</span><span class="version-summary">Set every feature in one pass, and agent-brain memory that saves session summaries again.</span></summary>
+        <ul class="release-list">
+          <li><code class="il">agentfleet configure</code> now covers every feature, grouped under headings: it adds Context Mode, the branch check, the <code class="il">/brain</code> command and gateway usage. After an update it asks only the new questions.</li>
+          <li>Install, <code class="il">agentfleet doctor</code> and agent-brain's background update upgrade an older agent-brain memory store, after agent-brain backs it up, so session capture and summaries work.</li>
+          <li><code class="il">/fleet-suggest</code> offers MCPVault for a project with an Obsidian vault, and Graphify for a large repository. Both are optional and installed only after you approve.</li>
+          <li>A new <a href="/features/">features page</a> lists everything AgentFleet adds.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.11.1</span><span class="release-date">October 20, 2026</span><span class="version-summary">Gateway figures survive a slow or briefly failing gateway.</span></summary>
         <ul class="release-list">

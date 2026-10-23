@@ -17,7 +17,8 @@ import provider_catalog
 
 MODS_MESSAGE = "AgentFleet mods are not registered; run the installer with --mods to use this"
 PLUGIN_IDS = {"jev": "fast-jev-compaction@agentfleet", "statusBand": "fleet-status@agentfleet", "laneGuard": "lane-guard@agentfleet",
-              "tokenWeather": "token-weather@agentfleet", "brainMod": "brain@agentfleet"}
+              "tokenWeather": "token-weather@agentfleet", "brainMod": "brain@agentfleet",
+              "sessionInfo": "session-info@agentfleet"}
 
 
 def read_json(path):
@@ -176,6 +177,7 @@ FEATURES = (
     Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
     # Status and reports
     Feature("statusBand", "2.3.0", "Show the AgentFleet status band (updates, outages, suggestions, JEV) above the prompt? (Y/n)", "yes/no"),
+    Feature("sessionInfo", "2.13.0", "Show session info above the prompt: the current model and effort, uptime, git branch, running subagents, prompts sent and cost? (Y/n)", "yes/no"),
     Feature("brainMod", "2.12.0", "Add the /brain command? It shows the tokens and cost of this session and week, your latest project memories, and what your gateway reports. (Y/n)", "yes/no"),
     Feature("providerUsage", "2.12.0", "Show the spend and limits your gateway reports in agentfleet report, /brain and the status band? Your gateway key is sent only to the gateway's own URL. (Y/n)", "yes/no"),
     Feature("learn", "2.3.0", "Learn from your usage to suggest skills, plugins and hooks? It counts command names, tool names, documentation sites and slash commands only, never prompt text. (Y/n)", "yes/no"),
@@ -449,7 +451,7 @@ def run(api, paths, args):
         groups = (
             ("Context", {"compact", "jev", "contextMode", "tokenWeather"}),
             ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard"}),
-            ("Status and reports", {"statusBand", "brainMod", "providerUsage", "learn"}),
+            ("Status and reports", {"statusBand", "sessionInfo", "brainMod", "providerUsage", "learn"}),
             ("agent-brain", {"agentBrainInstall", "agentBrain", "agentBrainLocalMemory"}),
             ("Updates and checks", {"autoUpdate", "instructions"}),
         )

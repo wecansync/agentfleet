@@ -24,7 +24,7 @@ api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
 KEYS = ["compact", "jev", "contextMode", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
-        "statusBand", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
+        "statusBand", "sessionInfo", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
 ACTIONS = {"instructions"}
 
 
@@ -151,7 +151,7 @@ class ConfigureTests(unittest.TestCase):
     def test_no_hint_without_mods_when_only_plugin_features_remain(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
         self.paths.store.mkdir(parents=True, exist_ok=True)
-        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod"}]
+        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod", "sessionInfo"}]
         (self.paths.store / 'wizard.json').write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": asked, "version": "2.3.0"}))
         self.assertEqual(self.cli('--after-install').stdout, "")
 
@@ -160,7 +160,8 @@ class ConfigureTests(unittest.TestCase):
         self.assertIn("prices", wizard.FLEET_KEYS)
         introduced = {f.key: f.introduced for f in wizard.FEATURES}
         self.assertEqual({k for k, v in introduced.items() if v == "2.12.0"}, {"contextMode", "branchCheck", "brainMod", "providerUsage"})
-        self.assertEqual([f.key for f in wizard.FEATURES[12:15]], ["learn", "agentBrainInstall", "agentBrain"])
+        self.assertEqual({k for k, v in introduced.items() if v == "2.13.0"}, {"sessionInfo"})
+        self.assertEqual([f.key for f in wizard.FEATURES[13:16]], ["learn", "agentBrainInstall", "agentBrain"])
 
     def test_groups_and_closing_pointers_are_interactive_only(self):
         _, _, output = self.interactive_run({"agentBrainInstall": False, "instructions": False})
@@ -175,7 +176,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_all_skipped_plugin_group_is_not_printed(self):
         (self.paths.claude / ".claude-agents-config-install.json").write_text('{}')
-        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod"}]
+        asked = [f.key for f in wizard.FEATURES if f.key not in {"jev", "statusBand", "laneGuard", "tokenWeather", "brainMod", "sessionInfo"}]
         self.paths.store.mkdir(parents=True, exist_ok=True)
         (self.paths.store / "wizard.json").write_text(json.dumps({"format": "agentfleet.wizard.v1", "asked": asked}))
         class Terminal(io.StringIO):
@@ -296,7 +297,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_plugin_install_enable_disable(self):
         for value in (True, False, True):
-            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value, 'tokenWeather': value, 'brainMod': value})))
+            result = self.cli('--preset', str(self.preset({'jev': value, 'statusBand': value, 'laneGuard': value, 'tokenWeather': value, 'brainMod': value, 'sessionInfo': value})))
             self.assertEqual(result.returncode, 0, result.stderr)
         calls = [json.loads(line) for line in (self.home / 'commands.log').read_text().splitlines()]
         for ident in wizard.PLUGIN_IDS.values():

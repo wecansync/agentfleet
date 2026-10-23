@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.13.0] - 2026-10-23
+
+### Added
+
+- A new mod, `session-info`, on by default: one row above the prompt with the current model and effort, how long this Claude Code has been running, the subagents running now, the git branch, the prompts sent and the session's cost at list price. A narrow terminal leaves out the last parts first. It reads only what Claude Code already knows and the repository's `.git/HEAD`, runs no commands and sends nothing anywhere. An update adds it once and never re-adds it after you remove it.
+- `agentfleet configure` asks whether to show session info, under Status and reports.
+
+### Fixed
+
+- The status band's `Options: N new` count (fleet-status 1.6.1) now includes the questions added in 2.12.0 (Context Mode, the branch check, the `/brain` command, gateway usage) and 2.13.0 (session info). Before, it said all options were reviewed while those were still unanswered.
+
 ## [2.12.0] - 2026-10-22
 
 ### Added

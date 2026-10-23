@@ -164,10 +164,13 @@ const optionKeys24 = [...optionKeys23, 'workStyle', 'agentBrain']
 const optionKeys25 = [...optionKeys24, 'askFirst', 'tokenWeather']
 const optionKeys26 = [...optionKeys25, 'agentBrainInstall']
 const optionKeys2101 = [...optionKeys26, 'agentBrainLocalMemory']
+const optionKeys212 = [...optionKeys2101, 'contextMode', 'branchCheck', 'brainMod', 'providerUsage']
+const optionKeys213 = [...optionKeys212, 'sessionInfo']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
   const minor = releaseMinor(version)
-  const optionKeys = minor > 10 || (minor === 10 && releasePatch(version) >= 1) ? optionKeys2101
+  const optionKeys = minor >= 13 ? optionKeys213 : minor === 12 ? optionKeys212
+    : minor > 10 || (minor === 10 && releasePatch(version) >= 1) ? optionKeys2101
     : minor >= 6 ? optionKeys26 : minor === 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)
   if (data?.format !== 'agentfleet.wizard.v1' || !Array.isArray(data.asked) ||
