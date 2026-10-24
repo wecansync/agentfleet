@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.13.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.14.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -292,6 +292,26 @@ From 2.8.0, in every style that uses lanes:
 
 A project can add its own risky areas in its `CLAUDE.md`, for example "installer
 changes count as risky: have them reviewed on a lane".
+
+### Smallest complete change
+
+From 2.14.0, in every style, Claude and the implementation lanes make the
+smallest change that fully solves the task, an idea borrowed from
+[Ponytail](https://github.com/DietrichGebert/ponytail):
+
+- Before writing, they find every place the change must reach: callers, tests,
+  fixtures, config.
+- They reuse what the codebase already has, then the standard library, then
+  installed dependencies, and never add a dependency for a few lines.
+- They add no feature, option or abstraction you did not ask for, and say in
+  one line what they left out.
+- They still finish every part the task needs.
+
+Plan lanes prefer the smallest design that solves the task. Review lanes list,
+separately from defects, code a change did not need. The rules add about 80
+words to the policy, about 70 to each implementation lane, and no hooks, so they cost far less than installing the
+Ponytail plugin. If you want the full plugin, with its levels and metrics band,
+install it yourself; its rules then repeat these.
 
 ### Ask first
 
@@ -790,7 +810,7 @@ install command (or an update) keeps the gateway you switched to.
   contain a gateway token.
 - `~/.claude/agentfleet/config.json` — user preferences (`workStyle`,
   `askFirst`, `branchCheck`, `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
-- `~/.claude/rules/agentfleet.md` — the policy for your work style (300 to 500
+- `~/.claude/rules/agentfleet.md` — the policy for your work style (600 to 800
   words, plus about 300 for the ask-first section and 200 for the branch check). Claude Code loads it automatically. AgentFleet manages
   this file and rewrites it on update. It does not touch your own
   `~/.claude/CLAUDE.md`, so a first install over a personal `CLAUDE.md` works.

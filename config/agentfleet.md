@@ -41,6 +41,13 @@ In a git repository, before the first file change of each task, and before dispa
 Skip the check when the user has already chosen the branch for this task, or the task runs in a worktree made for it. Never pull, switch or create a branch without the user's answer, and lanes never do these at all.
 
 <!-- /branch-check -->
+## Make the smallest complete change
+
+- **Reach first:** before writing, find every place the change must reach: callers, tests, fixtures, config.
+- **Reuse:** what the codebase already has, then the standard library, then installed dependencies. Never add a dependency for a few lines.
+- **Nothing unrequested:** add no feature, option or abstraction the task did not ask for. When you leave out something the user might expect, say so in one line.
+- **But finish:** complete every part the task needs, including the callers, tests and fixtures your change breaks.
+
 ## Work style
 
 <!-- work-style:balanced -->

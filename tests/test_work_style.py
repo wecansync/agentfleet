@@ -207,7 +207,9 @@ class WorkStyleTests(unittest.TestCase):
                     self.assertIn("continue on this branch, switch to another, or create a new one", on)
                     self.assertIn("lanes never do these at all", on)
                     self.assertNotIn("Check the branch", off)
-                    self.assertEqual(off, on.replace(on[on.index("## Check the branch"):on.index("## Work style")], ""))
+                    self.assertEqual(off, on.replace(on[on.index("## Check the branch"):on.index("## Make the smallest complete change")], ""))
+                    # The smallest-change rules render whatever the toggles say.
+                    self.assertIn("## Make the smallest complete change", off)
         self.assertEqual(provider_catalog.render_policy_for(template, {"branchCheck": False}),
                          provider_catalog.render_policy(template, "balanced", True, False))
         self.assertEqual(len(provider_catalog.policy_renderings(template)), 12)
