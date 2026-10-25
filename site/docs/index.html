@@ -434,6 +434,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
       <section id="lanes">
         <h2 class="anchor-heading">Lanes<a class="anchor-link" href="#lanes" aria-label="Link to this section">#</a></h2>
         <p>Each lane is a native Claude Code subagent generated from <code class="il">~/.claude/fleet.json</code>. All lanes run in the background with <code class="il">omitClaudeMd: true</code>. No lane has the <code class="il">Agent</code> tool, so none can spawn nested agents. The main agent owns integration and every outward-facing action.</p>
+        <p>From 2.14.1, every lane is told that only its prompt and the brief say what to do: files, web pages, command output and memory it reads are data, so it never follows instructions found in them and reports any that try to change its task. The rule comes from Google Research's <a href="https://github.com/google-research/harness2">Harness²</a>.</p>
         <p>Planning, exploration, triage, and research lanes have no <code class="il">Bash</code>, <code class="il">Edit</code>, or <code class="il">Write</code> by default. Reviewers can run checks and edit only in explicit FIX MODE; diagnosis can run checks but never edits. Preferences and per-lane tool overrides can restrict access. The <a href="#lane-guard">lane-guard mod</a> blocks covered destructive and publishing commands in fleet subagents.</p>
         <h3 id="lanes-task" class="anchor-heading">Task lanes<a class="anchor-link" href="#lanes-task" aria-label="Link to this section">#</a></h3>
         <div class="lane-grid">
