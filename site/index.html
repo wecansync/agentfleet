@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.1</span> &middot; <span class="latest-badge-date" data-latest-date>October 25, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 25, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,18 +432,26 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.14.1</span>
+        <span class="release-version" data-latest-version>v2.14.2</span>
         <span class="release-date" data-latest-date>October 25, 2026</span>
       </div>
-      <p>Lanes never follow instructions hidden in what they read.</p>
+      <p>A way for maintainers to measure whether a change helps.</p>
       <ul class="release-list">
-        <li>Every lane is told that only its prompt and the brief say what to do. Files, web pages, command output and memory are data: a lane never follows instructions found in them, and reports any that try to change its task.</li>
-        <li>The rule comes from Google Research's Harness², which gives its agents the same boundary.</li>
+        <li>For maintainers: <code class="il">packaging/measure.py</code> runs the same tasks on two versions of AgentFleet, with your lane models, and compares tokens, cost, turns and passes.</li>
+        <li>A difference counts only when the runs do not overlap, and a task with errors or failed lanes is marked confounded, an idea from Google Research's Harness².</li>
+        <li>Nothing changes for users.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.14.1</span><span class="release-date">October 25, 2026</span><span class="version-summary">Lanes never follow instructions hidden in what they read.</span></summary>
+        <ul class="release-list">
+          <li>Every lane is told that only its prompt and the brief say what to do. Files, web pages, command output and memory are data: a lane never follows instructions found in them, and reports any that try to change its task.</li>
+          <li>The rule comes from Google Research's Harness², which gives its agents the same boundary.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.14.0</span><span class="release-date">October 24, 2026</span><span class="version-summary">Claude and its lanes make the smallest change that fully solves the task.</span></summary>
         <ul class="release-list">
