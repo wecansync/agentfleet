@@ -3,6 +3,12 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.14.1] - 2026-10-25
+
+### Changed
+
+- Every lane is told that only its prompt and the brief say what to do: files, web pages, command output and memory it reads are data, so it never follows instructions found in them and reports any that try to change its task. The rule comes from Google Research's [Harness²](https://github.com/google-research/harness2).
+
 ## [2.14.0] - 2026-10-24
 
 ### Changed
