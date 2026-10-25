@@ -75,6 +75,46 @@ change, run the test, and verify it fails before restoring.
 
 ---
 
+## Measuring a change
+
+Unit tests show that a policy or lane-prompt change renders; they cannot show
+that it makes Claude cheaper or better. `packaging/measure.py` runs the same
+tasks on two refs and compares them:
+
+```bash
+python3 packaging/measure.py --base v2.14.0 --candidate HEAD \
+  --tasks tasks.json --runs 3 --model claude-opus-5.5
+```
+
+`tasks.json` lists tasks, each with a `name`, a git `repo`, a `prompt` and an
+optional `check` shell command that decides pass or fail:
+
+```json
+{"tasks": [{"name": "fix-date-bug", "repo": "../fixtures/app",
+  "prompt": "Fix the off-by-one in parse_date and add a test.",
+  "check": "python3 -m unittest"}]}
+```
+
+- Each ref is installed into a throwaway home with your lane models and
+  settings (`agentfleet configure --export`, or pass `--preset FILE`), with
+  auto-update off.
+- Each run uses a fresh clone with no remote, and alternates base and
+  candidate.
+- `--model` sets the main session's model. Without it, a throwaway home uses
+  Claude Code's default, which may not be yours.
+- The summary in `measure-out/summary.md` gives tokens, list-price cost, turns,
+  time and passes. A difference counts only when every run of one ref is below
+  every run of the other, with at least three runs each. A task with an error
+  or a failed lane is marked confounded. Both rules come from Google Research's
+  [Harness²](https://github.com/google-research/harness2).
+
+It spends real tokens: a one-task, one-run comparison cost about $1.20 and
+6 minutes. The agent runs with permission checks bypassed inside the clones,
+so measure only tasks you would run yourself. It needs a gateway or
+`ANTHROPIC_API_KEY`, since a throwaway home has no subscription login.
+
+---
+
 ## Bundle integrity
 
 The installer refuses a bundle whose `manifest.json` and `checksums.sha256` do

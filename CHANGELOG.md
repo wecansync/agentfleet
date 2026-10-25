@@ -3,6 +3,12 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.14.2] - 2026-10-25
+
+### Added
+
+- For maintainers: `packaging/measure.py` runs the same tasks on two refs, each installed into a throwaway home with your lane models, and compares tokens, list-price cost, turns, time and passes. A difference counts only when the runs do not overlap, with at least three each, and a task with an error or a failed lane is marked confounded, as in Google Research's [Harness²](https://github.com/google-research/harness2). See CONTRIBUTING.md. Nothing changes for users; the release ships the tool's tests.
+
 ## [2.14.1] - 2026-10-25
 
 ### Changed
