@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.13.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 23, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 24, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,19 +432,27 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.13.0</span>
-        <span class="release-date" data-latest-date>October 23, 2026</span>
+        <span class="release-version" data-latest-version>v2.14.0</span>
+        <span class="release-date" data-latest-date>October 24, 2026</span>
       </div>
-      <p>See the model, uptime and branch of your session above the prompt.</p>
+      <p>Claude and its lanes make the smallest change that fully solves the task.</p>
       <ul class="release-list">
-        <li>A new <strong>session-info</strong> mod, on by default, shows one row above the prompt: the current model and effort, uptime, running subagents, git branch, prompts sent and cost at list price.</li>
-        <li><code class="il">agentfleet configure</code> asks whether to show it, under Status and reports. An update adds it once; remove it and it stays removed.</li>
-        <li>The status band counts the wizard questions added in 2.12.0 and 2.13.0, so it tells you when there are new ones to answer.</li>
+        <li>Before writing, Claude and the implementation lanes find every place a change must reach, then reuse existing code, the standard library and installed dependencies before adding anything.</li>
+        <li>They add no feature, option or abstraction you did not ask for, say in one line what they left out, and still finish every part the task needs.</li>
+        <li>Plan lanes prefer the smallest design, and review lanes list code a change did not need. The idea comes from Ponytail, built in with no hooks.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.13.0</span><span class="release-date">October 23, 2026</span><span class="version-summary">See the model, uptime and branch of your session above the prompt.</span></summary>
+        <ul class="release-list">
+          <li>A new <strong>session-info</strong> mod, on by default, shows one row above the prompt: the current model and effort, uptime, running subagents, git branch, prompts sent and cost at list price.</li>
+          <li><code class="il">agentfleet configure</code> asks whether to show it, under Status and reports. An update adds it once; remove it and it stays removed.</li>
+          <li>The status band counts the wizard questions added in 2.12.0 and 2.13.0, so it tells you when there are new ones to answer.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.12.0</span><span class="release-date">October 22, 2026</span><span class="version-summary">Set every feature in one pass, and agent-brain memory that saves session summaries again.</span></summary>
         <ul class="release-list">

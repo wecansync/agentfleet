@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.14.0] - 2026-10-24
+
+### Changed
+
+- Claude and the implementation lanes make the smallest change that fully solves the task, an idea borrowed from [Ponytail](https://github.com/DietrichGebert/ponytail): they first find every place a change must reach (callers, tests, fixtures, config), reuse existing code, then the standard library, then installed dependencies, add no feature, option, abstraction or dependency nobody asked for, say what they left out, and still finish every part the task needs. The policy gains a short section, and the implement and UI lanes the same rule.
+- Plan lanes prefer the smallest design that solves the task, and review lanes list, separately from defects, code a change did not need.
+
+### Fixed
+
+- The README and docs gave the policy as 300 to 500 words; it is 600 to 800, plus the ask-first and branch-check sections.
+
 ## [2.13.0] - 2026-10-23
 
 ### Added
