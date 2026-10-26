@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.14.2",
+  "version": "2.14.3",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "591b6a7e895a18f6bf0e9bcccdb54854d90e078c937771bd32ac941f0728f0cf",
+      "sha256": "9eae3e76014eeab518a6aa3a8dd7526d6a72279935407ba736163b42401fcabb",
       "mode": "0o644"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "624941aa499391c52993fe5c67e153b328a702840392e277952cee98b7920e80",
+      "sha256": "2cdb005c047b508d70ce978533bf35272d462a7d3b4132bb3669d7b5a0b95b20",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "68514a552e3ee007ad19040871f31e0a7e6c66d5a89846f3c0c9917768624afd",
+      "sha256": "4dd71f25960bbeb12ac9c0e4f69630ade3a78770dd64306524f870d961baf7b7",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "ff61287e4919f74fad1f4a26d45b21b89a89d96e17475420859dde6a84d90f2b",
+      "sha256": "525895bdaba21e245c467b341ca6db7d01c76d3625afcf3aeb3c820be0bb376f",
       "mode": "0o644"
     },
     {
@@ -669,7 +669,7 @@
     },
     {
       "path": "tests/test_measure.py",
-      "sha256": "9cfb830218cecd0cdac7ab79495a27b7a921966a498864fa01c6dfe61fc4f53b",
+      "sha256": "34f368a2c854a077192284f41d063b09bd433e2234c813eb5b8c0c059312b449",
       "mode": "0o644"
     },
     {

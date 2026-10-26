@@ -3,6 +3,16 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.14.3] - 2026-10-26
+
+### Changed
+
+- For maintainers: `packaging/measure.py` now also compares the size of each run's change (lines and files, counting the agent's commits and new files) and keeps every run's diff in `measure-out/diffs/`. A failed check's output is saved in `runs.jsonl` and its last line shown in the summary, so a failure can be read without replaying the run. Nothing changes for users; the release ships the tool's tests.
+
+### Fixed
+
+- `packaging/measure.py` no longer stops the whole measurement when a task's check runs past `--timeout`; that run counts as failed.
+
 ## [2.14.2] - 2026-10-25
 
 ### Added

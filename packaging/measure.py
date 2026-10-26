@@ -7,7 +7,8 @@ settings (an `agentfleet configure --export` preset). Every task then runs
 candidate so gateway load and time of day fall on both equally. After each
 run the task's check command decides pass or fail.
 
-The summary compares tokens, list-price cost, turns and passes. A difference
+The summary compares tokens, list-price cost, turns, passes and the size of
+each run's change; every run's diff is kept in diffs/. A difference
 counts only when every run of one ref is below every run of the other, with
 at least three runs each; otherwise it is "inconclusive". Runs with errors or
 failed lanes make a task "confounded": the numbers then say more about the
@@ -107,7 +108,8 @@ def summarize(runs: list[dict]) -> str:
         lines += ["| | base | candidate | verdict |", "|---|---|---|---|"]
         passed = {ref: f"{sum(1 for run in side[ref] if run.get('passed'))}/{len(side[ref])}" for ref in side}
         lines.append(f"| check passed | {passed['base']} | {passed['candidate']} | |")
-        for label, key, digits in (("tokens", "tokens", 0), ("cost at list price ($)", "cost", 3), ("turns", "turns", 1), ("seconds", "seconds", 0)):
+        for label, key, digits in (("tokens", "tokens", 0), ("cost at list price ($)", "cost", 3), ("turns", "turns", 1), ("seconds", "seconds", 0),
+                                   ("lines changed", "linesChanged", 0), ("files changed", "filesChanged", 1)):
             values = {ref: [run[key] for run in good[ref]] for ref in side}
             judged = "confounded" if troubled else verdict(values["base"], values["candidate"])
             lines.append(f"| {label} | {spread(values['base'], digits)} | {spread(values['candidate'], digits)} | {judged} |")
@@ -115,6 +117,12 @@ def summarize(runs: list[dict]) -> str:
         errors = {ref: sum(1 for run in side[ref] if run["error"]) for ref in side}
         lines += [f"| lanes started / failed | {lanes['base']} | {lanes['candidate']} | |",
                   f"| errors | {errors['base']} | {errors['candidate']} | |", ""]
+        failed = [run for ref in side for run in side[ref] if run.get("checkOutput")]
+        for bad in failed:
+            last = bad["checkOutput"].splitlines()[-1]
+            lines.append(f"- {bad['variant']} run {bad.get('run', '?')} failed its check: `{last}` (full output in runs.jsonl)")
+        if failed:
+            lines.append("")
     lines.append("Cost uses Claude Code's list prices; models it has no price for count as $0, so tokens are the safer measure.")
     return "\n".join(lines) + "\n"
 
@@ -147,11 +155,31 @@ def install(ref: str, work: Path, preset: Path) -> Path:
     return home
 
 
-def run_task(task: dict, home: Path, work: Path, model: str | None, timeout: int) -> dict:
+def change_size(clone: Path, start: str, diff_path: Path | None) -> dict:
+    """Files and lines changed since ``start``, counting the agent's commits and new files.
+
+    Stages into a separate index, so the clone's own index is left as the agent left it.
+    """
+    env = {**os.environ, "GIT_INDEX_FILE": str(clone.parent / "measure.index")}
+    git = {"cwd": clone, "env": env, "capture_output": True, "encoding": "utf-8", "errors": "replace"}
+    subprocess.run(["git", "add", "-A"], **git)
+    numstat = subprocess.run(["git", "diff", "--cached", "--numstat", start], **git).stdout
+    rows = [line.split("\t") for line in numstat.splitlines() if line.count("\t") >= 2]
+    if diff_path is not None:
+        diff_path.parent.mkdir(parents=True, exist_ok=True)
+        diff_path.write_text(subprocess.run(["git", "diff", "--cached", start], **git).stdout, encoding="utf-8")
+    # Binary files show "-" for both counts.
+    added = sum(int(row[0]) for row in rows if row[0].isdigit())
+    removed = sum(int(row[1]) for row in rows if row[1].isdigit())
+    return {"filesChanged": len(rows), "linesAdded": added, "linesRemoved": removed, "linesChanged": added + removed}
+
+
+def run_task(task: dict, home: Path, work: Path, model: str | None, timeout: int, diff_path: Path | None = None) -> dict:
     clone = Path(tempfile.mkdtemp(prefix="task-", dir=work)) / "repo"
     run(["git", "clone", "-q", "--no-hardlinks", task["repo"], str(clone)])
     # A local clone's origin is the real repository; the agent runs with permissions bypassed.
     subprocess.run(["git", "-C", str(clone), "remote", "remove", "origin"], capture_output=True)
+    start = run(["git", "-C", str(clone), "rev-parse", "HEAD"]).stdout.strip()
     cmd = ["claude", "-p", task["prompt"], "--output-format", "json", "--permission-mode", "bypassPermissions"]
     if model:
         cmd += ["--model", model]
@@ -161,9 +189,17 @@ def run_task(task: dict, home: Path, work: Path, model: str | None, timeout: int
         result["error"] = result["error"] or proc.returncode != 0
     except (subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
         result = {"error": True, "detail": type(exc).__name__}
+    # Measured before the check, so files the check writes don't count.
+    result.update(change_size(clone, start, diff_path))
     if task.get("check"):
-        check = subprocess.run(task["check"], shell=True, cwd=clone, capture_output=True, text=True, timeout=timeout)
-        result["passed"] = check.returncode == 0
+        try:
+            check = subprocess.run(task["check"], shell=True, cwd=clone, capture_output=True, text=True, timeout=timeout)
+            result["passed"] = check.returncode == 0
+            output = check.stdout + check.stderr
+        except subprocess.TimeoutExpired:
+            result["passed"], output = False, f"check timed out after {timeout} s"
+        if not result["passed"]:
+            result["checkOutput"] = output.strip()[-2000:]
     else:
         result["passed"] = not result["error"]
     shutil.rmtree(clone.parent, ignore_errors=True)
@@ -196,13 +232,15 @@ def main(argv: list[str] | None = None) -> int:
             for task in tasks:
                 for index in range(args.runs):
                     for variant in ("base", "candidate"):
-                        result = run_task(task, homes[variant], work, args.model, args.timeout)
+                        diff_path = args.out / "diffs" / f"{task['name']}-{variant}-{index + 1}.diff"
+                        result = run_task(task, homes[variant], work, args.model, args.timeout, diff_path)
                         result.update(task=task["name"], variant=variant, run=index + 1)
                         runs.append(result)
                         log.write(json.dumps(result) + "\n")
                         log.flush()
                         print(f"measure: {task['name']} {variant} {index + 1}/{args.runs}: "
                               f"{'error' if result['error'] else str(result.get('tokens')) + ' tokens'}, "
+                              f"{result['linesChanged']} lines changed, "
                               f"check {'passed' if result['passed'] else 'failed'}", flush=True)
     summary = summarize(runs)
     (args.out / "summary.md").write_text(summary, encoding="utf-8")
