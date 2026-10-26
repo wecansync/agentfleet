@@ -103,13 +103,24 @@ optional `check` shell command that decides pass or fail:
 - `--model` sets the main session's model. Without it, a throwaway home uses
   Claude Code's default, which may not be yours.
 - The summary in `measure-out/summary.md` gives tokens, list-price cost, turns,
-  time and passes. A difference counts only when every run of one ref is below
-  every run of the other, with at least three runs each. A task with an error
-  or a failed lane is marked confounded. Both rules come from Google Research's
+  time, passes, and the lines and files each run changed. A difference counts
+  only when every run of one ref is below every run of the other, with at least
+  three runs each. A task with an error or a failed lane is marked confounded.
+  Both rules come from Google Research's
   [Harness²](https://github.com/google-research/harness2).
+- The change size counts the agent's commits and new files since the clone's
+  first commit, but not files the repo's `.gitignore` excludes, so give a
+  fixture a `.gitignore` for build output such as `__pycache__/`. Each run's
+  diff is kept in `measure-out/diffs/`.
+- A failed check's output goes into `measure-out/runs.jsonl`, and its last line
+  into the summary. Before counting a failure against a ref, read it: a fake in
+  the check that differs from the real thing fails correct code. In our own
+  measurement, a fake web response without headers failed two runs whose code
+  worked against a real server.
 
 It spends real tokens: a one-task, one-run comparison cost about $1.20 and
-6 minutes. The agent runs with permission checks bypassed inside the clones,
+6 minutes; three vague tasks that went through lanes, three runs per ref,
+cost about $13 and an hour. The agent runs with permission checks bypassed inside the clones,
 so measure only tasks you would run yourself. It needs a gateway or
 `ANTHROPIC_API_KEY`, since a throwaway home has no subscription login.
 

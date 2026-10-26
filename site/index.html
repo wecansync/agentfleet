@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.2</span> &middot; <span class="latest-badge-date" data-latest-date>October 25, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.3</span> &middot; <span class="latest-badge-date" data-latest-date>October 26, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,19 +432,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.14.2</span>
-        <span class="release-date" data-latest-date>October 25, 2026</span>
+        <span class="release-version" data-latest-version>v2.14.3</span>
+        <span class="release-date" data-latest-date>October 26, 2026</span>
       </div>
-      <p>A way for maintainers to measure whether a change helps.</p>
+      <p>The measuring tool also measures change size and keeps why a check failed.</p>
       <ul class="release-list">
-        <li>For maintainers: <code class="il">packaging/measure.py</code> runs the same tasks on two versions of AgentFleet, with your lane models, and compares tokens, cost, turns and passes.</li>
-        <li>A difference counts only when the runs do not overlap, and a task with errors or failed lanes is marked confounded, an idea from Google Research's Harness².</li>
+        <li>For maintainers: <code class="il">packaging/measure.py</code> compares how many lines and files each run changed, and keeps every run's diff.</li>
+        <li>A failed check's output is saved, and its last line shown in the summary.</li>
+        <li>A check that runs too long now counts as failed instead of stopping the whole measurement.</li>
         <li>Nothing changes for users.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.14.2</span><span class="release-date">October 25, 2026</span><span class="version-summary">A way for maintainers to measure whether a change helps.</span></summary>
+        <ul class="release-list">
+          <li>For maintainers: <code class="il">packaging/measure.py</code> runs the same tasks on two versions of AgentFleet, with your lane models, and compares tokens, cost, turns and passes.</li>
+          <li>A difference counts only when the runs do not overlap, and a task with errors or failed lanes is marked confounded, an idea from Google Research's Harness².</li>
+          <li>Nothing changes for users.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.14.1</span><span class="release-date">October 25, 2026</span><span class="version-summary">Lanes never follow instructions hidden in what they read.</span></summary>
         <ul class="release-list">
