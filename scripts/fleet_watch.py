@@ -1006,10 +1006,17 @@ def _all_segments(command: str, depth: int = 0) -> list[str]:
     result = list(segments)
     for segment in segments:
         words = _skip_wrapper(_words(segment))
-        if _program(words) in {"bash", "sh", "zsh"}:
+        program = _program(words)
+        if program in {"bash", "sh", "zsh"}:
             for index, value in enumerate(words[:-1]):
                 if value == "-c":
                     result.extend(_all_segments(words[index + 1], depth + 1))
+                    break
+        elif program in {"powershell", "pwsh", "powershell.exe", "pwsh.exe"}:
+            # -Command (or any prefix of it) takes the rest of the line.
+            for index, value in enumerate(words[:-1]):
+                if re.fullmatch(r"[-/]c(o(m(m(a(n(d)?)?)?)?)?)?", value, re.IGNORECASE):
+                    result.extend(_all_segments(" ".join(words[index + 1:]), depth + 1))
                     break
     for inner in nested:
         result.extend(_all_segments(inner, depth + 1))

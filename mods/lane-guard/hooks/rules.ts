@@ -12,7 +12,83 @@ const RULES = {
   MIGRATION: { rule: 'migration', label: 'database migration' },
   DB_WRITE: { rule: 'db-write', label: 'destructive SQL' },
   RM_DANGEROUS: { rule: 'rm-dangerous', label: 'dangerous rm' },
+  GIT_DISCARD: { rule: 'git-discard', label: 'work-discarding git' },
+  GITHUB_DELETE: { rule: 'github-delete', label: 'GitHub delete' },
 } as const;
+
+// 'lane' blocks everything a fleet lane must leave to the main agent. 'main' is
+// the opt-in guard for the main session and other subagents, which may commit,
+// push and open pull requests: it flags only git and GitHub commands that
+// discard work, and keeps the publish, migration, SQL and rm rules.
+export type GuardMode = 'lane' | 'main';
+
+const hasShortFlag = (args: string[], letter: string): boolean =>
+  args.some((a) => /^-[A-Za-z]+$/.test(a) && a.includes(letter));
+
+// Without `--`, git tells a path from a branch by what exists; this guesses from
+// the form: ./ or ../, an absolute path, a glob, or a file extension (`app.ts`,
+// not `v1.2`). A bare name such as `Makefile` is taken as a branch.
+const looksLikePath = (a: string): boolean =>
+  a.startsWith('./') || a.startsWith('../') || a.startsWith('/') || a.includes('*') || /\.[A-Za-z][A-Za-z0-9]*$/.test(a);
+
+function gitDiscards(subcmd: string, args: string[]): boolean {
+  const has = (...flags: string[]) => args.some((a) => flags.includes(a));
+  switch (subcmd) {
+    case 'push':
+      return (
+        has('--force', '--mirror', '--delete', '--prune') ||
+        args.some((a) => a.startsWith('--force-with-lease') || a.startsWith('--force-if-includes')) ||
+        hasShortFlag(args, 'f') ||
+        hasShortFlag(args, 'd') ||
+        args.some((a) => !a.startsWith('-') && (a.startsWith('+') || a.startsWith(':')))
+      );
+    case 'reset':
+      return has('--hard');
+    case 'clean':
+      return !has('--dry-run') && !hasShortFlag(args, 'n');
+    case 'checkout': {
+      if (has('--', '.', '--force', '--ours', '--theirs') || hasShortFlag(args, 'f')) return true;
+      if (has('--orphan', '--detach') || hasShortFlag(args, 'b') || hasShortFlag(args, 'B')) return false;
+      // `checkout <commit> <path>…` or a path alone overwrites the working-tree file.
+      const positional = args.filter((a) => !a.startsWith('-'));
+      return positional.length >= 2 || positional.some(looksLikePath);
+    }
+    case 'restore':
+      return !(has('--staged') || hasShortFlag(args, 'S')) || has('--worktree') || hasShortFlag(args, 'W');
+    case 'switch':
+      return has('--discard-changes', '--force') || hasShortFlag(args, 'f');
+    case 'branch':
+      // -D deletes unmerged work; -f, -M and -C replace an existing branch.
+      return has('--force') || ['D', 'M', 'C', 'f'].some((letter) => hasShortFlag(args, letter));
+    case 'stash':
+      return args[0] === 'drop' || args[0] === 'clear';
+    case 'reflog':
+      return args[0] === 'expire' || args[0] === 'delete';
+    case 'update-ref':
+      return has('-d');
+    case 'worktree':
+      return args[0] === 'remove' && (has('--force') || hasShortFlag(args, 'f'));
+    case 'filter-branch':
+    case 'filter-repo':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function githubDeletes(args: string[]): boolean {
+  const [subcmd, action] = args;
+  if (subcmd === 'repo') return action === 'delete' || action === 'archive';
+  if (subcmd === 'release') return action === 'delete' || action === 'delete-asset';
+  if (subcmd === 'issue') return action === 'delete';
+  if (subcmd === 'api') {
+    return args.some((a, i) => {
+      const method = a === '-X' || a === '--method' ? args[i + 1] ?? '' : a.startsWith('--method=') ? a.slice(9) : a.startsWith('-X') ? a.slice(2) : '';
+      return method.toUpperCase() === 'DELETE';
+    });
+  }
+  return false;
+}
 
 /**
  * Pure function to redact secrets from text (for $.ui.log and transcripts).
@@ -733,7 +809,7 @@ function isRemoteHostPath(arg: string): boolean {
   return slashIdx === -1 || colonIdx < slashIdx;
 }
 
-function checkSegment(program: string, args: string[]): ForbiddenResult | null {
+function checkSegment(program: string, args: string[], mode: GuardMode): ForbiddenResult | null {
   const base = program.split('/').pop() || program;
 
   // [git-history]
@@ -771,6 +847,10 @@ function checkSegment(program: string, args: string[]): ForbiddenResult | null {
     if (gIdx >= args.length) return null;
     const subcmd = args[gIdx];
     const subargs = args.slice(gIdx + 1);
+
+    if (mode === 'main') {
+      return gitDiscards(subcmd ?? '', subargs) ? RULES.GIT_DISCARD : null;
+    }
 
     if (
       [
@@ -865,6 +945,9 @@ function checkSegment(program: string, args: string[]): ForbiddenResult | null {
   }
 
   // [github-write]
+  if (base === 'gh' && mode === 'main') {
+    return githubDeletes(args) ? RULES.GITHUB_DELETE : null;
+  }
   if (base === 'gh') {
     const subcmd = args[0];
     const subargs = args.slice(1);
@@ -1151,7 +1234,7 @@ function checkSegment(program: string, args: string[]): ForbiddenResult | null {
 /**
  * Checks a shell command string against all forbidden lane rules.
  */
-export function forbiddenReason(command: string): ForbiddenResult | null {
+export function forbiddenReason(command: string, mode: GuardMode = 'lane'): ForbiddenResult | null {
   if (!command || typeof command !== 'string') return null;
 
   // Drop backslash-newline continuations
@@ -1160,7 +1243,7 @@ export function forbiddenReason(command: string): ForbiddenResult | null {
   // 1. Scan text inside $( ... ) and backticks
   const subshells = extractSubshellsAndBackticks(command);
   for (const sub of subshells) {
-    const reason = forbiddenReason(sub);
+    const reason = forbiddenReason(sub, mode);
     if (reason) return reason;
   }
 
@@ -1191,18 +1274,27 @@ export function forbiddenReason(command: string): ForbiddenResult | null {
 
     const base = program.split('/').pop() || program;
 
+    // Scan the script of powershell -Command, which takes the rest of the line.
+    if (['powershell', 'pwsh', 'powershell.exe', 'pwsh.exe'].includes(base.toLowerCase())) {
+      const i = args.findIndex((a) => /^[-/]c(o(m(m(a(n(d)?)?)?)?)?)?$/i.test(a));
+      if (i >= 0 && i + 1 < args.length) {
+        const innerReason = forbiddenReason(args.slice(i + 1).join(' '), mode);
+        if (innerReason) return innerReason;
+      }
+    }
+
     // Scan string argument of bash -c / sh -c / zsh -c
     if (['bash', 'sh', 'zsh'].includes(base)) {
       for (let i = 0; i < args.length; i++) {
         const a = args[i];
         if ((a === '-c' || a === '-lc' || /^-.*c$/.test(a)) && i + 1 < args.length) {
-          const innerReason = forbiddenReason(args[i + 1]);
+          const innerReason = forbiddenReason(args[i + 1], mode);
           if (innerReason) return innerReason;
         }
       }
     }
 
-    const reason = checkSegment(program, args);
+    const reason = checkSegment(program, args, mode);
     if (reason) return reason;
   }
 
@@ -1259,12 +1351,13 @@ const CONTEXT_MODE_INSTEAD: Record<string, string> = {
 /**
  * Checks MCP arguments (recursively, bounded) for [migration] and [db-write] SQL rules.
  */
-export function mcpForbidden(args: unknown, toolName?: string): ForbiddenResult | null {
+export function mcpForbidden(args: unknown, toolName?: string, mode: GuardMode = 'lane'): ForbiddenResult | null {
   if (toolName && toolName.startsWith('mcp__agent-brain-memory__')) {
     return null;
   }
 
-  if (toolName) {
+  // The main session may use every Context Mode tool; its SQL is still scanned below.
+  if (toolName && mode === 'lane') {
     const tool = contextModeTool(toolName);
     if (tool !== null) {
       // Allowed read-only Context Mode tools skip the SQL scan: a search query is text, not SQL.

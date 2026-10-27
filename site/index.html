@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.14.3</span> &middot; <span class="latest-badge-date" data-latest-date>October 26, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.15.0</span> &middot; <span class="latest-badge-date" data-latest-date>October 27, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,20 +432,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.14.3</span>
-        <span class="release-date" data-latest-date>October 26, 2026</span>
+        <span class="release-version" data-latest-version>v2.15.0</span>
+        <span class="release-date" data-latest-date>October 27, 2026</span>
       </div>
-      <p>The measuring tool also measures change size and keeps why a check failed.</p>
+      <p>An optional guard that asks you before the main session discards work or publishes.</p>
       <ul class="release-list">
-        <li>For maintainers: <code class="il">packaging/measure.py</code> compares how many lines and files each run changed, and keeps every run's diff.</li>
-        <li>A failed check's output is saved, and its last line shown in the summary.</li>
-        <li>A check that runs too long now counts as failed instead of stopping the whole measurement.</li>
-        <li>Nothing changes for users.</li>
+        <li><code class="il">agentfleet config main-session-guard on</code> makes lane-guard ask you before the main session runs a force push, <code class="il">git reset --hard</code>, a deploy, a migration, destructive SQL or a dangerous <code class="il">rm</code>.</li>
+        <li>Commits, pushes, pull requests and branch switches run without a question. Only "Run it" runs the command.</li>
+        <li>Off by default. Meant for sessions that skip permission prompts. Fleet lanes keep their own rules.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.14.3</span><span class="release-date">October 26, 2026</span><span class="version-summary">The measuring tool also measures change size and keeps why a check failed.</span></summary>
+        <ul class="release-list">
+          <li>For maintainers: <code class="il">packaging/measure.py</code> compares how many lines and files each run changed, and keeps every run's diff.</li>
+          <li>A failed check's output is saved, and its last line shown in the summary.</li>
+          <li>A check that runs too long now counts as failed instead of stopping the whole measurement.</li>
+          <li>Nothing changes for users.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.14.2</span><span class="release-date">October 25, 2026</span><span class="version-summary">A way for maintainers to measure whether a change helps.</span></summary>
         <ul class="release-list">

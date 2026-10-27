@@ -166,10 +166,11 @@ const optionKeys26 = [...optionKeys25, 'agentBrainInstall']
 const optionKeys2101 = [...optionKeys26, 'agentBrainLocalMemory']
 const optionKeys212 = [...optionKeys2101, 'contextMode', 'branchCheck', 'brainMod', 'providerUsage']
 const optionKeys213 = [...optionKeys212, 'sessionInfo']
+const optionKeys215 = [...optionKeys213, 'mainSessionGuard']
 
 export function parseNewOptions(source: string | null | undefined, version: string | null): number {
   const minor = releaseMinor(version)
-  const optionKeys = minor >= 13 ? optionKeys213 : minor === 12 ? optionKeys212
+  const optionKeys = minor >= 15 ? optionKeys215 : minor >= 13 ? optionKeys213 : minor === 12 ? optionKeys212
     : minor > 10 || (minor === 10 && releasePatch(version) >= 1) ? optionKeys2101
     : minor >= 6 ? optionKeys26 : minor === 5 ? optionKeys25 : minor === 4 ? optionKeys24 : optionKeys23
   const data = jsonRecord(source)

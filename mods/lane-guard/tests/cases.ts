@@ -1306,5 +1306,21 @@ export const cases: TestCase[] = [
   {
     "command": "gh pr view 3",
     "rule": null
+  },
+  {
+    "command": "powershell -Command \"git push\"",
+    "rule": "git-history"
+  },
+  {
+    "command": "pwsh -NoProfile -c 'npm publish'",
+    "rule": "publish-deploy"
+  },
+  {
+    "command": "powershell.exe -Com \"php artisan migrate\"",
+    "rule": "migration"
+  },
+  {
+    "command": "pwsh -NoProfile -Command Get-ChildItem",
+    "rule": null
   }
 ];

@@ -275,7 +275,7 @@ test('2.10.1 adds the agent-brain memory question to the count', () => {
   expect(count('2.11.0', [...keys26, 'agentBrainLocalMemory'])).toBe(0)
 })
 
-test('2.12.0 and 2.13.0 add their wizard questions to the count', () => {
+test('2.12.0, 2.13.0 and 2.15.0 add their wizard questions to the count', () => {
   const keys2101 = [...wizardKeys24, 'askFirst', 'tokenWeather', 'agentBrainInstall', 'agentBrainLocalMemory']
   const keys212 = [...keys2101, 'contextMode', 'branchCheck', 'brainMod', 'providerUsage']
   const count = (version: string, asked: string[]) =>
@@ -285,7 +285,10 @@ test('2.12.0 and 2.13.0 add their wizard questions to the count', () => {
   expect(count('2.13.0', keys2101)).toBe(5)
   expect(count('2.13.0', keys212)).toBe(1)
   expect(count('2.13.0', [...keys212, 'sessionInfo'])).toBe(0)
-  expect(count('3.0.0', keys212)).toBe(1)
+  expect(count('2.14.3', [...keys212, 'sessionInfo'])).toBe(0)
+  expect(count('2.15.0', [...keys212, 'sessionInfo'])).toBe(1)
+  expect(count('2.15.0', [...keys212, 'sessionInfo', 'mainSessionGuard'])).toBe(0)
+  expect(count('3.0.0', keys212)).toBe(2)
 })
 
 const NOW = Date.parse('2026-10-20T12:00:00Z')

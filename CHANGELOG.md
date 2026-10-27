@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.15.0] - 2026-10-27
+
+### Added
+
+- Main-session guard, off by default: `agentfleet config main-session-guard on` (or the new question in `agentfleet configure`) makes lane-guard ask you before the main session, or a subagent that is not a fleet lane, runs a command that discards work or data, or publishes: a force push or a push that deletes a branch, `git reset --hard`, `git clean`, discarding working-tree files, `gh repo delete`, a deploy, a migration, destructive SQL or a dangerous `rm`. Commits, pushes, pull requests and branch switches run without a question. Only "Run it" runs the command; any other answer, a dismissed question or a `claude -p` run stops it. Meant for sessions that skip permission prompts, where nothing else checks those commands. Fleet lanes keep their own rules. lane-guard 1.5.0.
+
+### Changed
+
+- The status band counts the new question in "Options: N new" (fleet-status 1.6.2).
+- lane-guard also checks the script passed to `powershell -Command` or `pwsh -c`, as it already did for `bash -c`, for lanes and the main-session guard alike. A failure while logging a block no longer lets the command through.
+
 ## [2.14.3] - 2026-10-26
 
 ### Changed

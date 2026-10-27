@@ -86,7 +86,8 @@ def plugins(paths):
 
 def current(api, paths, key):
     pref = {"compact": "compactPercent", "reviewerAccess": "reviewerAccess", "learn": "learn", "workStyle": "workStyle",
-            "askFirst": "askFirst", "branchCheck": "branchCheck", "providerUsage": "providerUsage"}
+            "askFirst": "askFirst", "branchCheck": "branchCheck", "providerUsage": "providerUsage",
+            "mainSessionGuard": "mainSessionGuard"}
     if key in pref:
         return provider_catalog.load_preferences(paths.home)[pref[key]]
     if key == "contextMode":
@@ -111,14 +112,15 @@ def current(api, paths, key):
 
 def apply(api, paths, key, value):
     if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "branchCheck", "providerUsage", "contextMode",
-               "agentBrain", "agentBrainInstall", "agentBrainLocalMemory"):
+               "agentBrain", "agentBrainInstall", "agentBrainLocalMemory", "mainSessionGuard"):
         setting = {
             "compact": "compact", "reviewerAccess": "reviewer-access", "learn": "learn",
             "workStyle": "work-style", "askFirst": "ask-first", "branchCheck": "branch-check",
             "providerUsage": "provider-usage", "contextMode": "context-mode", "agentBrain": "agent-brain",
             "agentBrainInstall": "agent-brain", "agentBrainLocalMemory": "agent-brain-memory",
+            "mainSessionGuard": "main-session-guard",
         }[key]
-        text = ("on" if value else "off") if key in ("learn", "askFirst", "branchCheck", "providerUsage", "contextMode", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory") else str(value)
+        text = ("on" if value else "off") if key in ("learn", "askFirst", "branchCheck", "providerUsage", "contextMode", "agentBrain", "agentBrainInstall", "agentBrainLocalMemory", "mainSessionGuard") else str(value)
         return api.cmd_config(paths, argparse.Namespace(setting=setting, value=text))
     if key == "autoUpdate":
         return api.cmd_auto_update(paths, argparse.Namespace(action="on" if value else "off", hook=False, run=None))
@@ -175,6 +177,7 @@ FEATURES = (
     Feature("branchCheck", "2.12.0", "Check the git branch before Claude's first file change in a task? (Y/n)", "yes/no"),
     Feature("reviewerAccess", "2.3.0", "Reviewer lanes: full (run commands, fix in FIX MODE), run (commands only), or read-only?", "full, run, read-only"),
     Feature("laneGuard", "2.3.0", "Block fleet lanes from commits, pushes, deploys and destructive commands (lane-guard)? (Y/n)", "yes/no"),
+    Feature("mainSessionGuard", "2.15.0", "Ask you before the main session runs a command that discards work or data, or publishes: a force push, git reset --hard, a deploy, a migration, destructive SQL or a dangerous rm? Useful when you skip permission prompts; needs lane-guard. (y/N)", "yes/no"),
     # Status and reports
     Feature("statusBand", "2.3.0", "Show the AgentFleet status band (updates, outages, suggestions, JEV) above the prompt? (Y/n)", "yes/no"),
     Feature("sessionInfo", "2.13.0", "Show session info above the prompt: the current model and effort, uptime, git branch, running subagents, prompts sent and cost? (Y/n)", "yes/no"),
@@ -450,7 +453,7 @@ def run(api, paths, args):
             print(MODS_MESSAGE)
         groups = (
             ("Context", {"compact", "jev", "contextMode", "tokenWeather"}),
-            ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard"}),
+            ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard", "mainSessionGuard"}),
             ("Status and reports", {"statusBand", "sessionInfo", "brainMod", "providerUsage", "learn"}),
             ("agent-brain", {"agentBrainInstall", "agentBrain", "agentBrainLocalMemory"}),
             ("Updates and checks", {"autoUpdate", "instructions"}),

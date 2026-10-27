@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.14.3** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.15.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -413,7 +413,7 @@ reproduce failures from the command line, but no edit tools. Reviewer lanes
 and `Write` tools: they run in CHECK mode by default (executing test suites,
 linters, builds, and read-only queries; never editing files) and enter FIX MODE
 only when the brief explicitly requests fixes and lists target files. Writable
-lanes implement assigned changes. All subagents are guarded by the `lane-guard`
+lanes implement assigned changes. All lanes are guarded by the `lane-guard`
 mod, which deterministically intercepts tool calls and blocks git history mutations,
 GitHub writes, deployments, migrations, and destructive SQL. All lanes are
 background agents with `omitClaudeMd: true`, and none has the `Agent` tool, so none
@@ -514,7 +514,7 @@ asks each question with the current value as the default, grouped under:
 
 - **Context:** auto-compact percentage, JEV, Context Mode, token-weather.
 - **Lanes:** work style, ask-first, the branch check, reviewer access,
-  lane-guard.
+  lane-guard, the main-session guard.
 - **Status and reports:** the status band, session info, the `/brain` command,
   gateway usage, usage learning.
 - **agent-brain:** install it when it is missing, connect it when it is
@@ -585,6 +585,7 @@ agentfleet config agent-brain on|off                 # install and connect agent
 agentfleet config agent-brain-memory on|off          # agent-brain memory on this machine (off until you say yes)
 agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]  # model prices for estimated cost (default: none)
 agentfleet config provider-usage on|off              # read the spend and limits your gateway reports (default: on)
+agentfleet config main-session-guard on|off          # ask before the main session discards work or publishes (default: off)
 ```
 
 Restart Claude Code after changing the work style, ask-first or branch-check.
@@ -902,7 +903,15 @@ your user permissions and are not sandboxed.
   - Dangerous file removal: `rm -rf` targeting root, home, parent directories, `.git`, or wildcard.
   - Model failover: while a lane's own model is down (see [Outages and lane reports](#outages-and-lane-reports)), new runs of that lane start on the first of its fallback models that works, marked `(failover: <model>)` in the task description.
   - Turn-limit warnings (from lane-guard 1.2.0): at 70% of a lane's `maxTurns` it tells the lane to finish the part it is on, run its check and report; at 90%, to report now. The lane reads the warning after a tool result; you do not see it.
-  `lane-guard` intercepts subagents only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover and the turn-limit warnings.
+  - Main-session guard (from lane-guard 1.5.0, off by default): see below.
+  By default `lane-guard` intercepts lanes only; commands in the main conversation are never blocked. Disable it via `/plugin`; that also turns off model failover, the turn-limit warnings and the main-session guard.
+
+  **Main-session guard.** `agentfleet config main-session-guard on` makes lane-guard ask you before the main session, or a subagent that is not a fleet lane, runs a command that discards work or data, or publishes. It is meant for sessions that skip permission prompts (`--dangerously-skip-permissions`), where nothing else checks those commands. The main session keeps committing, pushing, opening pull requests and switching branches without a question; lane-guard asks only about:
+  - git that discards work: a force push or a push that deletes a branch, `reset --hard`, `clean`, checking out files over local changes (`checkout -- .`, `checkout HEAD src/app.ts`), `restore` of working-tree files, `switch --discard-changes`, `branch -D` and forced branch moves (`-f`, `-M`), `stash drop|clear`, `reflog expire`, `filter-branch`/`filter-repo`;
+  - GitHub deletes: `gh repo delete|archive`, `gh release delete`, `gh issue delete`, `gh api -X DELETE`;
+  - the lane rules for publishing and deployment, migrations, destructive SQL and dangerous `rm`.
+
+  Only **Run it** runs the command. **Don't run it**, an answer typed under Other, a dismissed question, or a run with nobody to ask (`claude -p`) stops it, and Claude is told why. Secrets in the command are masked in the question. Fleet lanes keep their own rules and are never asked.
 - **token-weather** (v0.1.0-agentfleet.1), Anthropic's sample mod (Apache-2.0),
   forecasts how full the context window is above the prompt. It draws below the
   other mods' bands and never replaces them. On by default from 2.5.0; an update
