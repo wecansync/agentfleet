@@ -901,7 +901,7 @@ claude plugin install lane-guard@agentfleet</code></pre>
         <p>Run <code class="il">agentfleet configure</code> in a terminal to set every feature in one pass. It asks each question with the current value as the default, grouped under:</p>
         <ul>
           <li><strong>Context:</strong> auto-compact percentage, JEV, Context Mode, token-weather.</li>
-          <li><strong>Lanes:</strong> work style, ask-first, the branch check, reviewer access, lane-guard.</li>
+          <li><strong>Lanes:</strong> work style, ask-first, the branch check, reviewer access, lane-guard, the main-session guard.</li>
           <li><strong>Status and reports:</strong> the status band, session info, the <code class="il">/brain</code> command, gateway usage, usage learning.</li>
           <li><strong>agent-brain:</strong> install it when it is missing, connect it when it is installed, and turn on its <a href="#agent-brain">memory</a>.</li>
           <li><strong>Updates and checks:</strong> automatic updates, then the <a href="#instruction-check">instruction check</a>.</li>
@@ -930,6 +930,7 @@ agentfleet configure --export team.json # export settings without secrets</code>
           <div class="cmd-ref-item"><code class="il">agentfleet config agent-brain-memory on|off</code><p>Turn agent-brain memory on or off on this machine. Off keeps existing memories. Off until you say yes. See <a href="#agent-brain">agent-brain</a>.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet config prices [MODEL=IN,OUT[,CR,CW]|MODEL=off|off]</code><p>Show, set or remove model prices in dollars per million tokens, used only for estimated cost. Default: none. See <a href="#usage-report">Usage and estimated cost</a>.</p></div>
           <div class="cmd-ref-item"><code class="il">agentfleet config provider-usage on|off</code><p>Read the spend and limits your gateway reports for your key. Default: on. See <a href="#gateway-usage">Reported by your gateway</a>.</p></div>
+          <div class="cmd-ref-item"><code class="il">agentfleet config main-session-guard on|off</code><p>Ask you before the main session discards work or data, or publishes. Default: off. See <a href="#main-session-guard">Main-session guard</a>.</p></div>
         </div>
         <h3 id="agent-brain" class="anchor-heading">agent-brain<a class="anchor-link" href="#agent-brain" aria-label="Link to this section">#</a></h3>
         <p><a href="https://agentbrain.wecansync.com">agent-brain</a> is a free tool that records the tokens and cost of each Claude Code session and, from agent-brain 0.5.7, keeps a free project memory on your machine. AgentFleet installs and connects the free tool only; it never asks you to sign in or create an agent-brain account.</p>
@@ -999,7 +1000,7 @@ claude-fleet-setup --compaction 200000</code></pre>
 
       <section id="lane-guard">
         <h2 class="anchor-heading">Lane guard<a class="anchor-link" href="#lane-guard" aria-label="Link to this section">#</a></h2>
-        <p>The <code class="il">lane-guard</code> mod is on by default for new installs with mods enabled and is added once on update. It intercepts covered tool calls from fleet subagents, never the main conversation.</p>
+        <p>The <code class="il">lane-guard</code> mod is on by default for new installs with mods enabled and is added once on update. It intercepts covered tool calls from fleet subagents. The main conversation is checked only when you turn on the <a href="#main-session-guard">main-session guard</a>.</p>
         <ul class="req-list">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks covered git history and working-tree mutations, GitHub writes, package publishing, and deployment commands.</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Blocks covered migrations and destructive SQL in database clients or MCP tools, including DROP, TRUNCATE, and unqualified DELETE or UPDATE.</li>
@@ -1008,6 +1009,14 @@ claude-fleet-setup --compaction 200000</code></pre>
         <p>Read-only git inspections, tests, builds, linters, SELECT queries, migration status checks, and normal build cleanup remain allowed. A blocked lane must report the command to the main agent instead.</p>
         <p>lane-guard also handles <a href="#outages">model failover</a>: while a lane's own model is down, a new run of that lane starts on the first of its fallback models that works, and the task description ends in <code class="il">(failover: &lt;model&gt;)</code>. Turning lane-guard off turns this off too. From lane-guard 1.2.0 it also warns a lane near its turn limit: at 70% of the lane's <code class="il">maxTurns</code> it tells the lane to finish the part it is on, run its check and report, and at 90% to report now. The lane reads the warning after a tool result; you do not see it. For failover it reads <code class="il">~/.claude/fleet.json</code>, <code class="il">~/.claude/agentfleet/outages.json</code> and the project's <code class="il">.claude/fleet.local.json</code>, each only as a regular file under 1 MB; it writes nothing.</p>
         <aside class="callout note"><span class="callout-label">Note</span><p>This is a targeted command guard, not a sandbox or a guarantee against every destructive action. Lane instructions still apply. Disable it through <code class="il">/plugin</code>: select lane-guard, then Disable.</p></aside>
+        <h3 id="main-session-guard">Main-session guard</h3>
+        <p>From AgentFleet 2.15.0 (lane-guard 1.5.0), <code class="il">agentfleet config main-session-guard on</code> makes lane-guard ask you before the main session, or a subagent that is not a fleet lane, runs a command that discards work or data, or publishes. It is off by default and meant for sessions that skip permission prompts (<code class="il">--dangerously-skip-permissions</code>), where nothing else checks those commands. Commits, pushes, pull requests and branch switches run without a question. lane-guard asks only about:</p>
+        <ul>
+          <li>git that discards work: a force push or a push that deletes a branch, <code class="il">reset --hard</code>, <code class="il">clean</code>, checking out files over local changes (<code class="il">checkout -- .</code>, <code class="il">checkout HEAD src/app.ts</code>), <code class="il">restore</code> of working-tree files, <code class="il">switch --discard-changes</code>, <code class="il">branch -D</code> and forced branch moves, <code class="il">stash drop|clear</code>, <code class="il">reflog expire</code>, <code class="il">filter-branch</code>/<code class="il">filter-repo</code>;</li>
+          <li>GitHub deletes: <code class="il">gh repo delete|archive</code>, <code class="il">gh release delete</code>, <code class="il">gh issue delete</code>, <code class="il">gh api -X DELETE</code>;</li>
+          <li>the lane rules for publishing and deployment, migrations, destructive SQL and dangerous <code class="il">rm</code>.</li>
+        </ul>
+        <p>Only <strong>Run it</strong> runs the command. <strong>Don't run it</strong>, an answer typed under Other, a dismissed question, or a run with nobody to ask (<code class="il">claude -p</code>) stops it, and Claude is told why. Secrets in the command are masked in the question. Fleet lanes keep their own rules and are never asked.</p>
       </section>
 
       <section id="outages">
@@ -1220,7 +1229,7 @@ claude plugin install fleet-status@agentfleet</code></pre>
         <h3 id="ts-compact" class="anchor-heading">Auto-compact still uses the old window<a class="anchor-link" href="#ts-compact" aria-label="Link to this section">#</a></h3>
         <p>Check <code class="il">agentfleet config</code>. <code class="il">compactPercent: off</code> leaves the window alone. Set <code class="il">agentfleet config compact 70</code> and restart Claude Code. A model-switch hook writes the next window but cannot change the running session's startup setting.</p>
         <h3 id="ts-guard" class="anchor-heading">A lane command was blocked<a class="anchor-link" href="#ts-guard" aria-label="Link to this section">#</a></h3>
-        <p>Lane-guard returns a rule label for covered destructive or publishing commands. Have the lane report the command and its reason to the main agent; do not ask it to bypass the guard. The main conversation is not blocked. See <a href="#lane-guard">Lane guard</a>.</p>
+        <p>Lane-guard returns a rule label for covered destructive or publishing commands. Have the lane report the command and its reason to the main agent; do not ask it to bypass the guard. The main conversation is not blocked; with the <a href="#main-session-guard">main-session guard</a> on, it asks you first. See <a href="#lane-guard">Lane guard</a>.</p>
         <h3 id="ts-health" class="anchor-heading">Plugin or MCP health warnings<a class="anchor-link" href="#ts-health" aria-label="Link to this section">#</a></h3>
         <p>Run <code class="il">claude-fleet-setup --audit</code>, <code class="il">/fleet-setup</code>, or <code class="il">agentfleet status</code> to inspect the warning. <code class="il">claude-fleet-setup --audit --no-health</code> skips these checks; it does not repair a plugin or MCP server. Configure credentials outside chat.</p>
         <h3 id="ts-outage" class="anchor-heading">A lane is marked failing<a class="anchor-link" href="#ts-outage" aria-label="Link to this section">#</a></h3>

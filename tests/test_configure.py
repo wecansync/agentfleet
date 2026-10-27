@@ -24,7 +24,7 @@ api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
 KEYS = ["compact", "jev", "contextMode", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
-        "statusBand", "sessionInfo", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
+        "mainSessionGuard", "statusBand", "sessionInfo", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
 ACTIONS = {"instructions"}
 
 
@@ -161,7 +161,8 @@ class ConfigureTests(unittest.TestCase):
         introduced = {f.key: f.introduced for f in wizard.FEATURES}
         self.assertEqual({k for k, v in introduced.items() if v == "2.12.0"}, {"contextMode", "branchCheck", "brainMod", "providerUsage"})
         self.assertEqual({k for k, v in introduced.items() if v == "2.13.0"}, {"sessionInfo"})
-        self.assertEqual([f.key for f in wizard.FEATURES[13:16]], ["learn", "agentBrainInstall", "agentBrain"])
+        self.assertEqual({k for k, v in introduced.items() if v == "2.15.0"}, {"mainSessionGuard"})
+        self.assertEqual([f.key for f in wizard.FEATURES[14:17]], ["learn", "agentBrainInstall", "agentBrain"])
 
     def test_groups_and_closing_pointers_are_interactive_only(self):
         _, _, output = self.interactive_run({"agentBrainInstall": False, "instructions": False})
@@ -209,6 +210,26 @@ class ConfigureTests(unittest.TestCase):
         for key in ("branchCheck", "providerUsage", "contextMode", "brainMod"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 wizard.validate_preset({"format": "agentfleet.preset.v1", key: "on"})
+
+    def test_main_session_guard_setting(self):
+        # Off by default, and the wizard's yes goes through `agentfleet config`.
+        self.assertFalse(wizard.current(api, self.paths, "mainSessionGuard"))
+        with patch.object(api, "cmd_config", return_value=0) as config:
+            self.assertEqual(wizard.apply(api, self.paths, "mainSessionGuard", True), 0)
+        self.assertEqual((config.call_args.args[1].setting, config.call_args.args[1].value), ("main-session-guard", "on"))
+        agentfleet = [sys.executable, "-B", str(ROOT / "bin/agentfleet"), "--home", str(self.home), "config"]
+        run = lambda *args: subprocess.run([*agentfleet, *args], env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertIn("main-session-guard: off (default)", run().stdout)
+        result = run("main-session-guard", "on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("lane-guard will ask you", result.stdout)
+        # The lane-guard mod reads this key from the preferences file.
+        self.assertIs(json.loads((self.paths.claude / "agentfleet" / "config.json").read_text())["mainSessionGuard"], True)
+        self.assertTrue(wizard.current(api, self.paths, "mainSessionGuard"))
+        self.assertIn("main-session-guard: on", run().stdout)
+        self.assertEqual(run("main-session-guard", "maybe").returncode, 2)
+        self.assertEqual(run("main-session-guard", "off").returncode, 0)
+        self.assertIs(json.loads((self.paths.claude / "agentfleet" / "config.json").read_text())["mainSessionGuard"], False)
 
     def test_update_asks_existing_users_only_the_new_questions(self):
         new = ["contextMode", "branchCheck", "brainMod", "providerUsage"]

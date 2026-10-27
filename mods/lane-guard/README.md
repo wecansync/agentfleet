@@ -107,9 +107,21 @@ A fleet lane that reaches the `maxTurns` in its agent file is cut off without re
 
 The limit is the `maxTurns` in `<claude folder>/agents/<type>.md`, read once per lane type. Parallel calls in one turn each count, so a note may come a turn early. Blocked calls count but get no note. No note is added when the limit cannot be read (a missing file, no `maxTurns`, or a path through a symlink), and the main conversation and agents that are not fleet lanes are never counted. A failure while working out a note returns the tool's result as it was.
 
-## Main Conversation Is Never Blocked
+## The Main Conversation
 
-`lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked. When a subagent's type cannot be resolved, a matching command is blocked rather than allowed. The `PowerShell` tool is checked like `Bash`, and secrets in the logged command are redacted.
+By default `lane-guard` only guards subagents where `event.agentId` is present and whose agent type starts with `fleet-`. Commands executed in the main conversation (where you interact directly with Claude Code) are never blocked. When a subagent's type cannot be resolved, a matching command is blocked rather than allowed. The `PowerShell` tool is checked like `Bash`, the script passed to `powershell -Command` or `pwsh -c` is checked like `bash -c` (from 1.5.0), and secrets in the logged command are redacted.
+
+### Main-session guard (from 1.5.0, off by default)
+
+`agentfleet config main-session-guard on` writes `mainSessionGuard: true` to `<claude folder>/agentfleet/config.json`. lane-guard then asks you, with Claude Code's own question dialog, before the main conversation or a subagent that is not a fleet lane runs a command that discards work or data, or publishes. It is meant for sessions that skip permission prompts, where nothing else checks those commands.
+
+The main conversation may commit, push, open pull requests and switch branches, so it is checked with a narrower rule set than the lanes:
+
+- `[git-discard]`: a force push (`--force`, `-f`, `--force-with-lease`, a `+` refspec) or a push that deletes (`--delete`, `--mirror`, `--prune`, a `:` refspec), `reset --hard`, `clean` without `-n`, `checkout` of files (`--`, `.`, `-f`, `--ours`/`--theirs`, a commit followed by paths, or an argument that looks like a path: `./`, `../`, absolute, a glob or a file extension; a bare name such as `Makefile` is taken as a branch), `restore` of working-tree files, `switch --discard-changes`/`-f`, `branch -D`/`-f`/`-M`/`-C`, `stash drop|clear`, `reflog expire|delete`, `update-ref -d`, `worktree remove --force`, `filter-branch`, `filter-repo`.
+- `[github-delete]`: `gh repo delete|archive`, `gh release delete|delete-asset`, `gh issue delete`, `gh api -X DELETE`.
+- `[publish-deploy]`, `[migration]`, `[db-write]` and `[rm-dangerous]`, as for lanes. Context Mode tools are allowed, but SQL passed to any MCP tool is still scanned.
+
+Only the answer **Run it** runs the command. **Don't run it**, text typed under Other, a dismissed question, or a session with nobody to ask (`claude -p`) stops it with a message that tells Claude why. The setting is read only when a command matches, so other calls cost nothing; it is off when lane-guard is not installed by AgentFleet or the settings file is missing or unreadable.
 
 The rules are tested against a shared case table (`tests/cases.json`) that AgentFleet's Python lane reports use too, so both agree on what counts as forbidden.
 

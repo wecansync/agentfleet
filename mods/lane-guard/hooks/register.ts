@@ -1,7 +1,7 @@
 import type { AgentSpawnInput, CoreEngineInterface, On, Register, ToolCallInput } from 'claude-code';
 import { addNote, budgetNote, recordCall, turnLimit } from './budget.js';
 import { claudeDirectory, failoverModel, laneName, markDescription, SOURCE_LIMIT_BYTES } from './failover.js';
-import { forbiddenReason, mcpForbidden, redactSecrets, type ForbiddenResult } from './rules.js';
+import { forbiddenReason, mcpForbidden, redactSecrets, type ForbiddenResult, type GuardMode } from './rules.js';
 
 const agentTypeCache = new Map<string, string>();
 const turnLimitCache = new Map<string, number | null>();
@@ -41,28 +41,20 @@ async function agentType($: CoreEngineInterface, agentId: string): Promise<strin
   return type;
 }
 
-async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny: string } | null> {
-  if (!e.agentId) {
-    return null;
-  }
+type Hit = { forbidden: ForbiddenResult; rawCommand: string };
 
-  const type = await agentType($, e.agentId);
-
-  // If agent type is resolved and it is NOT a fleet lane, allow
-  if (type && !type.startsWith('fleet-')) {
-    return null;
-  }
-
-  let forbidden: ForbiddenResult | null = null;
-  let rawCommand = '';
-
+// The command a tool call would run, if it breaks the given rules.
+function check(e: ToolCallInput, mode: GuardMode): Hit | null {
   if (e.tool === 'Bash' || e.tool === 'PowerShell') {
-    rawCommand = (e as any).command ?? '';
-    forbidden = forbiddenReason(rawCommand);
-  } else if (typeof e.tool === 'string' && e.tool.startsWith('mcp__')) {
+    const rawCommand = (e as any).command ?? '';
+    const forbidden = forbiddenReason(rawCommand, mode);
+    return forbidden ? { forbidden, rawCommand } : null;
+  }
+  if (typeof e.tool === 'string' && e.tool.startsWith('mcp__')) {
     const { tool, tool_use_id, agentId, ...mcpArgs } = e as any;
-    forbidden = mcpForbidden(mcpArgs, e.tool);
-    rawCommand =
+    const forbidden = mcpForbidden(mcpArgs, e.tool, mode);
+    if (!forbidden) return null;
+    const rawCommand =
       typeof (mcpArgs as any).query === 'string'
         ? (mcpArgs as any).query
         : typeof (mcpArgs as any).sql === 'string'
@@ -70,31 +62,99 @@ async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny:
           : typeof (mcpArgs as any).command === 'string'
             ? (mcpArgs as any).command
             : JSON.stringify(mcpArgs);
-  } else if (
-    e.tool === 'Edit' ||
-    e.tool === 'Write' ||
-    e.tool === 'MultiEdit' ||
-    e.tool === 'NotebookEdit'
+    return { forbidden, rawCommand };
+  }
+  if (
+    mode === 'lane' &&
+    (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'MultiEdit' || e.tool === 'NotebookEdit') &&
+    checkGitEdit(e)
   ) {
-    if (checkGitEdit(e)) {
-      forbidden = {
-        rule: 'git-history',
-        label: 'git history or working-tree',
-      };
-      rawCommand = (e as any).file_path ?? (e as any).path ?? (e as any).notebook_path ?? '.git';
-    }
+    return {
+      forbidden: { rule: 'git-history', label: 'git history or working-tree' },
+      rawCommand: (e as any).file_path ?? (e as any).path ?? (e as any).notebook_path ?? '.git',
+    };
+  }
+  return null;
+}
+
+// Logging is best-effort: a failure to log must never decide a tool call.
+function log($: CoreEngineInterface, text: string): void {
+  try {
+    $.ui.log(text);
+  } catch {
+    // The decision stands without the log line.
+  }
+}
+
+function shown(rawCommand: string, length: number): string {
+  return redactSecrets(rawCommand)
+    .slice(0, length)
+    .replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Cc}]/gu, '');
+}
+
+// `agentfleet config main-session-guard on` writes mainSessionGuard to the
+// preferences; read only when a command matches, so other calls cost nothing.
+async function mainGuardOn($: CoreEngineInterface): Promise<boolean> {
+  const base = claudeDirectory($.plugin.root);
+  if (!base) return false;
+  try {
+    return JSON.parse((await readSource($, `${base}/agentfleet/config.json`)) ?? '{}')?.mainSessionGuard === true;
+  } catch {
+    return false;
+  }
+}
+
+const RUN = 'Run it';
+const STOP = "Don't run it";
+
+// Asks the user before the main session, or a subagent that is not a fleet
+// lane, runs a command that discards work or data, or publishes. Anything but
+// an explicit yes, including no one to ask (a -p run), stops the command.
+async function confirm($: CoreEngineInterface, hit: Hit, who: string | undefined): Promise<{ deny: string } | null> {
+  const command = shown(hit.rawCommand, 300);
+  const where = who ? ` in ${who}` : '';
+  const label = hit.forbidden.label;
+  let answer: string;
+  try {
+    answer = await $.ui.ask(`AgentFleet guard: run this ${label} command${where}? ${command}`, {
+      options: [RUN, STOP],
+      header: 'Guard',
+    });
+  } catch {
+    log($, `lane-guard stopped [${hit.forbidden.rule}]${where}, nobody confirmed it: ${shown(hit.rawCommand, 120)}`);
+    return {
+      deny: `AgentFleet's guard stopped this ${label} command: nobody confirmed it. Ask the user before you try it again.`,
+    };
+  }
+  if (answer === RUN) return null;
+  log($, `lane-guard stopped [${hit.forbidden.rule}]${where}, the user declined: ${shown(hit.rawCommand, 120)}`);
+  if (answer === STOP) {
+    return { deny: `The user declined to run this ${label} command. Do not retry it; ask the user how to go on.` };
+  }
+  return {
+    deny: `The user did not confirm this ${label} command and answered: "${shown(answer, 500)}". Do not run the command as written; follow the answer.`,
+  };
+}
+
+async function decide($: CoreEngineInterface, e: ToolCallInput): Promise<{ deny: string } | Hit | null> {
+  const type = e.agentId ? await agentType($, e.agentId) : undefined;
+
+  // The main session and subagents that are not fleet lanes: the opt-in guard.
+  if (!e.agentId || (type && !type.startsWith('fleet-'))) {
+    const hit = check(e, 'main');
+    return hit && (await mainGuardOn($)) ? hit : null;
   }
 
-  if (!forbidden) {
+  const hit = check(e, 'lane');
+  if (!hit) {
     return null;
   }
+  const { forbidden, rawCommand } = hit;
 
   const effectiveType = type || 'unknown subagent';
-  const sanitized = redactSecrets(rawCommand)
-    .slice(0, 120)
-    .replace(/[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Cc}]/gu, '');
+  const sanitized = shown(rawCommand, 120);
 
-  $.ui.log(`lane-guard blocked [${forbidden.rule}] in ${effectiveType}: ${sanitized}`);
+  log($, `lane-guard blocked [${forbidden.rule}] in ${effectiveType}: ${sanitized}`);
   const closing =
     forbidden.hint ??
     'Fleet lanes may not commit, push, merge, deploy, publish, run migrations or destructive SQL, or revert the working tree. Report the command to the main agent instead; it decides whether to run it.';
@@ -173,11 +233,22 @@ export const register: Register = (on: On) => {
   on('tool.call', async ($, e, next) => {
     // Decide inside try, but call next() exactly once outside it: retrying
     // next() from a catch would run the tool a second time if it threw.
-    let denied: { deny: string } | null = null;
+    let decision: { deny: string } | Hit | null = null;
     try {
-      denied = await decide($, e);
+      decision = await decide($, e);
     } catch {
-      denied = null;
+      decision = null;
+    }
+    let denied: { deny: string } | null = null;
+    if (decision && 'forbidden' in decision) {
+      // Once a command needs the user's yes, any failure stops it.
+      try {
+        denied = await confirm($, decision, e.agentId ? await agentType($, e.agentId) : undefined);
+      } catch {
+        denied = { deny: `AgentFleet's guard stopped this ${decision.forbidden.label} command: nobody confirmed it. Ask the user before you try it again.` };
+      }
+    } else {
+      denied = decision;
     }
     const result = denied ?? (await next(e));
     return withBudgetNote($, e, result);

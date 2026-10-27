@@ -913,6 +913,8 @@ def _effective_preferences(paths: Paths) -> tuple[dict, set[str]]:
         explicit.add("branchCheck")
     if isinstance(raw.get("providerUsage"), bool):
         explicit.add("providerUsage")
+    if isinstance(raw.get("mainSessionGuard"), bool):
+        explicit.add("mainSessionGuard")
     if provider_catalog.valid_prices(raw.get("prices")):
         explicit.add("prices")
     return preferences, explicit
@@ -1031,6 +1033,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
         ask_first = "on" if preferences["askFirst"] else "off"
         branch_check = "on" if preferences["branchCheck"] else "off"
         provider_usage_state = "on" if preferences["providerUsage"] else "off"
+        main_session_guard = "on" if preferences["mainSessionGuard"] else "off"
         for key, display in (
             ("compactPercent", f"compact: {compact_text}"),
             ("reviewerAccess", f"reviewer-access: {reviewer}"),
@@ -1043,6 +1046,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             ("prices", f"prices: {len(preferences['prices'])} model{'s' if len(preferences['prices']) != 1 else ''}"
              if preferences["prices"] else "prices: none"),
             ("providerUsage", f"provider-usage: {provider_usage_state}"),
+            ("mainSessionGuard", f"main-session-guard: {main_session_guard}"),
         ):
             suffix = " (default)" if key not in explicit and key != "prices" else ""
             if key == "agentBrain" and agent_brain.find_binary(paths.home) is None:
@@ -1192,6 +1196,24 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
                 print(f"agentfleet: could not remove the saved gateway usage: {exc}", file=sys.stderr)
                 return 1
             print("AgentFleet will no longer ask your gateway for usage; the saved figures were removed.")
+        return 0
+
+    if setting == "main-session-guard":
+        if value not in {"on", "off"}:
+            print("agentfleet: main-session-guard must be on or off", file=sys.stderr)
+            return 2
+        try:
+            provider_catalog.write_preferences(paths.home, {"mainSessionGuard": value == "on"})
+        except (OSError, ValueError) as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 1
+        if value == "on":
+            print("lane-guard will ask you before the main session, or a subagent that is not a fleet lane, "
+                  "runs a command that discards work or data, or publishes: a force push, git reset --hard, "
+                  "a deploy, a migration, destructive SQL or a dangerous rm. It needs the lane-guard mod, "
+                  "which is on by default, and applies from the next command.")
+        else:
+            print("lane-guard will no longer ask about the main session's commands; fleet lanes keep their own rules.")
         return 0
 
     if setting == "context-mode":
@@ -2129,7 +2151,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "prices", "provider-usage"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "prices", "provider-usage", "main-session-guard"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")

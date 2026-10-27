@@ -220,9 +220,13 @@ WORK_STYLES = ("direct", "balanced", "fleet")
 # branchCheck keeps the "Check the branch before changing files" section.
 # providerUsage asks a gateway that reports usage (provider_usage.py) for its
 # spend and limits; it has no effect on any other provider.
+# mainSessionGuard makes lane-guard ask before the main session (or a subagent
+# that is not a fleet lane) runs a command that discards work or data, or
+# publishes; the lanes' own rules do not depend on it.
 PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": True,
                        "workStyle": "balanced", "agentBrain": None, "agentBrainLocalMemory": False,
-                       "askFirst": True, "branchCheck": True, "prices": {}, "providerUsage": True}
+                       "askFirst": True, "branchCheck": True, "prices": {}, "providerUsage": True,
+                       "mainSessionGuard": False}
 POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
@@ -454,6 +458,8 @@ def load_preferences(home: Path) -> dict:
         preferences["branchCheck"] = raw["branchCheck"]
     if isinstance(raw.get("providerUsage"), bool):
         preferences["providerUsage"] = raw["providerUsage"]
+    if isinstance(raw.get("mainSessionGuard"), bool):
+        preferences["mainSessionGuard"] = raw["mainSessionGuard"]
     preferences["prices"] = normalise_prices(raw.get("prices"))
     return preferences
 
@@ -480,6 +486,8 @@ def write_preferences(home: Path, changes: dict) -> dict:
             raise ValueError("branchCheck must be true or false")
         if key == "providerUsage" and not isinstance(value, bool):
             raise ValueError("providerUsage must be true or false")
+        if key == "mainSessionGuard" and not isinstance(value, bool):
+            raise ValueError("mainSessionGuard must be true or false")
         if key == "prices" and not valid_prices(value):
             raise ValueError("prices must be a table of up to 100 valid model prices")
         if key not in PREFERENCE_DEFAULTS:
