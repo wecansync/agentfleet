@@ -139,6 +139,15 @@ class CheckerTests(unittest.TestCase):
         self.assertNotEqual(self.verdict("explain-parse-line", {"csv_lite.py": "def parse_line(line):\n    return []\n"}), 0)
         self.assertNotEqual(self.verdict("explain-parse-line", {"notes.txt": "added\n"}), 0)
 
+    def test_read_only_task_fails_on_a_committed_new_file(self):
+        target = Path(tempfile.mkdtemp(prefix="clone-", dir=self.raw.name)) / "repo"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", self.tasks["explain-parse-line"]["repo"], str(target)], check=True)
+        (target / "notes.txt").write_text("added\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(target), "add", "notes.txt"], check=True)
+        subprocess.run(["git", "-C", str(target), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-q", "-m", "notes"], check=True)
+        self.assertNotEqual(check(target, self.tasks["explain-parse-line"]["check"]), 0)
+
     def test_fixture_git_ignores_the_users_git_config(self):
         config = Path(self.raw.name) / "gitconfig"
         config.write_text("[commit]\n\tgpgsign = true\n", encoding="utf-8")

@@ -178,11 +178,18 @@ read-only task's files, and then runs `python3 -m unittest`. Answer quality is
 not scored.
 
 Pilot evidence (2026-10-30, `fix-off-by-one`, `feat/team-workflow-approval`
-against `814185e`, 120 s timeout): all six sessions ended with no edits and a
-failed check, and two timed out. The write prompts did not say to work on the
-current branch, so the branch check most likely stopped the headless runs. That
-pilot ran before the current-branch sentence was added, so it does not test the
-current prompts. No savings are claimed, and no further paid runs were made.
+against `814185e`):
+
+- First pilot, 120 s timeout, before the current-branch sentence: all six sessions ended with
+  no edits and a failed check, and two timed out. The write prompt did not allow
+  work on the current branch, so the branch check most likely stopped the
+  headless runs. This is a likely cause, not a proven one.
+- Corrected pilot, 300 s timeout, with the sentence added: three runs per ref. Every check
+  passed on both refs, with no errors and no lanes. Each run changed one file,
+  two lines on both refs. The token, time and cost ranges overlap, so the result
+  is inconclusive. It claims no token, time or cost benefit.
+
+Both versions passed this one direct-task check; this does not establish general quality preservation or efficiency gains. It is a single-lane task, and says nothing about multi-lane plan approval, which headless runs cannot exercise. No further paid runs were made.
 The agent's final reply is kept in `runs.jsonl` as `finalText`, bounded to
 1000 characters; it may contain private text, so do not publish it.
 

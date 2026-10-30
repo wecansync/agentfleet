@@ -64,6 +64,10 @@ class WorkStyleTests(unittest.TestCase):
         return subprocess.run([sys.executable, "-B", str(AGENTFLEET), "--home", str(self.home), *args],
                               text=True, capture_output=True, env=env or self.env, cwd=ROOT, timeout=20)
 
+    def test_policy_states_that_naming_a_lane_is_not_approval(self):
+        policy = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        self.assertIn("Naming a lane in a request is not approval.", policy)
+
     def test_balanced_never_routes_whatever_the_wording(self):
         # The wording says nothing reliable about the size of the job, so
         # balanced mode leaves the decision to Claude after it reads the code.

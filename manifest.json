@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "f5f89a3051b6b574826a80b32ad387f724009fec503e8007d9efc7ce8bf6c72e",
+      "sha256": "bd2c2c5df888995e255d982c6a2d052c8cd648bf64e5f8b2209af76bbc84419c",
       "mode": "0o644"
     },
     {
@@ -24,7 +24,7 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "37eb48fdabbc715ef1ba69f3ffb3041c5d90a71f1244d3d25516b72dca21a00a",
+      "sha256": "fb87191dabc81b1894be09f908aa286cb6e90d91e3bfe2c620c75f8003ff24e6",
       "mode": "0o644"
     },
     {
@@ -684,7 +684,7 @@
     },
     {
       "path": "tests/test_measure_fixtures.py",
-      "sha256": "2b229df1f829d6f3fb0ef32601a388d1d7a862819d1f0deafda412cc4d6d3b27",
+      "sha256": "f90d251759ffc7ebcba15763307822b373f871227ac8c984eab4b31689ddcd0b",
       "mode": "0o644"
     },
     {
@@ -764,7 +764,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "3234b57304f2f3ada97165938ec3b7854d0d68ddb1e73cba6c30a78c48dc1886",
+      "sha256": "dbb78d231458d08d4deab368b0280241bff76e080f9a5d24e4e687cb815765d5",
       "mode": "0o644"
     },
     {

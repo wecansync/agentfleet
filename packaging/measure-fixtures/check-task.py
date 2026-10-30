@@ -64,10 +64,10 @@ def _judge(base: Path, name: str, clone: Path, env: dict[str, str]) -> int:
         here = clone / rel
         if not here.is_file() or here.read_bytes() != seed[rel]:
             return fail(f"{rel} must match the seed; it was changed, removed or moved")
-    # Ignored files (like __pycache__) are not the agent's work; untracked ones are.
-    status = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], cwd=clone,
+    # Every file the agent left, committed or not; ignored files (like __pycache__) are not its work.
+    listed = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=clone,
                             capture_output=True, text=True, env=env)
-    added = [line for line in status.stdout.splitlines() if line]
+    added = sorted(set(line for line in listed.stdout.splitlines() if line) - set(seed))
     edited = [rel for rel in seed if rel not in protected and (clone / rel).is_file()
               and (clone / rel).read_bytes() != seed[rel]]
     if name in READ_ONLY:
