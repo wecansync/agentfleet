@@ -34,4 +34,5 @@ Changes to the installer (`bin/install.py`), the update path (`bin/agentfleet` u
 
 - Branch from `main` and open a PR for each change. Never push to `main` directly.
 - Use Conventional Commits (`feat(install): …`, `fix(suggest): …`).
+- Work that needs several lanes gets a concise plan the user approves before the first lane runs, as the "Several lanes" rule in `config/agentfleet.md` requires. That approval never covers pushing, merging, migrations or deploys.
 - Building and deploying releases (`packaging/build-release.py`, `packaging/deploy.sh`) is for maintainers, and only when asked.

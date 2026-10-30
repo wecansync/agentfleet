@@ -63,7 +63,7 @@ only reports whether the pane opened). Tests are not installed, and generated
 Install from the terminal:
 
 ```text
-/plugin install fleet-status --marketplace wecansync/claude-agents-config
+/plugin install fleet-status --marketplace wecansync/agentfleet
 ```
 
 Disable it with `claude plugin disable fleet-status@agentfleet`.

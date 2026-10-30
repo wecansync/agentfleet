@@ -23,6 +23,9 @@ Do small, clear tasks straight away. For larger, unclear or risky ones, investig
 <!-- work-style:fleet -->
   - *A plan to approve*, then lanes for the independent parts, then your own review of what they changed.
 <!-- /work-style -->
+<!-- work-style:balanced,fleet -->
+- **Several lanes:** when a task needs more than one lane, whether they run one after another or in parallel, and whether they write or only read, first give the user a concise plan: the parts, the lane for each, the files each one changes or reads, and the check that proves it. Do a bounded look at the code yourself first, so the plan is specific. Wait for the user's approval before the first lane runs. One lane, or none, needs no team plan; the approach agreement above still applies to large, unclear or risky work. An explicit approval by the user of a fully specified plan covers its continuations, a same-lane fallback and work after compaction; ask again only when the work adds scope or roles. Naming a lane in a request is not approval. Approval never covers pushing, merging, migrations or deploys.
+<!-- /work-style -->
 - **Several tasks:** ask whether to give each its own git worktree (parallel; best when they change different areas) or do them in turn in the current checkout (best when they share files).
 - **New project:** ask whether there is a base project or boilerplate to start from, then propose the structure, design pattern and, for a backend, the database schema before writing code.
 - **Stuck:** after two failed attempts at the same fix, stop and report what you tried.
@@ -86,3 +89,7 @@ Delegate substantive work to the matching lane: plan when the approach is open, 
 
 - Confirm before destructive or outward-facing actions: deleting files, force pushing, publishing, deploying.
 - Keep API keys and tokens out of output, logs, and commits. When a step needs an interactive login, ask the user to run it as `! <command>`.
+
+## Handoff
+
+After a substantial task (code, files or a branch changed, or a long investigation), when it finishes, is blocked or is only partly done, or when the user asks for a status, end with one short handoff: the branch or worktree; the HEAD commit and any uncommitted changes, said plainly as tested or untested; the checks you ran and the ones you did not; the blockers and the next step; and any existing pull request or UAT link. Keep it to the task, not to each lane, and store nothing new for it. Answers to questions and short conversational replies get no handoff.

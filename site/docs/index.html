@@ -32,7 +32,7 @@
       <a href="/#how-it-works">How it works</a>
       <a href="/#lanes">Lanes</a>
       <a href="/docs/">Docs</a>
-      <a href="https://github.com/wecansync/claude-agents-config">GitHub</a>
+      <a href="https://github.com/wecansync/agentfleet">GitHub</a>
     </nav>
     <div class="header-actions">
       <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark mode">
@@ -409,8 +409,10 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
           <li>for several tasks, asks whether to give each its own git worktree or do them in turn in the current checkout;</li>
           <li>for a new project, asks about a base project or boilerplate and proposes the structure, design pattern and, for a backend, the database schema first;</li>
           <li>stops and reports after two failed attempts at the same fix.</li>
+          <li>in the balanced and fleet styles, when a task needs several lanes, gives a concise plan first and waits for your approval before the first lane runs. One lane, or none, needs no team plan; the approach agreement above still applies to large, unclear or risky work. Approval of a fully specified plan covers its continuations and fallbacks; new scope or roles need a new approval. It never covers pushing, merging, migrations or deploys.</li>
         </ul>
         <p>It follows a "Workflow" section in the project's CLAUDE.md instead of asking, and offers to record the workflow you pick there.</p>
+        <p>After a substantial task (code, files or a branch changed, or a long investigation), when it finishes, is blocked or is partly done, or when you ask for a status, Claude ends with one short handoff: branch or worktree, uncommitted state, checks run and not run, blockers, and any pull request or UAT link.</p>
         <div class="code-wrap">
           <pre><code>agentfleet config ask-first off</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy ask-first command">Copy</button>
@@ -1374,7 +1376,7 @@ sh packaging/deploy.sh             # upload site/, then archives, then latest.js
         </div>
         <aside class="callout note"><span class="callout-label">Note</span><p><code class="il">site/</code>, <code class="il">packaging/</code>, <code class="il">dist/</code>, and <code class="il">.github/</code> are never part of an installed bundle. If <code class="il">agent-brain</code> is installed (on PATH or in its standard folder) and not switched off, lanes receive its memory search tool. Otherwise it is omitted with no functional change.</p></aside>
         <h3 id="dev-contributing" class="anchor-heading">Contributing and roadmap<a class="anchor-link" href="#dev-contributing" aria-label="Link to this section">#</a></h3>
-        <p>Read <a href="https://github.com/wecansync/claude-agents-config/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> before opening a pull request: it covers setup, the project rules, tests, versioning, and how to report security issues privately.</p>
+        <p>Read <a href="https://github.com/wecansync/agentfleet/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> before opening a pull request: it covers setup, the project rules, tests, versioning, and how to report security issues privately.</p>
         <p>The next phase is support for other agent CLIs besides Claude Code: OpenAI Codex CLI, OpenCode, Kilo Code, and Cline. No design is decided yet; open an issue to discuss it before sending code.</p>
       </section>
 
@@ -1418,8 +1420,8 @@ sh packaging/deploy.sh             # upload site/, then archives, then latest.js
         </a>
       </div>
       <div class="footer-links">
-        <a href="https://github.com/wecansync/claude-agents-config">GitHub</a>
-        <a href="https://github.com/wecansync/claude-agents-config/blob/main/LICENSE">MIT License</a>
+        <a href="https://github.com/wecansync/agentfleet">GitHub</a>
+        <a href="https://github.com/wecansync/agentfleet/blob/main/LICENSE">MIT License</a>
         <a href="/docs/">Docs</a>
       </div>
     </div>

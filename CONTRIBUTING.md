@@ -3,7 +3,7 @@
 AgentFleet is maintained by WeCanSync and is MIT licensed. Contributions are
 welcome. Read this guide before opening a PR.
 
-- Public repo: https://github.com/wecansync/claude-agents-config
+- Public repo: https://github.com/wecansync/agentfleet
 - Site and docs: https://agentfleet.wecansync.com / https://agentfleet.wecansync.com/docs/
 
 ---
@@ -22,12 +22,20 @@ Do not add third-party runtime dependencies.
 ## Set up for development
 
 ```bash
-git clone https://github.com/wecansync/claude-agents-config.git
-cd claude-agents-config
+git clone https://github.com/wecansync/agentfleet.git
+cd agentfleet
 ```
 
 No build step is needed. The installer discovers its bundle from its own
 location, so you can run scripts directly from the clone.
+
+The public repository is moving from `wecansync/claude-agents-config` to
+`wecansync/agentfleet`. After the move, GitHub redirects the old web and git
+URLs, so existing clones keep working; `git remote set-url origin <new URL>`
+points a clone at the new name. GitHub does not redirect reusable Actions
+references, so none in this repository use the old name. Do not create a new
+repository under the old name: it would take those URLs back from the
+redirect.
 
 ---
 
@@ -123,6 +131,67 @@ It spends real tokens: a one-task, one-run comparison cost about $1.20 and
 cost about $13 and an hour. The agent runs with permission checks bypassed inside the clones,
 so measure only tasks you would run yourself. It needs a gateway or
 `ANTHROPIC_API_KEY`, since a throwaway home has no subscription login.
+
+### Benchmark fixtures
+
+`packaging/measure-fixtures/make-fixtures.py` builds four synthetic repositories
+and a `tasks.json` for them: three that change code (`fix-off-by-one`,
+`add-verbose-flag`, `rename-config-key`) and one read-only question
+(`explain-parse-line`). Every repository and commit is invented, with the
+reserved `example.invalid` identity; never add client code or data. Its tests
+(`tests/test_measure_fixtures.py`) check that each write task fails on its seed
+and passes with the reference fix, and that the read-only check passes on the
+seed. They do not measure anything.
+
+- **Baseline and candidate are commits.** `measure.py` installs each ref with
+  `git archive`, so it cannot see uncommitted worktree changes. To measure a
+  worktree, commit it first (or to a throwaway branch) and pass that commit as
+  `--candidate`. The baseline here is `814185e`, the 2.15.0 release commit.
+- **Paired repeats.** Runs alternate base and candidate for each task. Each side
+  needs at least three runs, and a difference counts only when the two sets of
+  runs do not overlap.
+- **Outcome per task:** `candidate lower`, `candidate higher`, or
+  `inconclusive`, and any task with an error or failed lane is confounded. With
+  three runs on small synthetic tasks, `inconclusive` is an expected and
+  acceptable result. Do not report a saving from an inconclusive or confounded
+  task, and four synthetic tasks show nothing about the work in general.
+- **The read-only task** only shows that nothing broke, so its "passed" says
+  little about the change.
+
+```bash
+python3 packaging/measure-fixtures/make-fixtures.py /tmp/af-bench
+python3 packaging/measure.py --base 814185e --candidate <commit> \
+  --tasks /tmp/af-bench/tasks.json --runs 3 --model <main-model> --out /tmp/af-bench/out
+```
+
+A pilot runs one task with `--only fix-off-by-one` (six sessions). It is a
+direct, single-lane regression check only: headless `claude -p` cannot exercise
+the multi-lane plan approval, so a pilot says nothing about that rule. The full
+set is four tasks, two refs, and three runs, which is 24 `claude -p` sessions,
+each up to 15 minutes by default. Token cost is not estimated here: the figures
+above come from earlier, different tasks and are only a rough guide.
+
+`packaging/measure-fixtures/check-task.py` judges each task in a clean git
+environment with no user, system or signing config. It fails a run that edits
+the task's test files, leaves the README with the old key, or changes a
+read-only task's files, and then runs `python3 -m unittest`. Answer quality is
+not scored.
+
+Pilot evidence (2026-10-30, `fix-off-by-one`, `feat/team-workflow-approval`
+against `814185e`):
+
+- First pilot, 120 s timeout, before the current-branch sentence: all six sessions ended with
+  no edits and a failed check, and two timed out. The write prompt did not allow
+  work on the current branch, so the branch check most likely stopped the
+  headless runs. This is a likely cause, not a proven one.
+- Corrected pilot, 300 s timeout, with the sentence added: three runs per ref. Every check
+  passed on both refs, with no errors and no lanes. Each run changed one file,
+  two lines on both refs. The token, time and cost ranges overlap, so the result
+  is inconclusive. It claims no token, time or cost benefit.
+
+Both versions passed this one direct-task check; this does not establish general quality preservation or efficiency gains. It is a single-lane task, and says nothing about multi-lane plan approval, which headless runs cannot exercise. No further paid runs were made.
+The agent's final reply is kept in `runs.jsonl` as `finalText`, bounded to
+1000 characters; it may contain private text, so do not publish it.
 
 ---
 

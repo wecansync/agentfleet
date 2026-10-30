@@ -76,6 +76,8 @@ def parse_run(stdout: str) -> dict:
         "lanesStarted": int(lanes.get("spawned") or 0),
         "lanesFailed": int(lanes.get("failed") or 0),
         "models": sorted(models),
+        # Bounded copy of the final reply, so a run that edits nothing can be diagnosed.
+        "finalText": str(data.get("result") or "")[:1000],
     }
 
 

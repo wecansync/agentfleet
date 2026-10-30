@@ -43,6 +43,11 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual((parsed["lanesStarted"], parsed["lanesFailed"]), (2, 1))
         self.assertEqual(parsed["models"], ["lane-model", "main-model"])
 
+    def test_parse_run_keeps_a_bounded_final_text(self):
+        parsed = measure.parse_run(json.dumps({**CLAUDE_JSON, "result": "done " * 500}))
+        self.assertTrue(parsed["finalText"].startswith("done "))
+        self.assertEqual(len(parsed["finalText"]), 1000)
+
     def test_verdict_needs_three_runs_and_no_overlap(self):
         self.assertEqual(measure.verdict([10, 11], [5, 6]), "inconclusive: fewer than 3 runs each")
         self.assertEqual(measure.verdict([10, 11, 12], [5, 6, 7]), "candidate lower")
