@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.15.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.16.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -333,7 +333,17 @@ unclear or risky ones it:
   in turn in the current checkout;
 - for a new project, asks about a base project or boilerplate and proposes the
   structure, design pattern and, for a backend, the database schema first;
-- stops and reports after two failed attempts at the same fix.
+- stops and reports after two failed attempts at the same fix;
+- in the balanced and fleet styles, when a task needs several lanes, gives a
+  concise plan first and waits for your approval before the first lane runs. A
+  single lane or no lane needs no team plan, and the approach agreement above still applies to large, unclear or risky work. Approval of a fully specified plan covers its
+  continuations and fallbacks; new scope or roles need a new approval. It never
+  covers pushing, merging, migrations or deploys.
+
+After a substantial task (code, files or a branch changed, or a long investigation), when it
+finishes, is blocked or is partly done, or when you ask for a status, Claude ends with one short
+handoff: branch or worktree, uncommitted state, checks run and not run,
+blockers, and any pull request or UAT link.
 
 It follows a "Workflow" section in the project's CLAUDE.md instead of asking,
 and offers to record the workflow you pick there. Turn the section off with
@@ -817,8 +827,8 @@ install command (or an update) keeps the gateway you switched to.
   contain a gateway token.
 - `~/.claude/agentfleet/config.json` — user preferences (`workStyle`,
   `askFirst`, `branchCheck`, `compactPercent`, `reviewerAccess`, `learn`, `agentBrain`).
-- `~/.claude/rules/agentfleet.md` — the policy for your work style (600 to 800
-  words, plus about 300 for the ask-first section and 200 for the branch check). Claude Code loads it automatically. AgentFleet manages
+- `~/.claude/rules/agentfleet.md` — the policy for your work style (about 1,200 to
+  1,600 words with the ask-first and branch-check sections on, fewer when they are off). Claude Code loads it automatically. AgentFleet manages
   this file and rewrites it on update. It does not touch your own
   `~/.claude/CLAUDE.md`, so a first install over a personal `CLAUDE.md` works.
   Keep your own instructions in `CLAUDE.md` or in other files under

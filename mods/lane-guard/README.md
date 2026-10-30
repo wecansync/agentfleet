@@ -130,7 +130,7 @@ The rules are tested against a shared case table (`tests/cases.json`) that Agent
 Install from Claude Code:
 
 ```text
-/plugin install lane-guard --marketplace wecansync/claude-agents-config
+/plugin install lane-guard --marketplace wecansync/agentfleet
 ```
 
 Or via the command line:

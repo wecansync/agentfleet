@@ -214,6 +214,40 @@ class WorkStyleTests(unittest.TestCase):
                          provider_catalog.render_policy(template, "balanced", True, False))
         self.assertEqual(len(provider_catalog.policy_renderings(template)), 12)
 
+    def test_multi_lane_plan_gate_only_for_balanced_and_fleet(self):
+        # Several lanes need an approved plan first; direct and single-lane work do not.
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        gate = "**Several lanes:**"
+        for style in ("balanced", "fleet"):
+            with self.subTest(style=style):
+                on = provider_catalog.render_policy(template, style, True)
+                off = provider_catalog.render_policy(template, style, False)
+                self.assertIn(gate, on)
+                self.assertIn("Wait for the user's approval before the first lane runs.", on)
+                self.assertIn("One lane, or none, needs no team plan", on)
+                self.assertIn("the approach agreement above still applies to large, unclear or risky work", on)
+                self.assertIn("covers its continuations", on)
+                self.assertIn("ask again only when the work adds scope or roles", on)
+                self.assertIn("never covers pushing, merging, migrations or deploys", on)
+                # Turning ask-first off removes the gate with the rest of its section.
+                self.assertNotIn(gate, off)
+        direct = provider_catalog.render_policy(template, "direct", True)
+        self.assertNotIn(gate, direct)
+        self.assertNotIn("Wait for the user's approval", direct)
+
+    def test_handoff_section_in_every_rendering(self):
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        for style in provider_catalog.WORK_STYLES:
+            for ask_first in (True, False):
+                with self.subTest(style=style, ask_first=ask_first):
+                    rendered = provider_catalog.render_policy(template, style, ask_first, True)
+                    self.assertIn("## Handoff", rendered)
+                    self.assertIn("After a substantial task", rendered)
+                    self.assertIn("get no handoff", rendered)
+                    self.assertIn("the branch or worktree", rendered)
+                    self.assertIn("the checks you ran and the ones you did not", rendered)
+                    self.assertIn("any existing pull request or UAT link", rendered)
+
     def test_config_branch_check_rerenders_policy_and_keeps_other_choices(self):
         store = self.claude / "agentfleet"
         store.mkdir(parents=True)

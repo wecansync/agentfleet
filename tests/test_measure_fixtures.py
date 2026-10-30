@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""The synthetic benchmark fixtures for packaging/measure.py: 3 to 5 tasks,
+valid for measure's own loader, each a clean git repository; the check fails
+on the seed for a task that changes code and passes with the reference fix;
+and the read-only task's check passes on the seed."""
+from __future__ import annotations
+
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+
+
+def load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+measure = load("measure", ROOT / "packaging" / "measure.py")
+fixtures = load("make_fixtures", ROOT / "packaging" / "measure-fixtures" / "make-fixtures.py")
+
+
+def check(repo: Path, command: str) -> int:
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(repo.parent), "LANG": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1"}
+    return subprocess.run(command, shell=True, cwd=repo, env=env, capture_output=True, text=True).returncode
+
+
+class MeasureFixtureTests(unittest.TestCase):
+    def setUp(self):
+        self.raw = tempfile.TemporaryDirectory(prefix="af-fixtures-")
+        self.addCleanup(self.raw.cleanup)
+        self.out = Path(self.raw.name) / "bench"
+        self.tasks_file = fixtures.build(self.out)
+
+    def test_three_to_five_tasks_load_with_measures_own_loader(self):
+        tasks = measure.load_tasks(self.tasks_file)
+        self.assertGreaterEqual(len(tasks), 3)
+        self.assertLessEqual(len(tasks), 5)
+        self.assertEqual(len({task["name"] for task in tasks}), len(tasks))
+        for task in tasks:
+            with self.subTest(task=task["name"]):
+                self.assertTrue(Path(task["repo"]).is_dir())
+                self.assertTrue(task["check"])
+
+    def test_each_repo_is_a_clean_single_commit_repo_without_remote(self):
+        for task in measure.load_tasks(self.tasks_file):
+            repo = Path(task["repo"])
+            with self.subTest(task=task["name"]):
+                status = subprocess.run(["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True)
+                commits = subprocess.run(["git", "-C", str(repo), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
+                remotes = subprocess.run(["git", "-C", str(repo), "remote"], capture_output=True, text=True)
+                self.assertEqual(status.stdout, "")
+                self.assertEqual(commits.stdout.strip(), "1")
+                self.assertEqual(remotes.stdout.strip(), "")
+
+    def test_write_tasks_fail_on_seed_and_pass_with_reference_fix(self):
+        for task in fixtures.TASKS:
+            if "fix" not in task:
+                continue
+            with self.subTest(task=task["name"]):
+                repo = self.out / task["name"]
+                self.assertNotEqual(check(repo, task["check"]), 0, "seed must fail so the task is real")
+                fixed = Path(self.raw.name) / f"fixed-{task['name']}"
+                shutil.copytree(repo, fixed)
+                for relative, text in task["fix"].items():
+                    (fixed / relative).write_text(text, encoding="utf-8")
+                self.assertEqual(check(fixed, task["check"]), 0)
+
+    def test_read_only_task_check_passes_on_seed(self):
+        readonly = [task for task in fixtures.TASKS if "fix" not in task]
+        self.assertEqual(len(readonly), 1)
+        self.assertEqual(check(self.out / readonly[0]["name"], readonly[0]["check"]), 0)
+
+    def test_only_builds_one_task_for_a_pilot(self):
+        pilot = fixtures.build(Path(self.raw.name) / "pilot", only="fix-off-by-one")
+        tasks = measure.load_tasks(pilot)
+        self.assertEqual([task["name"] for task in tasks], ["fix-off-by-one"])
+
+    def test_refuses_a_folder_that_is_not_empty(self):
+        with self.assertRaises(SystemExit):
+            fixtures.build(self.out)
+
+    def test_synthetic_only_fixture_identity(self):
+        # Every commit uses the reserved example.invalid domain; no URLs or remotes are added.
+        for task in measure.load_tasks(self.tasks_file):
+            log = subprocess.run(["git", "-C", task["repo"], "log", "--format=%ae %ce"], capture_output=True, text=True).stdout
+            self.assertEqual(log.strip(), "fixtures@example.invalid fixtures@example.invalid")
+
+
+if __name__ == "__main__":
+    unittest.main()

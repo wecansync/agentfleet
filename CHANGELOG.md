@@ -3,6 +3,22 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.16.0] - 2026-10-30
+
+### Added
+
+- Plan approval before several lanes, in the balanced and fleet work styles: a task that needs more than one lane, run one after another or in parallel, and writing or only reading, gets a concise plan first (the parts, the lane for each, the files, and the check), and the first lane waits for the user's approval. Claude does a bounded look at the code before the plan. One lane or none needs no team plan, and the approach agreement that ask-first already asks for on large, unclear or risky work still applies. Direct work is unchanged. An explicit approval of a fully specified plan covers its continuations, a same-lane fallback and work after compaction; new scope or roles need a new approval. Approval never covers pushing, merging, migrations or deploys. The rule is policy text that Claude follows; no hook enforces it. It is part of the existing `ask-first` section, so there is no new setting: `agentfleet config ask-first off` turns it off too.
+- For maintainers: `packaging/measure-fixtures/make-fixtures.py` builds four synthetic benchmark repositories for `packaging/measure.py`, with a `tasks.json`. The fixtures measure nothing by themselves; see CONTRIBUTING.md.
+- Handoff: after a substantial task (code, files or a branch changed, or a long investigation), when it finishes, is blocked or is partly done, or when the user asks for a status, Claude ends with one short handoff; answers to questions and short replies get none: the branch or worktree, HEAD and uncommitted state (said as tested or untested), the checks run and not run, blockers and next step, and any existing pull request or UAT link. Nothing new is stored.
+
+### Changed
+
+- The public repository is moving from `wecansync/claude-agents-config` to `wecansync/agentfleet`. Clone instructions, mod marketplace install lines and the site's GitHub links use the new name. GitHub redirects the old web and git URLs; the old name must not be reused for a new repository, and reusable Actions references are not redirected (none exist here). Installed-state file names, the backup folder and the cache names are unchanged, so no upgrade or migration runs.
+
+### Fixed
+
+- The README gave the policy size without the ask-first and branch-check sections in mind; it is about 1,200 to 1,600 words with both on.
+
 ## [2.15.0] - 2026-10-27
 
 ### Added

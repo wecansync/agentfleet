@@ -227,7 +227,7 @@ PREFERENCE_DEFAULTS = {"compactPercent": 70, "reviewerAccess": "full", "learn": 
                        "workStyle": "balanced", "agentBrain": None, "agentBrainLocalMemory": False,
                        "askFirst": True, "branchCheck": True, "prices": {}, "providerUsage": True,
                        "mainSessionGuard": False}
-POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
+POLICY_BLOCK = re.compile(r"<!-- work-style:([a-z,]+) -->\n(.*?)<!-- /work-style -->\n?", re.DOTALL)
 ASK_FIRST_BLOCK = re.compile(r"<!-- ask-first -->\n(.*?)<!-- /ask-first -->\n?", re.DOTALL)
 BRANCH_CHECK_BLOCK = re.compile(r"<!-- branch-check -->\n(.*?)<!-- /branch-check -->\n?", re.DOTALL)
 
@@ -239,7 +239,7 @@ def render_policy(template: str, style: str, ask_first: bool = True, branch_chec
     style = style if style in WORK_STYLES else PREFERENCE_DEFAULTS["workStyle"]
     template = ASK_FIRST_BLOCK.sub(lambda match: match.group(1) if ask_first else "", template)
     template = BRANCH_CHECK_BLOCK.sub(lambda match: match.group(1) if branch_check else "", template)
-    return POLICY_BLOCK.sub(lambda match: match.group(2) if match.group(1) == style else "", template)
+    return POLICY_BLOCK.sub(lambda match: match.group(2) if style in match.group(1).split(",") else "", template)
 
 
 def policy_renderings(template: str) -> set[str]:

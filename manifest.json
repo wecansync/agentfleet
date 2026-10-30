@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.15.0",
+  "version": "2.16.0",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,17 +14,17 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "e2d25fa85e2a63ac65312f26536e84e92e9e64d321c403f22783047b2624cd12",
+      "sha256": "5dc05468a910398a96af2bee1d2a6239352a4e15da490ea769a22139cddd9633",
       "mode": "0o644"
     },
     {
       "path": "CLAUDE.md",
-      "sha256": "060baa387362b2bd70c4e493d649234c33a1678877ef45e0d3d28c9cd75de637",
+      "sha256": "57fda054e20b8a09d4ab7c1fd3316c3f847f218caa54d70f7af86bb98a0a5d92",
       "mode": "0o644"
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "2cdb005c047b508d70ce978533bf35272d462a7d3b4132bb3669d7b5a0b95b20",
+      "sha256": "c9b67c7481c4d58ad2b8d13380132c6c1762b37f9095a5559a7b2e480efd0b92",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "9392f155ce1ea075eaf1a8a5da88b9dfa747870116960a7d933dd138fb9788e7",
+      "sha256": "3009b483bcca93f4b857b2dc72e37730c79250c48b328875c6802d3158d57547",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "c90c3058290761eb1f40ef36a2febaa5a8933a3f473d817f6803f6069def3050",
+      "sha256": "6a5953413ab0b83ab7c6c3f080df322580d42cc33524f5857533ca01f3da6312",
       "mode": "0o644"
     },
     {
@@ -164,7 +164,7 @@
     },
     {
       "path": "config/agentfleet.md",
-      "sha256": "e53e9522c2c266252395106261dc02d5ce956bb41edbf084e01b89bf22b47420",
+      "sha256": "421afa36cdc27877e9042998abaf2f37c1a33eda84a4de047375ea1d6ddf8af9",
       "mode": "0o644"
     },
     {
@@ -334,7 +334,7 @@
     },
     {
       "path": "mods/fleet-status/README.md",
-      "sha256": "c17b8418daae68e78ba224c780cac1c8ddfb724d18f20fe2c1c9979cc72759a6",
+      "sha256": "522e9e9fc4b4ed4456e2398e005a8db47bad058d971e1f173d247b76e6f307ac",
       "mode": "0o644"
     },
     {
@@ -379,7 +379,7 @@
     },
     {
       "path": "mods/lane-guard/README.md",
-      "sha256": "c19ec420175db37d3fa71bc9e31a3d6763773a30c796a9af3ab9f240e0464a73",
+      "sha256": "0f825eb16a2e7674721bac1590d3608a7945be72912250bf81e9296da9625f4c",
       "mode": "0o644"
     },
     {
@@ -559,7 +559,7 @@
     },
     {
       "path": "scripts/provider_catalog.py",
-      "sha256": "c734a0deb345eff7a775d826fc543919d10d25c3906968e449c7b06fe3039207",
+      "sha256": "ad0bda88b0c12b16526fab61bdcfdd80e438c67efa421c9064fe712ae0db5eb4",
       "mode": "0o755"
     },
     {
@@ -595,6 +595,11 @@
     {
       "path": "skills/fleet-suggest/SKILL.md",
       "sha256": "2779c9a70d5dbb4801f1d9c0bd90301ce20a645048904af9cf8a44871bd14572",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/fixtures/agentfleet-2.15.0-policy.md",
+      "sha256": "e53e9522c2c266252395106261dc02d5ce956bb41edbf084e01b89bf22b47420",
       "mode": "0o644"
     },
     {
@@ -678,8 +683,18 @@
       "mode": "0o644"
     },
     {
+      "path": "tests/test_measure_fixtures.py",
+      "sha256": "1fe17f48138ccb955175efab91b8344b8a7520b346a5e5b84a26a97720bdecf9",
+      "mode": "0o644"
+    },
+    {
       "path": "tests/test_mods.py",
       "sha256": "b202cce0c4ed276395555fe92acb0ff938579463a53214391268feaf33041717",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/test_policy_upgrade_216.py",
+      "sha256": "495d93628a7f8438afefb3e41f372d6a31eb60e910551575d51a14de7c9e795d",
       "mode": "0o644"
     },
     {
@@ -705,6 +720,11 @@
     {
       "path": "tests/test_provider_usage.py",
       "sha256": "c0ac814192b69ee64ecfd6e20391bc44a8e245397f57409c492f7313f2ec1c94",
+      "mode": "0o644"
+    },
+    {
+      "path": "tests/test_repo_rename.py",
+      "sha256": "e2a81359411fe6b942988ae6100eec6f1e59f2c2eb3f927c5838edd6f1c4935f",
       "mode": "0o644"
     },
     {
@@ -744,7 +764,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "1eacd2a7c172a5317a926514b9fee86de483296b0d87634a9688b42ae739d456",
+      "sha256": "3234b57304f2f3ada97165938ec3b7854d0d68ddb1e73cba6c30a78c48dc1886",
       "mode": "0o644"
     },
     {

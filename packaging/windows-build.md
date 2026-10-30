@@ -63,8 +63,8 @@ if the `py` launcher is missing, use `python`. If your shell tool is Git Bash
 ## 1. Clone and check the bundle
 
 ```powershell
-git clone -c core.autocrlf=false https://github.com/wecansync/claude-agents-config.git
-cd claude-agents-config
+git clone -c core.autocrlf=false https://github.com/wecansync/agentfleet.git
+cd agentfleet
 git switch docs/windows-build
 git switch -c fix/windows-runtime
 $env:PYTHONDONTWRITEBYTECODE = '1'
