@@ -164,10 +164,27 @@ python3 packaging/measure.py --base 814185e --candidate <commit> \
   --tasks /tmp/af-bench/tasks.json --runs 3 --model <main-model> --out /tmp/af-bench/out
 ```
 
-A pilot runs one task with `--only fix-off-by-one` (six sessions). The full set
-is four tasks, two refs, and three runs, which is 24 `claude -p` sessions, each
-up to 15 minutes by default. Token cost is not estimated here: the figures above
-come from earlier, different tasks and are only a rough guide.
+A pilot runs one task with `--only fix-off-by-one` (six sessions). It is a
+direct, single-lane regression check only: headless `claude -p` cannot exercise
+the multi-lane plan approval, so a pilot says nothing about that rule. The full
+set is four tasks, two refs, and three runs, which is 24 `claude -p` sessions,
+each up to 15 minutes by default. Token cost is not estimated here: the figures
+above come from earlier, different tasks and are only a rough guide.
+
+`packaging/measure-fixtures/check-task.py` judges each task in a clean git
+environment with no user, system or signing config. It fails a run that edits
+the task's test files, leaves the README with the old key, or changes a
+read-only task's files, and then runs `python3 -m unittest`. Answer quality is
+not scored.
+
+Pilot evidence (2026-10-30, `fix-off-by-one`, `feat/team-workflow-approval`
+against `814185e`, 120 s timeout): all six sessions ended with no edits and a
+failed check, and two timed out. The write prompts did not say to work on the
+current branch, so the branch check most likely stopped the headless runs. That
+pilot ran before the current-branch sentence was added, so it does not test the
+current prompts. No savings are claimed, and no further paid runs were made.
+The agent's final reply is kept in `runs.jsonl` as `finalText`, bounded to
+1000 characters; it may contain private text, so do not publish it.
 
 ---
 

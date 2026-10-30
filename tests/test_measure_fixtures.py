@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -63,22 +64,24 @@ class MeasureFixtureTests(unittest.TestCase):
                 self.assertEqual(remotes.stdout.strip(), "")
 
     def test_write_tasks_fail_on_seed_and_pass_with_reference_fix(self):
+        checks = {task["name"]: task["check"] for task in measure.load_tasks(self.tasks_file)}
         for task in fixtures.TASKS:
             if "fix" not in task:
                 continue
             with self.subTest(task=task["name"]):
                 repo = self.out / task["name"]
-                self.assertNotEqual(check(repo, task["check"]), 0, "seed must fail so the task is real")
+                self.assertNotEqual(check(repo, checks[task["name"]]), 0, "seed must fail so the task is real")
                 fixed = Path(self.raw.name) / f"fixed-{task['name']}"
                 shutil.copytree(repo, fixed)
                 for relative, text in task["fix"].items():
                     (fixed / relative).write_text(text, encoding="utf-8")
-                self.assertEqual(check(fixed, task["check"]), 0)
+                self.assertEqual(check(fixed, checks[task["name"]]), 0)
 
     def test_read_only_task_check_passes_on_seed(self):
+        checks = {task["name"]: task["check"] for task in measure.load_tasks(self.tasks_file)}
         readonly = [task for task in fixtures.TASKS if "fix" not in task]
         self.assertEqual(len(readonly), 1)
-        self.assertEqual(check(self.out / readonly[0]["name"], readonly[0]["check"]), 0)
+        self.assertEqual(check(self.out / readonly[0]["name"], checks[readonly[0]["name"]]), 0)
 
     def test_only_builds_one_task_for_a_pilot(self):
         pilot = fixtures.build(Path(self.raw.name) / "pilot", only="fix-off-by-one")
@@ -94,6 +97,53 @@ class MeasureFixtureTests(unittest.TestCase):
         for task in measure.load_tasks(self.tasks_file):
             log = subprocess.run(["git", "-C", task["repo"], "log", "--format=%ae %ce"], capture_output=True, text=True).stdout
             self.assertEqual(log.strip(), "fixtures@example.invalid fixtures@example.invalid")
+
+
+class CheckerTests(unittest.TestCase):
+    """check-task.py rejects edited tests, a stale README key and read-only mutations."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.raw = tempfile.TemporaryDirectory(prefix="af-checker-")
+        cls.tasks = {task["name"]: task for task in measure.load_tasks(fixtures.build(Path(cls.raw.name) / "bench"))}
+        cls.fixes = {task["name"]: task["fix"] for task in fixtures.TASKS if "fix" in task}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.raw.cleanup()
+
+    def verdict(self, name, edits=None):
+        target = Path(tempfile.mkdtemp(prefix="clone-", dir=self.raw.name)) / "repo"
+        subprocess.run(["git", "clone", "-q", "--no-hardlinks", self.tasks[name]["repo"], str(target)], check=True)
+        for relative, text in (edits or {}).items():
+            (target / relative).write_text(text, encoding="utf-8")
+        return check(target, self.tasks[name]["check"])
+
+    def test_reference_fixes_pass(self):
+        for name, fix in self.fixes.items():
+            with self.subTest(task=name):
+                self.assertEqual(self.verdict(name, fix), 0)
+
+    def test_editing_a_test_file_fails(self):
+        cheat = {**self.fixes["fix-off-by-one"],
+                 "test_calc.py": "import unittest\n\n\nclass LastIndexTests(unittest.TestCase):\n    def test_nothing(self):\n        pass\n"}
+        self.assertNotEqual(self.verdict("fix-off-by-one", cheat), 0)
+
+    def test_rename_keeping_the_old_key_in_the_readme_fails(self):
+        stale = {**self.fixes["rename-config-key"],
+                 "README.md": "# Synthetic client\n\nSet `timeout_seconds` in the settings.\n"}
+        self.assertNotEqual(self.verdict("rename-config-key", stale), 0)
+
+    def test_read_only_task_fails_on_any_mutation(self):
+        self.assertEqual(self.verdict("explain-parse-line"), 0)
+        self.assertNotEqual(self.verdict("explain-parse-line", {"csv_lite.py": "def parse_line(line):\n    return []\n"}), 0)
+        self.assertNotEqual(self.verdict("explain-parse-line", {"notes.txt": "added\n"}), 0)
+
+    def test_fixture_git_ignores_the_users_git_config(self):
+        config = Path(self.raw.name) / "gitconfig"
+        config.write_text("[commit]\n\tgpgsign = true\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config)}):
+            fixtures.build(Path(self.raw.name) / "isolated", only="fix-off-by-one")
 
 
 if __name__ == "__main__":
