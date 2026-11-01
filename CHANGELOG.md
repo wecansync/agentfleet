@@ -3,6 +3,21 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.17.0] - 2026-11-01
+
+### Added
+
+- Policy rule "Script repeated work" in "Make the smallest complete change": when the same rule-based steps recur (a check, a conversion, a release step), Claude writes them once as a script, test or hook and runs that, rather than having a model work them out again each time, and keeps model calls for steps that need judgment. It renders in every work style.
+- `/fleet-suggest` offers three opt-in UI skills. Each install fetches one pinned, reviewed commit and copies the skill into the project's `.claude/skills`, where it loads only when invoked:
+  - [unslop](https://github.com/heydamir/unslop) (CC BY 4.0, by Damir Sokolovsky), for projects that depend on React, Vue, Svelte, Angular or Tailwind: turns AI-looking UI into a designed interface.
+  - [prototype](https://github.com/mattpocock/skills) (MIT, by Matt Pocock), for React, Vue, Svelte or Angular projects: builds throwaway UI or logic prototypes to compare options before building the real one.
+  - The official [shadcn/ui](https://github.com/shadcn-ui/ui) skill (MIT), for projects with a `components.json` or the `class-variance-authority` or `tailwind-merge` dependencies: reads `components.json` so components are added with the project's aliases and theme. It runs the shadcn CLI through npx when used.
+- The `frontend-design` plugin suggestion now also matches projects that depend on Tailwind.
+- A suggestion catalog entry can name a `skill`; it is not offered while `.claude/skills/<skill>/SKILL.md` exists in the project or in your home folder.
+- Evaluated and not added: [uiverse-io/galaxy](https://github.com/uiverse-io/galaxy), a collection of standalone HTML/CSS elements with no index an agent can search and no shared design system, last updated in 2024.
+
+Nothing is installed unless you pick it.
+
 ## [2.16.0] - 2026-10-30
 
 ### Added

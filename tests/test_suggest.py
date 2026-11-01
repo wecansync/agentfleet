@@ -340,6 +340,47 @@ services:
         (new / ".specify" / "memory" / "constitution.md").write_text("# Principles\n", encoding="utf-8")
         self.assertNotIn("spec-kit", {s["id"] for s in fleet_suggest.suggest(self.home, new)})
 
+    def test_unslop_offered_for_frontend_projects_until_installed(self):
+        backend = self.root / "backend_proj"
+        backend.mkdir()
+        (backend / "package.json").write_text(json.dumps({"dependencies": {"express": "^4.0"}}), encoding="utf-8")
+        self.assertNotIn("unslop", {s["id"] for s in fleet_suggest.suggest(self.home, backend)})
+        web = self.root / "web_proj"
+        web.mkdir()
+        (web / "package.json").write_text(json.dumps({"devDependencies": {"tailwindcss": "^4.0"}}), encoding="utf-8")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, web)}
+        self.assertIn("unslop", suggs)
+        self.assertEqual(suggs["unslop"]["kind"], "tool")
+        self.assertIn("frontend-design", suggs)
+        # The install fetches a reviewed commit and stays inside the project.
+        self.assertRegex(suggs["unslop"]["install"], r"fetch --quiet --depth 1 \S+ [0-9a-f]{40} ")
+        self.assertIn("cp -R \"$d/skills/unslop\" .claude/skills/", suggs["unslop"]["install"])
+        (web / ".claude" / "skills" / "unslop").mkdir(parents=True)
+        (web / ".claude" / "skills" / "unslop" / "SKILL.md").write_text("---\nname: unslop\n---\n", encoding="utf-8")
+        self.assertNotIn("unslop", {s["id"] for s in fleet_suggest.suggest(self.home, web)})
+
+    def test_ui_skills_offered_until_installed_in_project_or_home(self):
+        app = self.root / "react_proj"
+        app.mkdir()
+        (app / "package.json").write_text(json.dumps({"dependencies": {"react": "^19.0", "tailwind-merge": "^3.0"}}),
+                                          encoding="utf-8")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, app)}
+        for eid, skill in (("prototype-skill", "prototype"), ("shadcn-skill", "shadcn")):
+            with self.subTest(eid=eid):
+                self.assertIn(eid, suggs)
+                self.assertRegex(suggs[eid]["install"], r"fetch --quiet --depth 1 \S+ [0-9a-f]{40} ")
+                self.assertIn(f"/{skill}\" .claude/skills/", suggs[eid]["install"])
+        # A skill installed for every project is not offered again.
+        (self.home / ".claude" / "skills" / "prototype").mkdir(parents=True)
+        (self.home / ".claude" / "skills" / "prototype" / "SKILL.md").write_text("---\nname: prototype\n---\n", encoding="utf-8")
+        ids = {s["id"] for s in fleet_suggest.suggest(self.home, app)}
+        self.assertNotIn("prototype-skill", ids)
+        self.assertIn("shadcn-skill", ids)
+        backend = self.root / "api_proj"
+        backend.mkdir()
+        (backend / "package.json").write_text(json.dumps({"dependencies": {"express": "^4.0"}}), encoding="utf-8")
+        self.assertFalse({"prototype-skill", "shadcn-skill"} & {s["id"] for s in fleet_suggest.suggest(self.home, backend)})
+
     def test_mcpvault_offered_for_an_obsidian_vault_at_any_depth(self):
         plain = self.root / "plain_proj"
         plain.mkdir()

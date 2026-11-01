@@ -214,6 +214,7 @@ class WorkStyleTests(unittest.TestCase):
                     self.assertEqual(off, on.replace(on[on.index("## Check the branch"):on.index("## Make the smallest complete change")], ""))
                     # The smallest-change rules render whatever the toggles say.
                     self.assertIn("## Make the smallest complete change", off)
+                    self.assertIn("**Script repeated work:**", off)
         self.assertEqual(provider_catalog.render_policy_for(template, {"branchCheck": False}),
                          provider_catalog.render_policy(template, "balanced", True, False))
         self.assertEqual(len(provider_catalog.policy_renderings(template)), 12)
