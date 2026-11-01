@@ -48,6 +48,7 @@ Skip the check when the user has already chosen the branch for this task, or the
 
 - **Reach first:** before writing, find every place the change must reach: callers, tests, fixtures, config.
 - **Reuse:** what the codebase already has, then the standard library, then installed dependencies. Never add a dependency for a few lines.
+- **Script repeated work:** when the same rule-based steps recur (a check, a conversion, a release step), write them once as a script, test or hook and run that, rather than having a model work them out again each time. Keep model calls for steps that need judgment.
 - **Nothing unrequested:** add no feature, option or abstraction the task did not ask for. When you leave out something the user might expect, say so in one line.
 - **But finish:** complete every part the task needs, including the callers, tests and fixtures your change breaks.
 

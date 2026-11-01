@@ -390,14 +390,15 @@
       "id": "frontend-design",
       "kind": "plugin",
       "title": "Frontend Design System Assistant",
-      "why": "Frontend framework (React, Vue, Svelte, Angular) dependencies detected",
+      "why": "Frontend framework (React, Vue, Svelte, Angular) or Tailwind dependencies detected",
       "match": {
         "deps": [
           "react",
           "react-dom",
           "vue",
           "svelte",
-          "@angular/core"
+          "@angular/core",
+          "tailwindcss"
         ]
       },
       "install": {
@@ -1183,6 +1184,71 @@
       "source": "Graphify-Labs/graphify",
       "access": "Installs an Apache-2.0 Python CLI (needs Python 3.10+ and uv) with tree-sitter parsers and graph libraries, and adds a /graphify skill under this project's .claude/skills. Code is parsed locally without tokens; documents, images and URLs it reads go through Claude and cost tokens.",
       "template": "Build the map with /graphify . (it writes graphify-out/; add that folder to .gitignore). Then ask with graphify query \"<question>\" or graphify explain <name>. Its token-saving figures compare against reading every file whole, so measure: run the same task with and without it and compare in agentfleet report. Optional: graphify claude install adds a hook that steers file reads toward the map. uv tool uninstall graphifyy removes the CLI."
+    },
+    {
+      "id": "unslop",
+      "kind": "tool",
+      "title": "unslop (make AI-looking UI look designed)",
+      "why": "Frontend project; unslop reviews a screen for the usual AI-generated tells (purple gradients, glows, emoji labels, uneven spacing) and fixes spacing, color, type and layout in order",
+      "match": {
+        "deps": [
+          "react",
+          "vue",
+          "svelte",
+          "@angular/core",
+          "tailwindcss"
+        ]
+      },
+      "skill": "unslop",
+      "install": {
+        "command": "d=$(mktemp -d) && git -C \"$d\" init --quiet && git -C \"$d\" fetch --quiet --depth 1 https://github.com/heydamir/unslop 1d13095e4bef6ad6c74f1dd828d84c4ba309a4dc && git -C \"$d\" checkout --quiet FETCH_HEAD && mkdir -p .claude/skills && cp -R \"$d/skills/unslop\" .claude/skills/ && rm -rf \"$d\""
+      },
+      "source": "heydamir/unslop",
+      "access": "Copies one CC-BY-4.0 skill (instructions and reference images, pinned to a reviewed commit) into this project's .claude/skills; it loads only when invoked. Its optional story-video script runs Node.js with Playwright and ffmpeg only if you ask for a video. Keep the author credit in the copy.",
+      "template": "Ask Claude to unslop a screen (for example: unslop the dashboard page), or run /unslop. Review its direction before it edits. Delete .claude/skills/unslop to remove it."
+    },
+    {
+      "id": "prototype-skill",
+      "kind": "tool",
+      "title": "Prototype skill (throwaway UI and logic prototypes)",
+      "why": "Frontend project; the prototype skill builds a throwaway version of a screen or state model so you can compare UI options before building the real one",
+      "match": {
+        "deps": [
+          "react",
+          "vue",
+          "svelte",
+          "@angular/core"
+        ]
+      },
+      "skill": "prototype",
+      "install": {
+        "command": "d=$(mktemp -d) && git -C \"$d\" init --quiet && git -C \"$d\" fetch --quiet --depth 1 https://github.com/mattpocock/skills 4ae2317ddb22b046e26455e4f9c9b3aaaf62212d && git -C \"$d\" checkout --quiet FETCH_HEAD && mkdir -p .claude/skills && cp -R \"$d/skills/engineering/prototype\" .claude/skills/ && rm -rf \"$d\""
+      },
+      "source": "mattpocock/skills",
+      "access": "Copies one MIT-licensed skill (Markdown instructions only, pinned to a reviewed commit) into this project's .claude/skills; it loads only when invoked.",
+      "template": "Ask Claude to prototype a screen (for example: prototype two layouts for the settings page), or run /prototype. The prototype is throwaway: build the chosen option properly afterwards. Delete .claude/skills/prototype to remove it."
+    },
+    {
+      "id": "shadcn-skill",
+      "kind": "tool",
+      "title": "shadcn/ui skill (find, add and compose shadcn components)",
+      "why": "Project uses shadcn/ui; the official skill reads components.json so Claude adds and composes components with the project's own aliases, theme and installed parts",
+      "match": {
+        "files": [
+          "components.json"
+        ],
+        "deps": [
+          "class-variance-authority",
+          "tailwind-merge"
+        ]
+      },
+      "skill": "shadcn",
+      "install": {
+        "command": "d=$(mktemp -d) && git -C \"$d\" init --quiet && git -C \"$d\" fetch --quiet --depth 1 https://github.com/shadcn-ui/ui c0d63c339d6cd2fc26135590a54cf1f362269451 && git -C \"$d\" checkout --quiet FETCH_HEAD && mkdir -p .claude/skills && cp -R \"$d/skills/shadcn\" .claude/skills/ && rm -rf \"$d\""
+      },
+      "source": "shadcn-ui/ui",
+      "access": "Copies the official MIT-licensed shadcn skill (instructions, rules and small examples, pinned to a reviewed commit) into this project's .claude/skills; it loads only when invoked. When used it runs the shadcn CLI through npx (Node.js), which fetches the shadcn package and writes component files into the project.",
+      "template": "Ask Claude for UI in shadcn terms (for example: build a settings page with a form and a data table from the shadcn registry). It reads components.json first. Delete .claude/skills/shadcn to remove it."
     }
   ]
 }

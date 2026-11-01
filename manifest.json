@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.16.0",
+  "version": "2.17.0",
   "files": [
     {
       "path": ".gitattributes",
@@ -14,7 +14,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "bd2c2c5df888995e255d982c6a2d052c8cd648bf64e5f8b2209af76bbc84419c",
+      "sha256": "9046b2f49115df0ec5df94eda7e4f255d196838c159a2204d9d82cb85994f72d",
       "mode": "0o644"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "3009b483bcca93f4b857b2dc72e37730c79250c48b328875c6802d3158d57547",
+      "sha256": "4b0d2015938c31dd3f2451d23bfa0658e6545b5773aa5922ee8fbc1f245dfbff",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "6a5953413ab0b83ab7c6c3f080df322580d42cc33524f5857533ca01f3da6312",
+      "sha256": "b7c9900f90f674500897abbc5467c0478cd7a7a7dc2e4e7797a85ae1cebe4ae6",
       "mode": "0o644"
     },
     {
@@ -164,7 +164,7 @@
     },
     {
       "path": "config/agentfleet.md",
-      "sha256": "f9f18a5ad037fd47b26a0f7a1c1c4eacc09e3fef169271bf1e68e9fbb5eec950",
+      "sha256": "897a21d8a3bcd6914a415d070f6b1fc73963da50cee9a42e79936ded455d6f0c",
       "mode": "0o644"
     },
     {
@@ -184,7 +184,7 @@
     },
     {
       "path": "config/suggestions.json",
-      "sha256": "e8cc1edf67308588a52237f4ea31cfed3daea1564921e05a7853753a865fecd9",
+      "sha256": "23b52d01cd8f66aab59495e68fc2d0109efe45be2d6c026b7335b19097632adb",
       "mode": "0o644"
     },
     {
@@ -544,7 +544,7 @@
     },
     {
       "path": "scripts/fleet_suggest.py",
-      "sha256": "84edc96b11c8ded9e86d78514d3b7a3fcc3c5ec990f50af96f68f0a74143d674",
+      "sha256": "433b079ee5de6c727b5530919b9debd6fdaf199592aa36fba58f08df4a8a8a4a",
       "mode": "0o755"
     },
     {
@@ -739,7 +739,7 @@
     },
     {
       "path": "tests/test_suggest.py",
-      "sha256": "20ef68870863191d3640c6c86c78439d129a595802cf8e383654f8b0bfd9097a",
+      "sha256": "c5ea9380819861c6b4af96e5ee7eb771b610cbdcedc08103f596ffb23a74a5be",
       "mode": "0o644"
     },
     {
@@ -764,7 +764,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "dbb78d231458d08d4deab368b0280241bff76e080f9a5d24e4e687cb815765d5",
+      "sha256": "54862c0ed1d44d6e96582b49835c00ffa586c8eaa580fdffe7a43e39de6731a4",
       "mode": "0o644"
     },
     {

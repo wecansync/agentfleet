@@ -785,6 +785,11 @@ def suggest(home: Path, project: Path) -> list[dict]:
         elif kind == "tool":
             if _files_match(signals["files"], entry.get("skipIfFiles") or []):
                 continue
+            # A skill is already there in the project or for every project.
+            skill = entry.get("skill")
+            if isinstance(skill, str) and skill and any(
+                    (base / ".claude" / "skills" / skill / "SKILL.md").exists() for base in (project, home)):
+                continue
 
         # Match evaluation
         match_spec = entry.get("match", {})
