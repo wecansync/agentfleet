@@ -94,7 +94,8 @@ export async function readTasks($: CoreEngineInterface): Promise<TasksState> {
     } catch { /* Missing, oversized or unresolvable reports are optional. */ }
   }
   const agents = await $.agent.list().catch(() => [])
-  return { open: true, lanes: formatAgents(agents, await $.clock.now()), reports: parseReports(source), outages: snapshot.outages }
+  const now = await $.clock.now()
+  return { open: true, lanes: formatAgents(agents, now), reports: parseReports(source), outages: snapshot.outages, checkedAt: now }
 }
 
 export const register: Register = on => {

@@ -24,7 +24,9 @@ export function parseReports(source: string | null): LaneReport[] {
     const apiError = item.apiError
     if (apiError !== null && !(typeof apiError === 'number' && Number.isInteger(apiError) && apiError >= 400 && apiError <= 599)) continue
     if (!['toolCalls', 'inputTokens', 'outputTokens', 'durationSeconds'].every(key => typeof item![key] === 'number' && Number.isFinite(item![key]) && (item![key] as number) >= 0)) continue
-    reports.push({ at, lane, model, files: files as string[], rules: rules as string[], apiError: apiError as number | null })
+    // Older reports have no outcome; anything unrecognized counts as unknown.
+    const outcome = text(item.outcome, /^(done|partial|blocked|failed)$/) as LaneReport['outcome']
+    reports.push({ at, lane, model, files: files as string[], rules: rules as string[], apiError: apiError as number | null, outcome: outcome ?? null })
     if (reports.length > 20) reports.shift()
   }
   return reports
@@ -46,8 +48,21 @@ export function formatAgents(agents: unknown[], now: number): LaneTask[] {
   }
   return lanes
 }
+export const WAITING_WINDOW_MS = 2 * 60 * 60 * 1000
+// Lanes waiting now, and recent lane reports that ended blocked, partial or failed.
+// A plan awaiting approval lives only in the conversation, so it is not listed.
+export function waitingForYou(state: TasksState): string[] {
+  const now = state.checkedAt ?? Number.NaN
+  const lanes = state.lanes.filter(item => item.status === 'waiting').map(item => `${item.lane} · waiting · ${item.description}`)
+  const reports = state.reports
+    .filter(item => item.outcome && item.outcome !== 'done' && now - Date.parse(item.at) <= WAITING_WINDOW_MS && Date.parse(item.at) <= now)
+    .slice(-5).reverse().map(item => `${item.lane} · ${item.outcome} · ${utcTime(item.at)} · read its report and answer or continue it`)
+  return [...lanes, ...reports]
+}
 export function formatTasks(state: TasksState): { heading: string; lines: string[] }[] {
+  const waiting = waitingForYou(state)
   return [
+    { heading: 'Waiting for you', lines: waiting.length ? waiting : ['Nothing is waiting for you.'] },
     { heading: 'Running lanes', lines: state.lanes.length ? state.lanes.map(item => `${item.lane} · ${item.status}${item.elapsedSeconds === null ? '' : ` · ${item.elapsedSeconds}s`} · ${item.description}`) : ['No fleet lanes in this session.'] },
     { heading: 'Recent lane reports', lines: state.reports.slice(-8).reverse().map(item => `${item.lane} · ${item.files.length} files changed · ${item.rules.length} forbidden${item.rules.length ? ` (${item.rules.join(', ')})` : ''} · API ${item.apiError ?? 'none'} · ${item.model}`) },
     { heading: 'Outages', lines: state.outages.length ? state.outages.map(item => `fleet-${item.lane} · ${item.model} · ${item.status} · until ${utcTime(item.until)}`) : ['No current outages.'] },

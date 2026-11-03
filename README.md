@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.17.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.18.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -901,8 +901,9 @@ your user permissions and are not sandboxed.
   also names a lane that failed over to another of its models. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
-  closable pane showing active subagents, recent lane execution reports, and
-  active provider outages. Turn it off with `claude plugin disable fleet-status@agentfleet`.
+  closable pane showing what is waiting for you (lanes the engine marks waiting, and
+  lane reports from the last two hours that ended blocked, partial or failed), active
+  subagents, recent lane execution reports, and active provider outages. Turn it off with `claude plugin disable fleet-status@agentfleet`.
 - **lane-guard**: deterministically guards subagents (`fleet-*`) from executing
   dangerous or outward-facing actions:
   - Git mutations: `commit`, `push`, `merge`, `rebase`, `reset`, `restore`, `checkout`, `switch`, `clean`, `revert`, mutating `branch`/`tag`/`stash` flags.

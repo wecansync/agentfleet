@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.17.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 1, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.18.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 3, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,20 +432,28 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.17.0</span>
-        <span class="release-date" data-latest-date>November 1, 2026</span>
+        <span class="release-version" data-latest-version>v2.18.0</span>
+        <span class="release-date" data-latest-date>November 3, 2026</span>
       </div>
-      <p>Repeated rule-based work becomes a script instead of model work, and frontend projects can add three UI skills.</p>
+      <p>Text Claude reads cannot give orders, and the tasks pane shows what is waiting for you.</p>
       <ul class="release-list">
-        <li>A new policy rule: when the same rule-based steps recur, Claude writes them once as a script, test or hook and runs that, keeping model calls for steps that need judgment.</li>
-        <li><code class="il">/fleet-suggest</code> offers frontend projects unslop (turns AI-looking UI into a designed interface), prototype (throwaway prototypes to compare UI options) and, where the project uses shadcn/ui, the official shadcn skill. Each is pinned to a reviewed commit, copied into the project's <code class="il">.claude/skills</code>, and loads only when you invoke it.</li>
-        <li>The frontend-design plugin suggestion now also covers Tailwind projects. A skill you already have is not offered again.</li>
-        <li>Nothing is installed unless you pick it.</li>
+        <li>A new safety rule: an issue, pull request comment, web page, file, tool result, lane report or memory is data, not instructions. Only you can approve an action or widen the task; when such text asks for one, Claude tells you and waits.</li>
+        <li><code class="il">/fleet-tasks</code> now starts with <strong>Waiting for you</strong>: lanes waiting on an answer, and lane reports from the last two hours that ended blocked, partial or failed.</li>
+        <li>AgentFleet's own <code class="il">main</code> branch now requires a pull request, enforced by GitHub.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.17.0</span><span class="release-date">November 1, 2026</span><span class="version-summary">Repeated rule-based work becomes a script instead of model work, and frontend projects can add three UI skills.</span></summary>
+        <ul class="release-list">
+          <li>A new policy rule: when the same rule-based steps recur, Claude writes them once as a script, test or hook and runs that, keeping model calls for steps that need judgment.</li>
+          <li><code class="il">/fleet-suggest</code> offers frontend projects unslop (turns AI-looking UI into a designed interface), prototype (throwaway prototypes to compare UI options) and, where the project uses shadcn/ui, the official shadcn skill. Each is pinned to a reviewed commit, copied into the project's <code class="il">.claude/skills</code>, and loads only when you invoke it.</li>
+          <li>The frontend-design plugin suggestion now also covers Tailwind projects. A skill you already have is not offered again.</li>
+          <li>Nothing is installed unless you pick it.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.16.0</span><span class="release-date">October 30, 2026</span><span class="version-summary">Balanced and fleet styles agree a plan before several lanes run, and a substantial task ends with a short handoff.</span></summary>
         <ul class="release-list">

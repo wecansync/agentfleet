@@ -25,9 +25,9 @@ export type Snapshot = {
   newOptions: number
   usageNotices: string[]
 }
-export type LaneReport = { at: string; lane: string; model: string; files: string[]; rules: string[]; apiError: number | null }
+export type LaneReport = { at: string; lane: string; model: string; files: string[]; rules: string[]; apiError: number | null; outcome?: 'done' | 'partial' | 'blocked' | 'failed' | null }
 export type LaneTask = { lane: string; status: string; description: string; elapsedSeconds: number | null }
-export type TasksState = { open: boolean; lanes: LaneTask[]; reports: LaneReport[]; outages: Outage[] }
+export type TasksState = { open: boolean; lanes: LaneTask[]; reports: LaneReport[]; outages: Outage[]; checkedAt?: number }
 export type FleetState = {
   snapshot: Snapshot | null
   versionAtStart: string | null
