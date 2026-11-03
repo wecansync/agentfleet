@@ -24,7 +24,10 @@ strictly validated JEV compaction totals, last time, and before/after tokens whe
 Suggestions are matched to the session project root, not another project or a
 nested working directory.
 
-`/fleet-tasks` opens a focused, closable pane with fleet agents in this session
+`/fleet-tasks` opens a focused, closable pane. It starts with **Waiting for you**:
+fleet lanes the engine marks waiting, and lane reports from the last two hours that
+ended `blocked`, `partial` or `failed`. A plan awaiting your approval lives only in the
+conversation, so the pane cannot list it. Then come fleet agents in this session
 (lane, status and truncated description), up to eight recent lane reports (files
 changed, forbidden rule ids, API errors and model ids), and current outages. It refreshes
 every two seconds while open. Use **Close**, the engine close control, or Escape;

@@ -15,8 +15,8 @@ test('reports keep last 20 valid lines, skipping malformed entries', () => {
   expect(reports[0]?.lane).toBe('lane-5')
   expect(reports[19]?.lane).toBe('lane-24')
   const sections = formatTasks({ open: true, lanes: [], outages: [], reports })
-  expect(sections[1]?.lines.length).toBe(8)
-  expect(sections[1]?.lines[0]).toContain('lane-24 · 1 files changed · 1 forbidden (read-only) · API 503')
+  expect(sections[2]?.lines.length).toBe(8)
+  expect(sections[2]?.lines[0]).toContain('lane-24 · 1 files changed · 1 forbidden (read-only) · API 503')
 })
 for (const model of ['codex-sol[1m]', 'claude-opus-4.6[1m]', 'vendor/model-name', 'vendor/model@v1+fast', 'a', 'a'.repeat(128)]) {
   test(`task models are accepted and displayed: ${model}`, () => {
@@ -24,8 +24,8 @@ for (const model of ['codex-sol[1m]', 'claude-opus-4.6[1m]', 'vendor/model-name'
     const outages = parseOutages(JSON.stringify({ format: 'agentfleet.outages.v1', lanes: { docs: { model, status: 503, message: 'unavailable', at: report.at, until: '2026-10-09T09:13:32Z' } } }), now)
     expect(reports[0]?.model).toBe(model)
     const sections = formatTasks({ open: true, lanes: [], reports, outages })
-    expect(sections[1]?.lines[0]).toContain(model)
     expect(sections[2]?.lines[0]).toContain(model)
+    expect(sections[3]?.lines[0]).toContain(model)
   })
 }
 for (const model of [undefined, null, 7, '', '/vendor/model', 'a'.repeat(129), 'bad model']) {
@@ -33,15 +33,16 @@ for (const model of [undefined, null, 7, '', '/vendor/model', 'a'.repeat(129), '
     const reports = parseReports(JSON.stringify({ ...report, model }))
     expect(reports.length).toBe(1)
     expect(reports[0]?.model).toBe('unknown model')
-    expect(formatTasks({ open: true, lanes: [], reports, outages: [] })[1]?.lines[0]).toContain('unknown model')
+    expect(formatTasks({ open: true, lanes: [], reports, outages: [] })[2]?.lines[0]).toContain('unknown model')
   })
 }
 test('missing and oversized reports are safe', () => {
   expect(parseReports(null)).toEqual([])
   expect(parseReports('x'.repeat(REPORT_LIMIT_BYTES + 1))).toEqual([])
   const sections = formatTasks({ open: true, lanes: [], reports: [], outages: [] })
-  expect(sections.map(item => item.heading)).toEqual(['Running lanes', 'Recent lane reports', 'Outages'])
-  expect(sections[1]?.lines).toEqual(['No recent lane reports.'])
+  expect(sections.map(item => item.heading)).toEqual(['Waiting for you', 'Running lanes', 'Recent lane reports', 'Outages'])
+  expect(sections[0]?.lines).toEqual(['Nothing is waiting for you.'])
+  expect(sections[2]?.lines).toEqual(['No recent lane reports.'])
 })
 test('pane agent formatting filters types, truncates descriptions and uses elapsed metadata only when available', () => {
   const lanes = formatAgents([
@@ -53,7 +54,32 @@ test('pane agent formatting filters types, truncates descriptions and uses elaps
   expect(lanes[0]?.description.length).toBe(100)
   expect(lanes[0]?.elapsedSeconds).toBe(60)
   expect(lanes[1]?.elapsedSeconds).toBeNull()
-  expect(formatTasks({ open: true, lanes, reports: [], outages: [] })[0]?.lines[0]).toContain('docs · running · 60s')
+  expect(formatTasks({ open: true, lanes, reports: [], outages: [] })[1]?.lines[0]).toContain('docs · running · 60s')
+})
+test('waiting for you lists waiting lanes and recent blocked, partial or failed reports only', () => {
+  const lanes = formatAgents([
+    { type: 'fleet-ui', status: 'waiting', description: 'Needs an answer' },
+    { type: 'fleet-docs', status: 'running', description: 'Busy' },
+  ], now)
+  const reports = parseReports([
+    { ...report, lane: 'implement', outcome: 'blocked' },
+    { ...report, lane: 'tests', outcome: 'partial' },
+    { ...report, lane: 'review', outcome: 'done' },
+    { ...report, lane: 'plan' },
+    { ...report, lane: 'docs', outcome: 'surprise' },
+    { ...report, lane: 'old', outcome: 'failed', at: '2026-10-09T06:00:00Z' },
+    { ...report, lane: 'future', outcome: 'failed', at: '2026-10-09T10:00:00Z' },
+  ].map(item => JSON.stringify(item)).join('\n'))
+  expect(reports.length).toBe(7)
+  expect(reports[4]?.outcome).toBeNull()
+  const waiting = formatTasks({ open: true, lanes, reports, outages: [], checkedAt: now })[0]?.lines ?? []
+  expect(waiting).toEqual([
+    'ui · waiting · Needs an answer',
+    'tests · partial · 08:58 UTC · read its report and answer or continue it',
+    'implement · blocked · 08:58 UTC · read its report and answer or continue it',
+  ])
+  // Without a clock reading, no report counts as recent.
+  expect(formatTasks({ open: true, lanes: [], reports, outages: [] })[0]?.lines).toEqual(['Nothing is waiting for you.'])
 })
 for (const hostile of ['\u0000', '\u0085', '‮', ' ', ' ', '\n']) {
   test(`task fields reject hostile character ${JSON.stringify(hostile)}`, () => {
@@ -65,8 +91,8 @@ for (const hostile of ['\u0000', '\u0085', '‮', ' ', ' ', '\n']) {
     expect(reports[0]?.model).toBe('unknown model')
     const outages = parseOutages(JSON.stringify({ format: 'agentfleet.outages.v1', lanes: { docs: { model: report.model + hostile, status: 503, message: 'unavailable', at: report.at, until: '2026-10-09T09:13:32Z' } } }), now)
     const sections = formatTasks({ open: true, lanes: [], reports, outages })
-    expect(sections[1]?.lines[0]).toContain('unknown model')
     expect(sections[2]?.lines[0]).toContain('unknown model')
+    expect(sections[3]?.lines[0]).toContain('unknown model')
     expect(JSON.stringify(sections)).not.toContain(hostile)
     expect(parseReports(JSON.stringify({ ...report, files: ['safe' + hostile] }))).toEqual([])
     for (const field of ['rule', 'command']) expect(parseReports(JSON.stringify({ ...report, forbidden: [{ ...report.forbidden[0], [field]: 'safe' + hostile }] }))).toEqual([])
