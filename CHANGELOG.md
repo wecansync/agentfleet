@@ -3,6 +3,13 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.19.0] - 2026-11-05
+
+### Added
+
+- fleet-status 1.8.0: a stuck-lane watchdog. The AgentFleet band warns when a running write lane (`fleet-implement*`, `fleet-tests`, `fleet-ui`, `fleet-docs`) has made 40 tool calls without changing a file, or 40 since its last change, so a looping lane can be checked or stopped before it uses its turn limit. It counts tool calls in memory from the engine's tool-call events: no transcript reads, no files written, no model calls. Read-only lanes are not watched, since they call tools without edits by design.
+- Policy: run at most three lanes at once unless the user asks for more, and queue the rest. Each running lane adds tokens and another report to follow. The DeepSeek Harness team's Super-agent write-up reports that a person can follow about three to five active sessions; that figure is their experience, not an AgentFleet measurement. Their simulation also found that delegating everything lowered tail latency but read about two to four times more cached tokens, so AgentFleet keeps working directly by default.
+
 ## [2.18.0] - 2026-11-03
 
 ### Added

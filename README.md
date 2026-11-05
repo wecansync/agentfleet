@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.18.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.19.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -898,7 +898,8 @@ your user permissions and are not sandboxed.
   the work style, ask-first, token-weather and agent-brain options, and from
   1.5.1 the agent-brain install option, from 1.6.0 the agent-brain memory question,
   and from 1.6.1 the questions added in 2.12.0 and 2.13.0. The band
-  also names a lane that failed over to another of its models. New unanswered options trigger
+  also names a lane that failed over to another of its models, and warns when a
+  running write lane has made 40 tool calls without changing a file. New unanswered options trigger
   "New AgentFleet options are available: run agentfleet configure in a terminal."
   `/fleet-tasks` opens a focused,
   closable pane showing what is waiting for you (lanes the engine marks waiting, and

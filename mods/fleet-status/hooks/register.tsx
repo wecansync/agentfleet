@@ -3,6 +3,7 @@ import type { CoreEngineInterface, Register, Timer } from 'claude-code'
 import type { FleetState, Snapshot, TasksState } from '../types'
 import { claudeDirectory, notices, record, snapshotFromSources, summary } from './status'
 import { formatAgents, formatTasks, parseReports, REPORT_LIMIT_BYTES } from './tasks'
+import { countCall, stallNotices } from './watchdog'
 
 export async function readSnapshot($: CoreEngineInterface): Promise<Snapshot> {
   const claudeDir = claudeDirectory($.plugin.root)
@@ -67,6 +68,12 @@ export async function hideSuggestions($: CoreEngineInterface, key: string): Prom
   } catch { /* Hide remains effective for this session if persistence is unavailable. */ }
 }
 
+// Running write lanes that have called tools for a while without changing a file.
+async function refreshStalls($: CoreEngineInterface): Promise<void> {
+  const agents = await $.agent.list().catch(() => [])
+  await update($, status, current => ({ ...current, stalled: stallNotices(agents, current.activity ?? {}) }))
+}
+
 function refreshed(current: FleetState, snapshot: Snapshot): FleetState {
   const previousKey = JSON.stringify(current.snapshot ? notices(current.snapshot, current.versionAtStart) : [])
   const newKey = JSON.stringify(notices(snapshot, current.versionAtStart))
@@ -112,7 +119,16 @@ export const register: Register = on => {
     $.clock.every(60_000, async () => {
       const snapshot = await readSnapshot($)
       await update($, status, current => refreshed(current, snapshot))
+      await refreshStalls($)
     })
+    return next(e)
+  })
+
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId) {
+      const agentId = e.agentId, tool = String(e.tool)
+      await update($, status, current => ({ ...current, activity: countCall(current.activity ?? {}, agentId, tool) }))
+    }
     return next(e)
   })
 
@@ -124,6 +140,7 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const snapshot = await readSnapshot($)
     await update($, status, current => refreshed(current, snapshot))
+    await refreshStalls($)
     return next(e)
   })
 
@@ -187,9 +204,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const current = await read($, status)
-    const key = JSON.stringify(current.snapshot ? notices(current.snapshot, current.versionAtStart) : [])
-    const lines = current.snapshot ? notices(current.snapshot, current.versionAtStart, current.hiddenSuggestionIds)
-      .filter(line => current.hiddenNoticeKey !== key || line.startsWith('AgentFleet suggests ')) : []
+    const stalled = current.stalled ?? []
+    const key = JSON.stringify([...(current.snapshot ? notices(current.snapshot, current.versionAtStart) : []), ...stalled])
+    const lines = [...(current.snapshot ? notices(current.snapshot, current.versionAtStart, current.hiddenSuggestionIds) : []), ...stalled]
+      .filter(line => current.hiddenNoticeKey !== key || line.startsWith('AgentFleet suggests '))
     if (!lines.length) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
     const downstream = await next(e)

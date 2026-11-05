@@ -28,11 +28,14 @@ export type Snapshot = {
 export type LaneReport = { at: string; lane: string; model: string; files: string[]; rules: string[]; apiError: number | null; outcome?: 'done' | 'partial' | 'blocked' | 'failed' | null }
 export type LaneTask = { lane: string; status: string; description: string; elapsedSeconds: number | null }
 export type TasksState = { open: boolean; lanes: LaneTask[]; reports: LaneReport[]; outages: Outage[]; checkedAt?: number }
+export type LaneActivity = { calls: number; sinceEdit: number }
 export type FleetState = {
   snapshot: Snapshot | null
   versionAtStart: string | null
   hiddenNoticeKey: string | null
   hiddenSuggestionIds: string[]
+  activity?: Record<string, LaneActivity>
+  stalled?: string[]
 }
 declare module 'claude-code' {
   interface PluginState {
