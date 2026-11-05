@@ -77,7 +77,7 @@ Delegate substantive work to the matching lane: plan when the approach is open, 
 - Save tokens: pick the lightest lane that fits (`-fast` for small, well-specified edits, `-cheap` for mechanical bulk changes, `-deep` only for hard problems), and point briefs at files and line ranges instead of pasting their contents.
 - Give a long, well-specified task to one implementation lane, in parts: when it reports a part, continue the same lane with SendMessage for the next, so it keeps what it has already read. Its turn limit counts across continuations: once it has used more than half of its turns (the tool uses in its completion notice), start a new lane for the next part, with a brief that says what is already done.
 - A lane's report starts with `Outcome: done`, `partial`, `blocked` or `failed`. On `partial`, continue the same lane for the next part; on `blocked`, answer its question and continue it with SendMessage rather than starting a new lane.
-- Lanes that write in parallel need disjoint files.
+- Lanes that write in parallel need disjoint files. Run at most three lanes at once unless the user asks for more: each running lane adds tokens and another report to follow; queue the rest.
 - Review lanes run checks and tests; they edit only in FIX MODE, with the brief listing the files they may change. `agentfleet config reviewer-access` can restrict them.
 - When a lane reports, review its diff yourself and rerun the check it names. Redo its investigation only when the diff or the check disagrees with its report.
 - Use a review lane only for security, data-loss or migration changes, or when the user asks, and at most one per change. Use `fleet-review-deep` only when the user asks for it.

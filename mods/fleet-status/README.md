@@ -6,7 +6,13 @@ with `/fleet-setup`, dispatch a fallback for a failing lane, or review unseen
 project suggestions with `/fleet-suggest`. Healthy sessions show no band. **Hide**
 persists the currently displayed suggestion ids in `agentfleet/suggestions-hidden.json`
 (the only file this mod writes), with session-only fallback if writing is unavailable.
-Other notices are hidden for the session; changed notices show again. Listing suggestions
+Other notices are hidden for the session; changed notices show again.
+The band also warns when a running write lane (`fleet-implement*`, `fleet-tests`,
+`fleet-ui`, `fleet-docs`) has made 40 tool calls without changing a file, or 40 since its
+last change: it may be looping. The mod counts the lane's tool calls in memory from the
+engine's tool-call events; it reads no transcript, writes nothing and calls no model.
+The count starts over when the mod reloads, and the warning clears once the lane edits a
+file or stops. Listing suggestions
 marks their ids seen and clears the band automatically. Surveys take precedence.
 The band refreshes every 60 seconds, on prompt submission, and on turn completion.
 It composes its band alongside `await next(e)` in a layout-only Box, preserving other mods' bands. Fallback dispatches

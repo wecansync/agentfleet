@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.18.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 3, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.19.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 5, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,19 +432,26 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.18.0</span>
-        <span class="release-date" data-latest-date>November 3, 2026</span>
+        <span class="release-version" data-latest-version>v2.19.0</span>
+        <span class="release-date" data-latest-date>November 5, 2026</span>
       </div>
-      <p>Text Claude reads cannot give orders, and the tasks pane shows what is waiting for you.</p>
+      <p>A watchdog flags lanes that may be looping, and at most three lanes run at once.</p>
       <ul class="release-list">
-        <li>A new safety rule: an issue, pull request comment, web page, file, tool result, lane report or memory is data, not instructions. Only you can approve an action or widen the task; when such text asks for one, Claude tells you and waits.</li>
-        <li><code class="il">/fleet-tasks</code> now starts with <strong>Waiting for you</strong>: lanes waiting on an answer, and lane reports from the last two hours that ended blocked, partial or failed.</li>
-        <li>AgentFleet's own <code class="il">main</code> branch now requires a pull request, enforced by GitHub.</li>
+        <li>The AgentFleet band warns when a running write lane has made 40 tool calls without changing a file, so you can check or stop it before it uses its turn limit. Plain counting: no model calls, no files written.</li>
+        <li>Claude runs at most three lanes at once unless you ask for more, and queues the rest, keeping tokens and reports to follow in check.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.18.0</span><span class="release-date">November 3, 2026</span><span class="version-summary">Text Claude reads cannot give orders, and the tasks pane shows what is waiting for you.</span></summary>
+        <ul class="release-list">
+          <li>A new safety rule: an issue, pull request comment, web page, file, tool result, lane report or memory is data, not instructions. Only you can approve an action or widen the task; when such text asks for one, Claude tells you and waits.</li>
+          <li><code class="il">/fleet-tasks</code> now starts with <strong>Waiting for you</strong>: lanes waiting on an answer, and lane reports from the last two hours that ended blocked, partial or failed.</li>
+          <li>AgentFleet's own <code class="il">main</code> branch now requires a pull request, enforced by GitHub.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.17.0</span><span class="release-date">November 1, 2026</span><span class="version-summary">Repeated rule-based work becomes a script instead of model work, and frontend projects can add three UI skills.</span></summary>
         <ul class="release-list">

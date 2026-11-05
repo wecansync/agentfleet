@@ -573,3 +573,19 @@ test('hidden ids persist only in the allowed guarded file', async ($, on) => {
     fs: { stat: async (path: string) => ({ kind: 'file', realPath: path, size: 100 }), read: async () => written },
   } as unknown as CoreEngineInterface)).toEqual(['typescript-lsp'])
 })
+
+test('a running write lane calling tools without changing a file shows a stall notice in the band', async ($, on) => {
+  const clock = sources(on, healthy())
+  on('agent.list', () => ({ value: [{ id: 'lane-1', type: 'fleet-implement', status: 'running', description: 'Fix bug' }] }))
+  on('tool.call', () => ({ result: 'ok' }))
+  await $.session.start(start)
+  for (let index = 0; index < 40; index++) await $.tool.call({ tool: 'Read', input: { file_path: '/test/a.ts' }, agentId: 'lane-1' })
+  // The main loop's own calls (no agentId) are not counted.
+  await $.tool.call({ tool: 'Read', input: { file_path: '/test/b.ts' } })
+  await clock.advance(60_000)
+  const ui = await $.ui.mount({ plugin: 'fleet-status', surface: 'terminal', component: 'AbovePrompt', props })
+  expect((await ui.find({ text: 'fleet-implement has made 40 tool calls without changing a file' }))?.text).toContain('/fleet-tasks')
+  await $.tool.call({ tool: 'Edit', input: { file_path: '/test/a.ts', old_string: 'a', new_string: 'b' }, agentId: 'lane-1' })
+  await clock.advance(60_000)
+  expect(await ui.drawn()).toEqual({ type: 'engine', ref: 0 })
+})

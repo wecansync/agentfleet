@@ -220,6 +220,14 @@ class WorkStyleTests(unittest.TestCase):
                          provider_catalog.render_policy(template, "balanced", True, False))
         self.assertEqual(len(provider_catalog.policy_renderings(template)), 12)
 
+    def test_parallel_lane_cap_in_every_style(self):
+        template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
+        for style in ("direct", "balanced", "fleet"):
+            for ask_first in (True, False):
+                with self.subTest(style=style, ask_first=ask_first):
+                    rendered = provider_catalog.render_policy(template, style, ask_first)
+                    self.assertIn("Run at most three lanes at once unless the user asks for more", rendered)
+
     def test_multi_lane_plan_gate_only_for_balanced_and_fleet(self):
         # Several lanes need an approved plan first; direct and single-lane work do not.
         template = (ROOT / "config" / "agentfleet.md").read_text(encoding="utf-8")
