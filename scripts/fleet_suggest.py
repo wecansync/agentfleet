@@ -785,6 +785,10 @@ def suggest(home: Path, project: Path) -> list[dict]:
         elif kind == "tool":
             if _files_match(signals["files"], entry.get("skipIfFiles") or []):
                 continue
+            # A tool that is a plugin is not offered once it is installed.
+            plugin = entry.get("plugin")
+            if isinstance(plugin, str) and plugin and plugin in inv["installed_names"]:
+                continue
             # A skill is already there in the project or for every project.
             skill = entry.get("skill")
             if isinstance(skill, str) and skill and any(

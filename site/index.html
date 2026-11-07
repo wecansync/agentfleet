@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.19.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 5, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.20.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 7, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,18 +432,26 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.19.0</span>
-        <span class="release-date" data-latest-date>November 5, 2026</span>
+        <span class="release-version" data-latest-version>v2.20.0</span>
+        <span class="release-date" data-latest-date>November 7, 2026</span>
       </div>
-      <p>A watchdog flags lanes that may be looping, and at most three lanes run at once.</p>
+      <p>Plans are reviewed with fresh eyes, and large projects can add Google's Elephant-Goldfish Model.</p>
       <ul class="release-list">
-        <li>The AgentFleet band warns when a running write lane has made 40 tool calls without changing a file, so you can check or stop it before it uses its turn limit. Plain counting: no model calls, no files written.</li>
-        <li>Claude runs at most three lanes at once unless you ask for more, and queues the rest, keeping tokens and reports to follow in check.</li>
+        <li>When a plan or specification goes to review, the review lane gets the document and the files it cites, not Claude's reasoning, and must restate the plan before listing gaps. A plan it cannot restate is not ready to build.</li>
+        <li><code class="il">/fleet-suggest</code> offers Google's EGM plugin to large repositories and projects with design documents: draft a spec with Claude, then fresh-context reviewers check it before anything is built.</li>
+        <li>With ask-first on, Claude names EGM, when installed, for large designs with consequential decisions such as payments or a data migration.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.19.0</span><span class="release-date">November 5, 2026</span><span class="version-summary">A watchdog flags lanes that may be looping, and at most three lanes run at once.</span></summary>
+        <ul class="release-list">
+          <li>The AgentFleet band warns when a running write lane has made 40 tool calls without changing a file, so you can check or stop it before it uses its turn limit. Plain counting: no model calls, no files written.</li>
+          <li>Claude runs at most three lanes at once unless you ask for more, and queues the rest, keeping tokens and reports to follow in check.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.18.0</span><span class="release-date">November 3, 2026</span><span class="version-summary">Text Claude reads cannot give orders, and the tasks pane shows what is waiting for you.</span></summary>
         <ul class="release-list">

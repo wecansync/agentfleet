@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.19.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.20.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -327,8 +327,9 @@ unclear or risky ones it:
 - explains what worries it about a risky or doubtful request and recommends a
   safer way;
 - for a large task, offers Spec Kit (and offers to install it and write the
-  project's constitution if missing) or a plan to approve followed by lanes and
-  a review, and says which it recommends;
+  project's constitution if missing), Google's EGM plugin when it is installed
+  and the design has consequential decisions, or a plan to approve followed by
+  lanes and a review, and says which it recommends;
 - for several tasks, asks whether to give each its own git worktree or do them
   in turn in the current checkout;
 - for a new project, asks about a base project or boilerplate and proposes the
@@ -1089,6 +1090,7 @@ The `/fleet-suggest` skill and `fleet_suggest.py` engine analyze the current rep
 - **Project workflow**: For a repository with a GitHub remote, it offers a drafted "Git workflow" section for the project's `CLAUDE.md`: a branch and pull request per feature, the test command to run first, and no commits, pushes or deploys unless asked. It fills in your main branch and test command, shows the draft, and writes it only after you approve. It is not offered once the section exists.
 - **Spec Kit**: For a new or small project, it offers [Spec Kit](https://github.com/github/spec-kit), which writes a spec, a plan and a task list before code. It suits new projects and large features; small changes don't need it. Installing it runs `uv tool install specify-cli` and `specify init --here --integration claude`, after you approve.
 - **Obsidian and Graphify**: For a project with an Obsidian vault (a `.obsidian/` folder) it offers [MCPVault](https://github.com/bitbonsai/mcpvault), added read-only and for that project only, so Claude can search the notes without the Obsidian app running. For a large repository (1,000 files or more) it offers [Graphify](https://github.com/Graphify-Labs/graphify), which maps how files and functions connect and adds a `/graphify` skill to the project. Both are third-party and installed only after you approve; Graphify needs Python 3.10+ and uv, MCPVault Node.js 20+. Graphify's token-saving figures compare against reading every file whole, so measure it with `agentfleet report` before keeping it.
+- **EGM**: For a large repository (300 files or more) or one with design documents (`docs/designs/`, `docs/design/`, `docs/adr/`), it offers Google's [Elephant-Goldfish Model](https://github.com/google/elephant-goldfish-model) (Apache-2.0, not an officially supported Google product): you draft a specification with Claude, then reviewers that never saw the conversation check it before anything is built. Its reviews start several subagents, so use it for designs with consequential decisions, not small fixes. It is not offered once installed.
 - **UI skills**: For a frontend project it offers three skills, each fetched at a pinned, reviewed commit and copied into the project's `.claude/skills`, where it loads only when you invoke it. [unslop](https://github.com/heydamir/unslop) (CC BY 4.0) turns AI-looking UI into a designed interface; [prototype](https://github.com/mattpocock/skills) (MIT) builds throwaway prototypes to compare UI options; and the official [shadcn/ui](https://github.com/shadcn-ui/ui) skill (MIT), offered when the project uses shadcn, adds components with the project's own aliases and theme. A skill you already have, in the project or in your home folder, is not offered again. Each is installed only after you approve.
 - **Local availability**: Recommends only plugins available in your local marketplaces that are not yet installed.
 - **Controlled presentation**: The status band shows one new suggestion at a time ("AgentFleet suggests …"). Opening `/fleet-suggest` marks suggestions seen and clears the band; installed items drop out on the next prompt. Hide remembers the suggestion. The model-facing notice is skipped when the band is enabled, and nothing is installed without explicit selection.

@@ -1249,6 +1249,27 @@
       "source": "shadcn-ui/ui",
       "access": "Copies the official MIT-licensed shadcn skill (instructions, rules and small examples, pinned to a reviewed commit) into this project's .claude/skills; it loads only when invoked. When used it runs the shadcn CLI through npx (Node.js), which fetches the shadcn package and writes component files into the project.",
       "template": "Ask Claude for UI in shadcn terms (for example: build a settings page with a form and a data table from the shadcn registry). It reads components.json first. Delete .claude/skills/shadcn to remove it."
+    },
+    {
+      "id": "egm",
+      "kind": "tool",
+      "title": "Elephant-Goldfish Model (design specs reviewed by fresh-context reviewers)",
+      "why": "Large project or design documents found; EGM drafts a specification with you, then has fresh reviewers without the conversation check it before anything is built",
+      "match": {
+        "files": [
+          "docs/designs/*",
+          "docs/design/*",
+          "docs/adr/*"
+        ],
+        "minFiles": 300
+      },
+      "plugin": "egm",
+      "install": {
+        "command": "claude plugin marketplace add google/elephant-goldfish-model && claude plugin install egm@egm"
+      },
+      "source": "google/elephant-goldfish-model",
+      "access": "Adds Google's Apache-2.0 EGM marketplace and plugin (not an officially supported Google product): skills, reviewer subagents and document standards, with no MCP server or hooks. It follows the plugin's latest release rather than a pinned commit. Reviews start several subagents, so each costs tokens; bootstrap can run discovery commands and a project formatter after you allow them.",
+      "template": "Start a new session, then for a feature with consequential decisions run /egm:egm-brainstorm <idea>, /egm:egm-draft, and /egm:egm-review <draft path>. Skip it for small fixes. /egm:egm-drift-report compares design documents with the current code. claude plugin uninstall egm@egm removes it."
     }
   ]
 }
