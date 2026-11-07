@@ -3,6 +3,14 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.20.0] - 2026-11-07
+
+### Added
+
+- Policy rule for reviewing a plan or specification, from Google's Elephant-Goldfish Model: give the review lane the document and the files it cites, not your reasoning or conclusions, and ask it to restate the plan in its own words before listing gaps. A plan it cannot restate is not ready to build. It renders in every work style.
+- With ask-first on, the options for a large task name EGM, when it is installed, for a design with consequential decisions such as authentication, payments, a public API or a data migration: brainstorm, draft, a fresh-context review, and your approval before anyone builds it.
+- `/fleet-suggest` offers [EGM](https://github.com/google/elephant-goldfish-model) (Apache-2.0; not an officially supported Google product) to repositories with 300 files or more, or with `docs/designs/`, `docs/design/` or `docs/adr/`. It installs from Google's marketplace, so it follows the plugin's releases rather than a pinned commit. A catalog tool entry can now name a `plugin`, and it is not offered once that plugin is installed.
+
 ## [2.19.0] - 2026-11-05
 
 ### Added

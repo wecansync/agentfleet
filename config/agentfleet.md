@@ -14,6 +14,7 @@ Do small, clear tasks straight away. For larger, unclear or risky ones, investig
 - **Risky or doubtful** (data loss, security, breaking changes, or a request that does not fit the code): say what worries you and recommend a safer way first.
 - **Large:** offer the ways to run it, with your recommendation:
   - *Spec Kit* for a new feature whose requirements need pinning down. If the project lacks it, offer to install it (`uv tool install specify-cli`, then `specify init --here --integration claude --integration-options="--no-model-invocation"`) and to write its constitution with `/speckit-constitution`.
+  - *EGM* (Google's Elephant-Goldfish plugin), when it is installed, for a design with consequential decisions such as authentication, payments, a public API or a data migration: `/egm:egm-brainstorm`, `/egm:egm-draft`, then `/egm:egm-review` on the draft, and you approve the reviewed design before anyone builds it.
 <!-- work-style:direct -->
   - *A plan to approve*, then build, test and fix it yourself.
 <!-- /work-style -->
@@ -81,6 +82,7 @@ Delegate substantive work to the matching lane: plan when the approach is open, 
 - Review lanes run checks and tests; they edit only in FIX MODE, with the brief listing the files they may change. `agentfleet config reviewer-access` can restrict them.
 - When a lane reports, review its diff yourself and rerun the check it names. Redo its investigation only when the diff or the check disagrees with its report.
 - Use a review lane only for security, data-loss or migration changes, or when the user asks, and at most one per change. Use `fleet-review-deep` only when the user asks for it.
+- To review a plan or specification, give the review lane the document and the files it cites, not your reasoning or conclusions, and ask it to restate the plan in its own words before listing gaps. A plan it cannot restate is not ready to build.
 - Fix small findings yourself. Send larger ones back to the lane that wrote the code with SendMessage, which keeps its context, rather than to a new lane. Do not review the fix on another lane unless it changes security, data-loss or migration code.
 - Before you redo a lane's task yourself or dispatch it again, stop the old lane with TaskStop if it is still running, so it cannot change files afterwards.
 - Lanes cannot commit, push, merge, deploy, or run migrations; you do those, and only when the user's request covers them.

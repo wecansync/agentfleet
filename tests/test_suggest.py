@@ -359,6 +359,22 @@ services:
         (web / ".claude" / "skills" / "unslop" / "SKILL.md").write_text("---\nname: unslop\n---\n", encoding="utf-8")
         self.assertNotIn("unslop", {s["id"] for s in fleet_suggest.suggest(self.home, web)})
 
+    def test_egm_offered_for_design_docs_until_the_plugin_is_installed(self):
+        small = self.root / "small_app"
+        small.mkdir()
+        (small / "app.py").write_text("x = 1\n", encoding="utf-8")
+        self.assertNotIn("egm", {s["id"] for s in fleet_suggest.suggest(self.home, small)})
+        designs = self.root / "designed_app"
+        (designs / "docs" / "designs").mkdir(parents=True)
+        (designs / "docs" / "designs" / "webhooks.md").write_text("# Webhooks\n", encoding="utf-8")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, designs)}
+        self.assertIn("egm", suggs)
+        self.assertEqual(suggs["egm"]["kind"], "tool")
+        self.assertIn("claude plugin install egm@egm", suggs["egm"]["install"])
+        self.installed_plugins_file.write_text(json.dumps({"version": 2, "plugins": {"egm@egm": [{"scope": "user"}]}}),
+                                               encoding="utf-8")
+        self.assertNotIn("egm", {s["id"] for s in fleet_suggest.suggest(self.home, designs)})
+
     def test_ui_skills_offered_until_installed_in_project_or_home(self):
         app = self.root / "react_proj"
         app.mkdir()
