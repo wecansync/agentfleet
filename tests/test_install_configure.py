@@ -50,6 +50,19 @@ class InstallConfigureTests(unittest.TestCase):
         self.assertIn(HINT, self.run_install().stdout)
         self.assertIn(HINT, self.run_install().stdout)
 
+    def test_installed_cli_ships_computer_use_and_leaves_it_off(self):
+        self.run_install("--no-configure")
+        self.assertTrue((self.home / ".claude/computer_use.py").is_file())
+        result = subprocess.run([sys.executable, "-B", str(self.home / ".claude/agentfleet.py"), "--home", str(self.home),
+                                 "--config-home", str(self.config), "config", "computer-use", "status"],
+                                cwd=self.cwd, env={**self.env, "PATH": os.defpath}, text=True,
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(result.stdout.startswith("computer-use: off"), result.stdout)
+        user_config = self.home / ".claude.json"
+        servers = json.loads(user_config.read_text()).get("mcpServers", {}) if user_config.exists() else {}
+        self.assertNotIn("open-computer-use", servers)
+
     def test_environment_and_cli_opt_out(self):
         for args, env in (([], {"AGENTFLEET_NO_CONFIGURE": "1"}), (["--no-configure"], {}), (["--no-wizard"], {})):
             with self.subTest(args=args, env=env):

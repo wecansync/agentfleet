@@ -174,6 +174,8 @@ class ModInstallerTests(unittest.TestCase):
             "XDG_CONFIG_HOME": str(home / ".config"),
             "PYTHONDONTWRITEBYTECODE": "1",
             "AGENTFLEET_NONINTERACTIVE": "1",
+            # The recommended upstream plugins have their own tests (test_default_plugins).
+            "AGENTFLEET_DEFAULT_PLUGINS": "0",
             "FAKE_CLAUDE_STATE": str(self.state_path),
             "FAKE_CLAUDE_LOG": str(self.log_path),
         }
@@ -208,6 +210,37 @@ class ModInstallerTests(unittest.TestCase):
     def metadata(home: Path) -> dict:
         path = home / ".claude" / ".claude-agents-config-install.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+    def test_new_install_adds_recommended_plugins_but_an_update_does_not(self):
+        official = {"name": "claude-plugins-official", "source": "git",
+                    "url": "https://github.com/anthropics/claude-plugins-official.git"}
+        self.set_fake_state({**new_state(), "marketplaces": [official]})
+        home = self.home_for()
+        result = self.install(home, extra_env={"AGENTFLEET_DEFAULT_PLUGINS": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        defaults = ["context7@claude-plugins-official", "security-guidance@claude-plugins-official"]
+        installs = [c["argv"][2] for c in self.calls() if c["argv"][:2] == ["plugin", "install"]]
+        for plugin_id in defaults:
+            self.assertIn(plugin_id, installs)
+        self.assertNotIn("egm@egm", installs)
+        self.assertIn("Turn it off with: agentfleet config context7 off", result.stdout)
+        # The official marketplace was already registered, so nothing was added for it.
+        self.assertFalse(any(c["argv"][:3] == ["plugin", "marketplace", "add"] and "anthropics" in c["argv"][3]
+                             for c in self.calls()))
+        # An update leaves the user's plugins alone; configure asks instead.
+        self.log_path.write_text("", encoding="utf-8")
+        again = self.install(home, extra_env={"AGENTFLEET_DEFAULT_PLUGINS": "1"})
+        self.assertEqual(again.returncode, 0, again.stderr + again.stdout)
+        self.assertFalse([c for c in self.calls() if c["argv"][:2] == ["plugin", "install"] and c["argv"][2] in defaults])
+
+    def test_recommended_plugins_skipped_when_opted_out_or_mods_declined(self):
+        for label, env, mods in (("optout", {"AGENTFLEET_DEFAULT_PLUGINS": "0"}, None), ("nomods", {"AGENTFLEET_DEFAULT_PLUGINS": "1"}, "0")):
+            with self.subTest(label=label):
+                self.set_fake_state()
+                result = self.install(self.home_for(label), mods=mods, extra_env=env)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertFalse([c for c in self.calls() if c["argv"][:2] == ["plugin", "install"]
+                                  and c["argv"][2].endswith("@claude-plugins-official")])
 
     def test_fresh_install_copies_payload_and_registers_default_mods(self):
         home = self.home_for()

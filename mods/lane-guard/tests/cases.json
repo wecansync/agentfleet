@@ -1318,5 +1318,73 @@
   {
     "command": "pwsh -NoProfile -Command Get-ChildItem",
     "rule": null
+  },
+  {
+    "command": "ocu call click --args '{\"app\":\"Firefox\"}'",
+    "rule": "computer-use"
+  },
+  {
+    "command": "open-computer-use mcp",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npx -y open-computer-use@1.1.4 js 'x'",
+    "rule": "computer-use"
+  },
+  {
+    "command": "/usr/local/bin/ocu snapshot Finder",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npx prettier --check .",
+    "rule": null
+  },
+  {
+    "command": "echo ocu",
+    "rule": null
+  },
+  {
+    "command": "npx --cache /tmp/cache open-computer-use@1.1.4 mcp",
+    "rule": "computer-use"
+  },
+  {
+    "command": "pnpx --registry https://registry.npmjs.org open-computer-use@1.1.4 mcp",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npm exec --yes -- open-computer-use call list_apps",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npx -c 'open-computer-use mcp'",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npm run docs -- --focus",
+    "rule": null
+  },
+  {
+    "command": "grep -r open-computer-use README.md",
+    "rule": null
+  },
+  {
+    "command": "sudo npx --cache /tmp/cache open-computer-use@1.1.4 mcp",
+    "rule": "computer-use"
+  },
+  {
+    "command": "env FOO=1 pnpm dlx open-computer-use mcp",
+    "rule": "computer-use"
+  },
+  {
+    "command": "npx prettier --write ocu",
+    "rule": null
+  },
+  {
+    "command": "npx prettier --write src/ocu",
+    "rule": null
+  },
+  {
+    "command": "sudo ocu mcp",
+    "rule": "computer-use"
   }
 ]

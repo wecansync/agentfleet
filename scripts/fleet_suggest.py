@@ -605,6 +605,29 @@ def inventory(home: Path, project: Path) -> dict:
                     project_mcp_servers.update(servers.keys())
         except (OSError, UnicodeError, json.JSONDecodeError):
             pass
+    # Servers added with `claude mcp add`: user scope, and local scope for this project.
+    try:
+        user_config = json.loads((home / ".claude.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        user_config = None
+    if isinstance(user_config, dict):
+        scopes = [user_config]
+        projects = user_config.get("projects")
+        if isinstance(projects, dict):
+            # Claude Code may record the folder through a symlink or with a trailing slash.
+            target = project.resolve()
+            for key, record in projects.items():
+                if isinstance(key, str) and isinstance(record, dict):
+                    try:
+                        same = Path(key).resolve() == target
+                    except (OSError, RuntimeError, ValueError):
+                        same = False
+                    if same:
+                        scopes.append(record)
+        for scope in scopes:
+            servers = scope.get("mcpServers")
+            if isinstance(servers, dict):
+                project_mcp_servers.update(servers.keys())
 
     return {
         "installed": installed_keys,
@@ -788,6 +811,10 @@ def suggest(home: Path, project: Path) -> list[dict]:
             # A tool that is a plugin is not offered once it is installed.
             plugin = entry.get("plugin")
             if isinstance(plugin, str) and plugin and plugin in inv["installed_names"]:
+                continue
+            # A tool that is an MCP server is not offered once Claude Code has it.
+            server = entry.get("mcp")
+            if isinstance(server, str) and server and server in inv["project_mcp_servers"]:
                 continue
             # A skill is already there in the project or for every project.
             skill = entry.get("skill")

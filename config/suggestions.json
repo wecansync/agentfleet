@@ -1270,6 +1270,34 @@
       "source": "google/elephant-goldfish-model",
       "access": "Adds Google's Apache-2.0 EGM marketplace and plugin (not an officially supported Google product): skills, reviewer subagents and document standards, with no MCP server or hooks. It follows the plugin's latest release rather than a pinned commit. Reviews start several subagents, so each costs tokens; bootstrap can run discovery commands and a project formatter after you allow them.",
       "template": "Start a new session, then for a feature with consequential decisions run /egm:egm-brainstorm <idea>, /egm:egm-draft, and /egm:egm-review <draft path>. Skip it for small fixes. /egm:egm-drift-report compares design documents with the current code. claude plugin uninstall egm@egm removes it."
+    },
+    {
+      "id": "mobile-mcp",
+      "kind": "tool",
+      "title": "Mobile MCP (drive Android and iOS apps on emulators, simulators and phones)",
+      "why": "Mobile app project; Mobile MCP lets Claude launch the app, tap, type, swipe and read the screen to check a change on a device",
+      "match": {
+        "files": [
+          "pubspec.yaml",
+          "android/app/build.gradle",
+          "android/app/build.gradle.kts",
+          "*.xcodeproj/project.pbxproj"
+        ],
+        "deps": [
+          "react-native",
+          "expo",
+          "@capacitor/core",
+          "cordova-android",
+          "cordova-ios"
+        ]
+      },
+      "mcp": "mobile-mcp",
+      "install": {
+        "command": "claude mcp add mobile-mcp -e MOBILEMCP_DISABLE_TELEMETRY=1 -- npx -y @mobilenext/mobile-mcp@1.0.16"
+      },
+      "source": "mobile-next/mobile-mcp",
+      "access": "Registers the Apache-2.0 Mobile MCP server (pinned to 1.0.16, run with npx) for this project only. It controls the emulators, simulators and USB-connected phones that adb or Xcode can reach: installing and launching apps, taps, typing and screenshots. It needs the Android SDK (adb) or Xcode. Its anonymous usage telemetry is turned off.",
+      "template": "Start an emulator, a simulator or connect a phone with USB debugging, start a new session, then ask Claude to open the app and check a screen. Use it from the main session; lanes do not get MCP tools. claude mcp remove mobile-mcp removes it."
     }
   ]
 }

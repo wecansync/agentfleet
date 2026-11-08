@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.20.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.21.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -84,6 +84,40 @@ an assurance of OS-level isolation. Upstream updates and ELv2 licensing remain
 upstream-managed; AgentFleet does not vendor or relicense the plugin. See the
 [upstream project](https://github.com/mksglu/context-mode) and
 [license](https://github.com/mksglu/context-mode/blob/main/LICENSE).
+
+### Computer use (optional, off by default)
+
+[Open Computer Use](https://github.com/ifuryst/open-computer-use) (MIT) lets
+Claude read and operate apps on this computer's desktop: macOS 14+, Windows,
+and Linux with a signed-in desktop session (experimental upstream). It reads
+apps through the operating system's accessibility tree and runs locally over
+stdio. AgentFleet never installs or turns it on by itself:
+
+```sh
+npm install -g open-computer-use@1.1.4   # once per computer
+agentfleet config computer-use on        # registers its MCP server for your user scope
+agentfleet config computer-use status
+agentfleet config computer-use off       # removes the registration; the package stays
+```
+
+Restart Claude Code after `on` or `off`. On macOS, grant Accessibility and Screen
+Recording when asked. Leave its Locked Use mode and `ocu js` off: the first
+unlocks a locked Mac, the second runs arbitrary JavaScript.
+
+Use it from the main session, where you can see it. Lanes never get its MCP
+tools, and from lane-guard 1.6.0 a lane that runs the `ocu` command is blocked.
+lane-guard cannot see clicks or keystrokes, so it cannot check what the tools
+do in other apps. The policy keeps it to the apps the task needs, away from
+password managers, banking and private conversations, and asks before it sends,
+buys, deletes or submits anything.
+
+For phones, [Mobile MCP](https://github.com/mobile-next/mobile-mcp) (Apache-2.0)
+drives emulators, simulators and USB-connected phones through adb or Xcode. It
+is also off by default. Turn it on for every project with
+`agentfleet config mobile-mcp on` (`off`, `status`), or for one app through
+`/fleet-suggest`, which offers it to React Native, Expo, Flutter, Capacitor,
+Cordova and native Android or iOS projects. Both run the pinned 1.0.16 with npx
+and its anonymous telemetry off.
 
 ## Install
 
@@ -198,6 +232,21 @@ configuration wizard still asks about new options, so add
 
 `AGENTFLEET_MODS=0` also opts out of mods; `agentfleet update` honors the
 variable. See [Mods](#mods) for requirements and optional plugins.
+
+A new install also adds two upstream plugins from Anthropic's official
+marketplace: **Context7**, which looks up current library documentation (your
+lookups go to Upstash's Context7 service), and **Security Guidance**, which
+warns when Claude writes insecure code and runs locally. An update never adds
+them; `agentfleet configure` asks once, with Yes preselected. Skip them with
+`AGENTFLEET_DEFAULT_PLUGINS=0` or `--no-mods`, and turn each on or off later:
+
+```sh
+agentfleet config context7 on|off|status
+agentfleet config security-guidance on|off|status
+agentfleet config egm on|off|status   # Google's Elephant-Goldfish Model, off by default
+```
+
+`off` disables a plugin and keeps it installed.
 
 To check a Windows machine, download and run the check script in PowerShell.
 It prints versions, `agentfleet doctor`, `agent-brain status`, and the result of
