@@ -375,6 +375,40 @@ services:
                                                encoding="utf-8")
         self.assertNotIn("egm", {s["id"] for s in fleet_suggest.suggest(self.home, designs)})
 
+    def test_mobile_mcp_offered_for_mobile_apps_until_registered(self):
+        web = self.root / "web_app"
+        web.mkdir()
+        (web / "package.json").write_text(json.dumps({"dependencies": {"react": "^19.0"}}), encoding="utf-8")
+        self.assertNotIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, web)})
+        flutter = self.root / "flutter_app"
+        flutter.mkdir()
+        (flutter / "pubspec.yaml").write_text("name: shop\n", encoding="utf-8")
+        rn = self.root / "rn_app"
+        rn.mkdir()
+        (rn / "package.json").write_text(json.dumps({"dependencies": {"react-native": "0.80.0"}}), encoding="utf-8")
+        for app in (flutter, rn):
+            with self.subTest(app=app.name):
+                suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, app)}
+                self.assertIn("mobile-mcp", suggs)
+                self.assertIn("MOBILEMCP_DISABLE_TELEMETRY=1", suggs["mobile-mcp"]["install"])
+                self.assertRegex(suggs["mobile-mcp"]["install"], r"@mobilenext/mobile-mcp@\d+\.\d+\.\d+$")
+        # Registered for this project with `claude mcp add` (local scope): not offered again.
+        (self.home / ".claude.json").write_text(
+            json.dumps({"projects": {str(rn): {"mcpServers": {"mobile-mcp": {"command": "npx"}}}}}), encoding="utf-8")
+        self.assertNotIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, rn)})
+        self.assertIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, flutter)})
+        # Recorded with a trailing slash, or through a symlink to the folder.
+        link = self.root / "flutter_link"
+        link.symlink_to(flutter, target_is_directory=True)
+        for key in (str(flutter) + "/", str(link)):
+            with self.subTest(key=key):
+                (self.home / ".claude.json").write_text(
+                    json.dumps({"projects": {key: {"mcpServers": {"mobile-mcp": {}}}}}), encoding="utf-8")
+                self.assertNotIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, flutter)})
+        # Registered for every project (user scope).
+        (self.home / ".claude.json").write_text(json.dumps({"mcpServers": {"mobile-mcp": {}}}), encoding="utf-8")
+        self.assertNotIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, flutter)})
+
     def test_ui_skills_offered_until_installed_in_project_or_home(self):
         app = self.root / "react_proj"
         app.mkdir()

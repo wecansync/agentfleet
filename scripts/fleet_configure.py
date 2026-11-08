@@ -92,6 +92,9 @@ def current(api, paths, key):
         return provider_catalog.load_preferences(paths.home)[pref[key]]
     if key == "contextMode":
         return context_mode.status(paths.home) in {"installed, enabled", "installed, state unknown"}
+    if key in PLUGIN_TOGGLES:
+        import plugin_toggle
+        return plugin_toggle.is_on(paths.home, PLUGIN_TOGGLES[key])
     if key == "agentBrain":
         value = provider_catalog.load_preferences(paths.home)["agentBrain"]
         return agent_brain_available(paths) if value is None else value
@@ -110,7 +113,13 @@ def current(api, paths, key):
     return any(isinstance(p, dict) and p.get("id") == PLUGIN_IDS[key] and p.get("enabled") is True for p in plugins(paths))
 
 
+# Upstream plugins with an `agentfleet config` toggle, asked with Yes preselected.
+PLUGIN_TOGGLES = {"context7": "context7", "securityGuidance": "security-guidance"}
+
+
 def apply(api, paths, key, value):
+    if key in PLUGIN_TOGGLES:
+        return api.cmd_config(paths, argparse.Namespace(setting=PLUGIN_TOGGLES[key], value="on" if value else "off"))
     if key in ("compact", "reviewerAccess", "learn", "workStyle", "askFirst", "branchCheck", "providerUsage", "contextMode",
                "agentBrain", "agentBrainInstall", "agentBrainLocalMemory", "mainSessionGuard"):
         setting = {
@@ -170,6 +179,8 @@ FEATURES = (
     Feature("compact", "2.3.0", "Auto-compact at what percent of each model's context? (20-95, or off)", "20-95 or off"),
     Feature("jev", "2.3.0", "Use JEV compaction? It keeps messages word-for-word instead of a summary and sends conversation text to api.typesafe.ai. (y/N)", "yes/no"),
     Feature("contextMode", "2.12.0", "Install Context Mode, a third-party plugin (ELv2 license) that indexes large tool output locally and adds its own hooks? It promises no measured token savings. (y/N)", "yes/no"),
+    Feature("context7", "2.21.0", "Add Context7, Anthropic-listed plugin that looks up current library documentation? Your lookups go to Upstash's Context7 service. (Y/n)", "yes/no"),
+    Feature("securityGuidance", "2.21.0", "Add Security Guidance, Anthropic's plugin that warns when Claude writes insecure code? It runs locally. (Y/n)", "yes/no"),
     Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
     # Lanes
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
@@ -403,7 +414,8 @@ def run(api, paths, args):
             skipped_local_memory.append(LOCAL_MEMORY_KEY)
         if memory_state == "active":
             provider_catalog.write_preferences(paths.home, {LOCAL_MEMORY_KEY: True})
-    skipped_context_mode = [f.key for f in unasked if f.key == "contextMode" and not claude_cli_available()]
+    skipped_context_mode = [f.key for f in unasked
+                            if f.key in ("contextMode", *PLUGIN_TOGGLES) and not claude_cli_available()]
     applicable = [f for f in unasked if (registered or f.key not in PLUGIN_IDS)
                   and f.key not in skipped_brain and f.key not in skipped_local_memory and f.key not in skipped_context_mode]
     tty = sys.stdin.isatty() and sys.stdout.isatty()
@@ -452,7 +464,7 @@ def run(api, paths, args):
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
         groups = (
-            ("Context", {"compact", "jev", "contextMode", "tokenWeather"}),
+            ("Context", {"compact", "jev", "contextMode", "context7", "securityGuidance", "tokenWeather"}),
             ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard", "mainSessionGuard"}),
             ("Status and reports", {"statusBand", "sessionInfo", "brainMod", "providerUsage", "learn"}),
             ("agent-brain", {"agentBrainInstall", "agentBrain", "agentBrainLocalMemory"}),
@@ -541,7 +553,8 @@ def run(api, paths, args):
                 continue
             value = values[key] if key in values else feature.read(api, paths)
             if interactive:
-                value = prompt(feature, value)
+                # A recommended plugin not yet asked about is offered with Yes preselected.
+                value = prompt(feature, True if key in PLUGIN_TOGGLES and key not in asked else value)
                 if key == "jev" and value:
                     ask_key(api, paths)
             # Keeping a value need not regenerate agents or install disabled plugins.

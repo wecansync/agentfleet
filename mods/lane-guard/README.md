@@ -66,6 +66,9 @@ retrieval-only with respect to code execution, not a strict read-only boundary.
 6. **Dangerous deletions (`[rm-dangerous]`)**:
    - `rm` with recursive or force flags (`-r`, `-R`, `-f`, `--recursive`, `--force`, `-rf`) targeting root (`/`, `/*`), home (`~`, `~/`, `~/*`, `$HOME`, `${HOME}`), parent directory (`..`, `../…`), repository metadata (`.git`), or wildcard (`*` alone).
 
+7. **Desktop control (`[computer-use]`, from 1.6.0)**:
+   - The Open Computer Use CLI: the `ocu` or `open-computer-use` command, also behind a wrapper such as `sudo`, and any segment that runs a package runner (`npx`, `bunx`, `pnpx`, `npm`, `pnpm`, `yarn`, `bun`) with the `open-computer-use` package anywhere in it, including in a quoted script. It clicks and types in other apps, which no command rule can check, so lanes leave it to the main session. Lanes never get its MCP tools, since each lane lists its own tools. The main conversation is not blocked, even with the main-session guard on.
+
 ## What Stays Allowed
 
 The guard is targeted and non-disruptive:

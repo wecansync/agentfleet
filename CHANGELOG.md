@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.21.0] - 2026-11-08
+
+### Added
+
+- A new install adds two upstream plugins from Anthropic's official marketplace: Context7 (current library documentation; lookups go to Upstash's Context7 service) and Security Guidance (warns when Claude writes insecure code; runs locally). An update never adds them: `agentfleet configure` asks once, with Yes preselected. `AGENTFLEET_DEFAULT_PLUGINS=0` or `--no-mods` skips them, and a failed install only prints the command to run.
+- `agentfleet config context7|security-guidance|egm on|off|status` turns each plugin on or off through Claude Code's plugin CLI; `off` disables and keeps it installed. EGM (Google's Elephant-Goldfish Model) is off by default, and `on` adds its marketplace when missing. A marketplace registered under the same name from a different source, including a look-alike URL, is left untouched: only the exact GitHub repository is accepted.
+- `agentfleet config computer-use on|off|status` registers [Open Computer Use](https://github.com/ifuryst/open-computer-use) (MIT) as a user-scope MCP server with Claude Code's own `claude mcp add`, so Claude can read and operate desktop apps on macOS, Windows and Linux. It is off by default and never installed by AgentFleet: `on` needs `npm install -g open-computer-use@1.1.4` first and registers the command's absolute path; `off` removes the registration and leaves the package installed. Tested on a Linux GNOME (X11) desktop: Claude listed the running apps and read a window title through the MCP tools.
+- lane-guard 1.6.0: a `[computer-use]` rule blocks lanes from running the Open Computer Use CLI: the `ocu` or `open-computer-use` command, or a package runner (`npx`, `npm`, `pnpm`, `yarn`, `bun` and others) with the `open-computer-use` package anywhere in the command. The main session is not blocked. Lanes never get its MCP tools, since each lane lists its own tools.
+- Policy rule in Safety: desktop and phone control runs only in the main session and only on the apps the task needs, never in a password manager, banking or payment app or private conversation, and asks before it sends, buys, deletes or submits anything. It renders in every work style.
+- `/fleet-suggest` offers [Mobile MCP](https://github.com/mobile-next/mobile-mcp) (Apache-2.0, pinned to 1.0.16) to mobile app projects: React Native, Expo, Capacitor or Cordova Android/iOS dependencies, `pubspec.yaml`, `android/app/build.gradle` or an Xcode project. It is registered for that project only, with its anonymous telemetry turned off. `agentfleet config mobile-mcp on|off|status` registers it for every project instead; it is off by default. A catalog tool entry can now name an `mcp` server, and it is not offered once Claude Code has a server by that name for the user or the project.
+
 ## [2.20.0] - 2026-11-07
 
 ### Added

@@ -454,6 +454,25 @@ DEFAULT_MODS = (
 DEFAULT_MOD_NAMES = tuple(name for name, _ in DEFAULT_MODS)
 
 
+def install_default_plugins(home: Path) -> None:
+    """Install the upstream plugins AgentFleet turns on for a new install.
+    Best-effort: a failure prints the command to run and never fails the install."""
+    try:
+        import plugin_toggle
+    except ImportError:
+        return
+    for setting in plugin_toggle.DEFAULT_ON:
+        meta = plugin_toggle.PLUGINS[setting]
+        try:
+            if plugin_toggle.installed(home, setting):
+                continue
+            plugin_toggle.enable(home, setting)
+        except Exception:  # noqa: BLE001 - an optional plugin must never fail an install
+            print(f"Could not add {meta['title']}; run: agentfleet config {setting} on")
+            continue
+        print(f"Added {meta['title']}, an upstream Claude Code plugin. Turn it off with: agentfleet config {setting} off")
+
+
 def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:
     """Register the agentfleet marketplace and default plugins, once.
 
@@ -775,7 +794,7 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
     for rel in (
         PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT, INSTRUCTIONS_SCRIPT, AGENT_BRAIN_SCRIPT,
         "scripts/fleet_watch.py", "scripts/fleet_suggest.py", "scripts/fleet_configure.py", "scripts/context_mode.py",
-        "scripts/provider_usage.py",
+        "scripts/computer_use.py", "scripts/plugin_toggle.py", "scripts/provider_usage.py",
         "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
     ):
         if not (bundle / rel).is_file():
@@ -3050,6 +3069,8 @@ def managed_specs(
     add(claude / "fleet_instructions.py", source_bytes(bundle, INSTRUCTIONS_SCRIPT), 0o755, "home:.claude/fleet_instructions.py")
     add(claude / "agent_brain.py", source_bytes(bundle, AGENT_BRAIN_SCRIPT), 0o755, "home:.claude/agent_brain.py")
     add(claude / "context_mode.py", source_bytes(bundle, "scripts/context_mode.py"), 0o755, "home:.claude/context_mode.py")
+    add(claude / "computer_use.py", source_bytes(bundle, "scripts/computer_use.py"), 0o755, "home:.claude/computer_use.py")
+    add(claude / "plugin_toggle.py", source_bytes(bundle, "scripts/plugin_toggle.py"), 0o755, "home:.claude/plugin_toggle.py")
     add(claude / "provider_usage.py", source_bytes(bundle, "scripts/provider_usage.py"), 0o755, "home:.claude/provider_usage.py")
     add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")
@@ -4024,6 +4045,9 @@ def _apply_install_locked(args: argparse.Namespace, bundle: Path, dry: bool, hom
             refresh_installed_mods(home, mods_dir_for_home(home))
         except Exception as exc:  # noqa: BLE001 - updating mods must never fail an install
             print(f"Could not update the AgentFleet mods ({exc.__class__.__name__}); run: agentfleet update")
+    if not previous and not declined_mods and os.environ.get("AGENTFLEET_DEFAULT_PLUGINS") != "0":
+        # A new install only: an update asks in agentfleet configure instead.
+        install_default_plugins(home)
     if "lane-guard" not in (old_metadata(home).get("modsInstalled") or []):
         try:
             access = provider_catalog.load_preferences(home)["reviewerAccess"]

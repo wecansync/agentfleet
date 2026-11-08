@@ -882,12 +882,27 @@ def _remote_target(words: list[str], program: str) -> bool:
     return False
 
 
+COMPUTER_USE_CLIS = {"ocu", "open-computer-use"}
+PACKAGE_RUNNERS = {"npx", "bunx", "pnpx", "npm", "pnpm", "yarn", "bun"}
+# The npm package name, also inside a quoted script (`npx -c 'open-computer-use mcp'`).
+COMPUTER_USE_PACKAGE = re.compile(r"(^|[\s'\"=/])open-computer-use(@[\w.^~-]+)?(?=$|[\s'\"])")
+
+
 def _segment_reason(segment: str) -> str | None:
-    words = _skip_wrapper(_words(segment))
+    raw = _words(segment)
+    # Open Computer Use's CLI clicks and types in other apps; lanes leave it to the main session.
+    # Checked on the raw words, so neither a wrapper (`sudo`) nor a runner option that
+    # takes a value (`npx --cache DIR`) hides the package. A bare `ocu` argument is not
+    # matched: no npm package of that name is Open Computer Use.
+    if any(_program([w]) in PACKAGE_RUNNERS for w in raw) and any(COMPUTER_USE_PACKAGE.search(w) for w in raw):
+        return "computer-use"
+    words = _skip_wrapper(raw)
     if not words:
         return None
     program = _program(words)
     args = words[1:]
+    if program.split("@")[0] in COMPUTER_USE_CLIS:
+        return "computer-use"
     if program == "git":
         subcommand, sargs = _git_parts(words)
         if subcommand in GIT_HISTORY or subcommand in {"pull", "bisect"}:

@@ -1250,6 +1250,65 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print(f"agentfleet: {exc}", file=sys.stderr)
             return 1
 
+    if setting in {"context7", "security-guidance", "egm"}:
+        if value not in {"on", "off", "status"}:
+            print(f"agentfleet: {setting} must be on, off, or status", file=sys.stderr)
+            return 2
+        try:
+            import plugin_toggle
+            title = plugin_toggle.PLUGINS[setting]["title"]
+            if value == "status":
+                print(f"{setting}: {plugin_toggle.status(paths.home, setting)}")
+            elif value == "on":
+                if plugin_toggle.enable(paths.home, setting):
+                    print(f"{title} is on for your user scope. Restart Claude Code to apply.")
+                else:
+                    print(f"{title} is already on.")
+            elif plugin_toggle.disable(paths.home, setting):
+                print(f"{title} is off; the plugin stays installed. Restart Claude Code to apply.")
+            else:
+                print(f"{title} is already off.")
+            return 0
+        except ImportError:
+            print(f"agentfleet: {setting} support is missing; reinstall AgentFleet", file=sys.stderr)
+            return 1
+        except plugin_toggle.PluginToggleError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 1
+
+    if setting in {"computer-use", "mobile-mcp"}:
+        if value not in {"on", "off", "status"}:
+            print(f"agentfleet: {setting} must be on, off, or status", file=sys.stderr)
+            return 2
+        try:
+            import computer_use
+            title = computer_use.SETTINGS[setting]["title"]
+            if value == "status":
+                print(f"{setting}: {computer_use.status(paths.home, setting)}")
+            elif value == "on":
+                if not computer_use.enable(paths.home, setting):
+                    print(f"{title} is already on.")
+                elif setting == "computer-use":
+                    print("Open Computer Use is registered for your user scope. Restart Claude Code; it can then "
+                          "read and operate apps on this computer's desktop. Use it from the main session only: "
+                          "lane-guard cannot see clicks or keystrokes.")
+                else:
+                    print("Mobile MCP is registered for your user scope, with its telemetry off. Restart Claude Code; "
+                          "it can then drive the emulators, simulators and USB phones that adb or Xcode can reach. "
+                          "Use it from the main session only.")
+            elif computer_use.disable(paths.home, setting):
+                kept = "the npm package stays installed" if setting == "computer-use" else "nothing else is removed"
+                print(f"{title} is off; {kept}. Restart Claude Code to apply.")
+            else:
+                print(f"{title} is already off.")
+            return 0
+        except ImportError:
+            print(f"agentfleet: {setting} support is missing; reinstall AgentFleet", file=sys.stderr)
+            return 1
+        except computer_use.ComputerUseError as exc:
+            print(f"agentfleet: {exc}", file=sys.stderr)
+            return 1
+
     if setting == "agent-brain":
         if value not in {"on", "off"}:
             print("agentfleet: agent-brain must be on or off", file=sys.stderr)
@@ -2151,7 +2210,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "prices", "provider-usage", "main-session-guard"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "computer-use", "mobile-mcp", "context7", "security-guidance", "egm", "prices", "provider-usage", "main-session-guard"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")

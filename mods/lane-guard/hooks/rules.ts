@@ -14,6 +14,11 @@ const RULES = {
   RM_DANGEROUS: { rule: 'rm-dangerous', label: 'dangerous rm' },
   GIT_DISCARD: { rule: 'git-discard', label: 'work-discarding git' },
   GITHUB_DELETE: { rule: 'github-delete', label: 'GitHub delete' },
+  COMPUTER_USE: {
+    rule: 'computer-use',
+    label: 'desktop control',
+    hint: 'Desktop control stays in the main session, where the user can see it; report what you need instead.',
+  },
 } as const;
 
 // 'lane' blocks everything a fleet lane must leave to the main agent. 'main' is
@@ -809,8 +814,29 @@ function isRemoteHostPath(arg: string): boolean {
   return slashIdx === -1 || colonIdx < slashIdx;
 }
 
+// Open Computer Use's CLI clicks and types in other apps, which no command rule can see.
+const COMPUTER_USE_CLIS = ['ocu', 'open-computer-use'];
+const PACKAGE_RUNNERS = ['npx', 'bunx', 'pnpx', 'npm', 'pnpm', 'yarn', 'bun'];
+// The npm package name, also inside a quoted script (`npx -c 'open-computer-use mcp'`).
+const COMPUTER_USE_PACKAGE = /(^|[\s'"=/])open-computer-use(@[\w.^~-]+)?(?=$|[\s'"])/;
+
+// Checked on the raw words, so neither a wrapper (`sudo`) nor a runner option
+// that takes a value (`npx --cache DIR`) hides the package. A bare `ocu`
+// argument is not matched: no npm package of that name is Open Computer Use.
+function runsComputerUse(tokens: string[]): boolean {
+  return (
+    tokens.some((t) => PACKAGE_RUNNERS.includes(t.split('/').pop() || t)) &&
+    tokens.some((t) => COMPUTER_USE_PACKAGE.test(t))
+  );
+}
+
 function checkSegment(program: string, args: string[], mode: GuardMode): ForbiddenResult | null {
   const base = program.split('/').pop() || program;
+
+  // [computer-use] lanes only: the main session may use it in front of the user.
+  if (mode === 'lane' && COMPUTER_USE_CLIS.includes(base.split('@')[0])) {
+    return RULES.COMPUTER_USE;
+  }
 
   // [git-history]
   if (base === 'git') {
@@ -1253,6 +1279,7 @@ export function forbiddenReason(command: string, mode: GuardMode = 'lane'): Forb
   // 3. Evaluate each segment against all rules
   for (const seg of segments) {
     const tokens = tokenizeSegment(seg);
+    if (mode === 'lane' && runsComputerUse(tokens)) return RULES.COMPUTER_USE;
     const unwrapped = unwrapTokens(tokens);
     if (!unwrapped) continue;
 

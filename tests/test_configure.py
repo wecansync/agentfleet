@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "contextMode", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
+KEYS = ["compact", "jev", "contextMode", "context7", "securityGuidance", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
         "mainSessionGuard", "statusBand", "sessionInfo", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
 ACTIONS = {"instructions"}
 
@@ -162,7 +162,8 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual({k for k, v in introduced.items() if v == "2.12.0"}, {"contextMode", "branchCheck", "brainMod", "providerUsage"})
         self.assertEqual({k for k, v in introduced.items() if v == "2.13.0"}, {"sessionInfo"})
         self.assertEqual({k for k, v in introduced.items() if v == "2.15.0"}, {"mainSessionGuard"})
-        self.assertEqual([f.key for f in wizard.FEATURES[14:17]], ["learn", "agentBrainInstall", "agentBrain"])
+        self.assertEqual({k for k, v in introduced.items() if v == "2.21.0"}, {"context7", "securityGuidance"})
+        self.assertEqual([f.key for f in wizard.FEATURES[16:19]], ["learn", "agentBrainInstall", "agentBrain"])
 
     def test_groups_and_closing_pointers_are_interactive_only(self):
         _, _, output = self.interactive_run({"agentBrainInstall": False, "instructions": False})
@@ -472,6 +473,8 @@ class ConfigureTests(unittest.TestCase):
             def isatty(self):
                 return True
         prompted = []
+        # The recommended plugins are declined unless a test answers them.
+        answers = {"context7": False, "securityGuidance": False, **answers}
         def fake_prompt(feature, value):
             prompted.append(feature.key)
             return answers.get(feature.key, value)
@@ -578,7 +581,8 @@ class ConfigureTests(unittest.TestCase):
         # asked, and declined; local memory is skipped. The instruction check
         # is declined so no headless Claude run starts.
         questions = [f for f in wizard.FEATURES if f.key not in {'agentBrain', 'agentBrainLocalMemory'}]
-        declined = ('agentBrainInstall', 'instructions')
+        # The recommended plugins default to Yes; declining them keeps the run offline.
+        declined = ('agentBrainInstall', 'instructions', 'context7', 'securityGuidance')
         deadline = time.monotonic() + 20
         reaped = False
         try:

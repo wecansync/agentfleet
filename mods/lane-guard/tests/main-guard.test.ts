@@ -54,6 +54,7 @@ const asked: Array<[string, string]> = [
 
 // The main session commits, pushes, opens pull requests and switches branches as asked.
 const allowed = [
+  "ocu call click --args '{\"app\":\"Firefox\"}'",
   'git status',
   'git commit -m "fix: thing"',
   'git push',
