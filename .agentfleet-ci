@@ -1,0 +1,2 @@
+# Command agentfleet ci runs for this repository.
+sh packaging/test-gate.sh

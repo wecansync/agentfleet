@@ -37,6 +37,7 @@ retrieval-only with respect to code execution, not a strict read-only boundary.
    - `gh workflow run`, `enable`, `disable`
    - `gh issue create`, `close`, `edit`, `comment`, `delete`, `reopen`
    - `gh api` with mutating methods (`-X`/`--method` `POST`, `PUT`, `PATCH`, `DELETE`), or with `-f`/`-F`/`--field`/`--input` unless `-X GET` is given
+   - `agentfleet ci` without `--no-status`, which posts a commit status (from 1.7.0)
 
 3. **Publishing and deployment (`[publish-deploy]`)**:
    - Package publishing: `npm publish`, `pnpm publish`, `yarn publish`, `bun publish`, `twine upload`, `cargo publish`, `gem push`

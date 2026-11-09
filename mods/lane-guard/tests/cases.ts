@@ -1390,5 +1390,53 @@ export const cases: TestCase[] = [
   {
     "command": "sudo ocu mcp",
     "rule": "computer-use"
+  },
+  {
+    "command": "agentfleet ci",
+    "rule": "github-write"
+  },
+  {
+    "command": "agentfleet ci --run 'npm test'",
+    "rule": "github-write"
+  },
+  {
+    "command": "agentfleet ci --no-status",
+    "rule": null
+  },
+  {
+    "command": "agentfleet ci --run 'npm test' --no-status",
+    "rule": null
+  },
+  {
+    "command": "python3 ~/.claude/agentfleet.py ci",
+    "rule": "github-write"
+  },
+  {
+    "command": "agentfleet --home /tmp/home ci",
+    "rule": "github-write"
+  },
+  {
+    "command": "sudo agentfleet ci",
+    "rule": "github-write"
+  },
+  {
+    "command": "python3 ~/.claude/agentfleet.py ci --no-status",
+    "rule": null
+  },
+  {
+    "command": "agentfleet doctor",
+    "rule": null
+  },
+  {
+    "command": "python3 ~/.claude/local_ci.py",
+    "rule": "github-write"
+  },
+  {
+    "command": "~/.claude/local_ci.py --run 'npm test'",
+    "rule": "github-write"
+  },
+  {
+    "command": "python3 ~/.claude/local_ci.py --no-status",
+    "rule": null
   }
 ];

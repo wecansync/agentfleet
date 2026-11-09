@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -408,6 +409,21 @@ services:
         # Registered for every project (user scope).
         (self.home / ".claude.json").write_text(json.dumps({"mcpServers": {"mobile-mcp": {}}}), encoding="utf-8")
         self.assertNotIn("mobile-mcp", {s["id"] for s in fleet_suggest.suggest(self.home, flutter)})
+
+    def test_boat_offered_to_repos_with_workflows_until_the_cli_is_installed(self):
+        repo = self.root / "ci_repo"
+        (repo / ".github" / "workflows").mkdir(parents=True)
+        (repo / ".github" / "workflows" / "test.yml").write_text("on: push\n", encoding="utf-8")
+        plain = self.root / "plain_repo"
+        plain.mkdir()
+        (plain / "app.py").write_text("x = 1\n", encoding="utf-8")
+        with patch.object(fleet_suggest.shutil, "which", return_value=None):
+            suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, repo)}
+            self.assertIn("boat", suggs)
+            self.assertIn("card is required", suggs["boat"]["access"])
+            self.assertNotIn("boat", {s["id"] for s in fleet_suggest.suggest(self.home, plain)})
+        with patch.object(fleet_suggest.shutil, "which", side_effect=lambda name: "/usr/local/bin/boat" if name == "boat" else None):
+            self.assertNotIn("boat", {s["id"] for s in fleet_suggest.suggest(self.home, repo)})
 
     def test_ui_skills_offered_until_installed_in_project_or_home(self):
         app = self.root / "react_proj"

@@ -812,6 +812,10 @@ def suggest(home: Path, project: Path) -> list[dict]:
             plugin = entry.get("plugin")
             if isinstance(plugin, str) and plugin and plugin in inv["installed_names"]:
                 continue
+            # A tool that is a command is not offered once it is on PATH.
+            command = entry.get("command")
+            if isinstance(command, str) and command and shutil.which(command):
+                continue
             # A tool that is an MCP server is not offered once Claude Code has it.
             server = entry.get("mcp")
             if isinstance(server, str) and server and server in inv["project_mcp_servers"]:

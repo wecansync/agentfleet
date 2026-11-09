@@ -52,6 +52,7 @@ Skip the check when the user has already chosen the branch for this task, or the
 - **Script repeated work:** when the same rule-based steps recur (a check, a conversion, a release step), write them once as a script, test or hook and run that, rather than having a model work them out again each time. Keep model calls for steps that need judgment.
 - **Nothing unrequested:** add no feature, option or abstraction the task did not ask for. When you leave out something the user might expect, say so in one line.
 - **But finish:** complete every part the task needs, including the callers, tests and fixtures your change breaks.
+- **Local CI:** in a GitHub repository, after you push a branch for a pull request, run `agentfleet ci` and report the result; fix a failure before asking for a merge. Do not wait for hosted CI to start unless the user asks.
 
 ## Work style
 
