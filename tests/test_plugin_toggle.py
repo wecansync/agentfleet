@@ -84,7 +84,7 @@ class PluginToggleTests(unittest.TestCase):
         return [json.loads(line)["argv"] for line in self.calls_path.read_text(encoding="utf-8").splitlines()]
 
     def test_status_reads_files_without_running_claude(self):
-        for setting in ("context7", "security-guidance", "egm"):
+        for setting in ("context7", "security-guidance", "playwright", "egm"):
             with self.subTest(setting=setting):
                 result = self.run_agentfleet("config", setting, "status")
                 self.assertEqual(result.stdout.strip(), f"{setting}: off (not installed)")

@@ -3,6 +3,12 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.22.0] - 2026-11-09
+
+### Added
+
+- Playwright (Microsoft's browser automation plugin, from Anthropic's official marketplace) is now on by default: a new install adds it with Context7 and Security Guidance, and an existing install is asked once in `agentfleet configure`, with Yes preselected. `agentfleet config playwright on|off|status` turns it on or off; `off` disables it and keeps it installed. `AGENTFLEET_DEFAULT_PLUGINS=0` or `--no-mods` skips it on a new install. Its browser tools are listed in every session, which costs some context; `/fleet-suggest` no longer offers it once it is installed.
+
 ## [2.21.0] - 2026-11-08
 
 ### Added

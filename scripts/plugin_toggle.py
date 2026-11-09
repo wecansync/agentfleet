@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """On/off toggles for upstream Claude Code plugins AgentFleet recommends.
 
-`context7` (documentation lookup) and `security-guidance` (flags insecure code
-as Claude writes it) come from Anthropic's official marketplace and are
+`context7` (documentation lookup), `security-guidance` (flags insecure code as
+Claude writes it) and `playwright` (drives a browser to test web pages) come
+from Anthropic's official marketplace and are
 installed by default on a new AgentFleet install; existing installs are asked
 once in `agentfleet configure`. `egm` (Google's Elephant-Goldfish Model) is off
 by default. Changes go through Claude Code's own plugin CLI; status is read
@@ -26,6 +27,13 @@ PLUGINS = {
     "security-guidance": {
         "id": "security-guidance@claude-plugins-official",
         "title": "Security Guidance",
+        "marketplace": "claude-plugins-official",
+        "repo": "anthropics/claude-plugins-official",
+        "default": True,
+    },
+    "playwright": {
+        "id": "playwright@claude-plugins-official",
+        "title": "Playwright",
         "marketplace": "claude-plugins-official",
         "repo": "anthropics/claude-plugins-official",
         "default": True,
