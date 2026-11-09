@@ -53,6 +53,8 @@ class InstallConfigureTests(unittest.TestCase):
     def test_installed_cli_ships_computer_use_and_leaves_it_off(self):
         self.run_install("--no-configure")
         self.assertTrue((self.home / ".claude/computer_use.py").is_file())
+        self.assertTrue((self.home / ".claude/local_ci.py").is_file())
+        self.assertTrue((self.home / ".claude/plugin_toggle.py").is_file())
         result = subprocess.run([sys.executable, "-B", str(self.home / ".claude/agentfleet.py"), "--home", str(self.home),
                                  "--config-home", str(self.config), "config", "computer-use", "status"],
                                 cwd=self.cwd, env={**self.env, "PATH": os.defpath}, text=True,

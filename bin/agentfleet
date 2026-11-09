@@ -1489,6 +1489,15 @@ def cmd_instructions(paths: Paths, args: argparse.Namespace) -> int:
     return module.main(forwarded, paths.home)
 
 
+def cmd_ci(paths: Paths, args: argparse.Namespace) -> int:
+    try:
+        import local_ci
+    except ImportError:
+        print("agentfleet: ci support is missing; reinstall AgentFleet", file=sys.stderr)
+        return 1
+    return local_ci.main([*(["--run", args.run] if args.run else []), *(["--no-status"] if args.no_status else [])])
+
+
 def cmd_suggest(paths: Paths, args: argparse.Namespace) -> int:
     import fleet_suggest
     forwarded: list[str] = ["--home", str(paths.home)]
@@ -2226,6 +2235,9 @@ def main() -> int:
     rep = sub.add_parser("report", help="summarize subagent runs and active provider outages")
     rep.add_argument("--days", type=int, default=7, help="number of days to report (default: 7)")
     rep.add_argument("--json", action="store_true", help="output report as JSON")
+    ci = sub.add_parser("ci", help="run the project's tests here and post the result to GitHub as agentfleet/tests")
+    ci.add_argument("--run", metavar="COMMAND", help="test command (default: .agentfleet-ci or detected from the project)")
+    ci.add_argument("--no-status", action="store_true", help="run the tests without posting a GitHub status")
     sugg = sub.add_parser("suggest", help="propose plugins, MCP servers, mods, and hooks for the project")
     sugg.add_argument("--project", metavar="DIR", help="project directory to scan")
     sugg.add_argument("--json", action="store_true", help="output suggestions as JSON")
@@ -2273,7 +2285,7 @@ def main() -> int:
         "doctor": cmd_doctor, "sync": cmd_sync, "config": cmd_config, "configure": cmd_configure, "jev": cmd_jev,
         "update": cmd_update, "uninstall": cmd_uninstall, "rollback": cmd_rollback,
         "version": cmd_version, "auto-update": cmd_auto_update, "add": cmd_add, "remove": cmd_remove,
-        "report": cmd_report, "suggest": cmd_suggest, "project": cmd_project, "instructions": cmd_instructions,
+        "report": cmd_report, "ci": cmd_ci, "suggest": cmd_suggest, "project": cmd_project, "instructions": cmd_instructions,
     }
     return handlers[args.command](paths, args)
 

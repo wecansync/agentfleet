@@ -1298,6 +1298,24 @@
       "source": "mobile-next/mobile-mcp",
       "access": "Registers the Apache-2.0 Mobile MCP server (pinned to 1.0.16, run with npx) for this project only. It controls the emulators, simulators and USB-connected phones that adb or Xcode can reach: installing and launching apps, taps, typing and screenshots. It needs the Android SDK (adb) or Xcode. Its anonymous usage telemetry is turned off.",
       "template": "Start an emulator, a simulator or connect a phone with USB debugging, start a new session, then ask Claude to open the app and check a screen. Use it from the main session; lanes do not get MCP tools. claude mcp remove mobile-mcp removes it."
+    },
+    {
+      "id": "boat",
+      "kind": "tool",
+      "title": "Boat (paid cloud Linux sandboxes for tests and agents)",
+      "why": "GitHub workflows found; Boat runs a clean Ubuntu machine per job, for tests that need more than this computer. agentfleet ci already runs the tests here for free",
+      "match": {
+        "files": [
+          ".github/workflows/*"
+        ]
+      },
+      "command": "boat",
+      "install": {
+        "command": "curl -fsSL https://boat.dev/install | sh"
+      },
+      "source": "boat.dev",
+      "access": "A paid third-party service: a card is required, even for the 7-day trial, and plans start at $20 a month. The installer script, piped from boat.dev into sh, adds the boat CLI and opens a browser to sign in. Testing on Boat copies your repository to their machines, plus any secrets or .env files you give its environments. Its CI recipe runs inside GitHub Actions, so it does not help while Actions is unavailable; agentfleet ci does.",
+      "template": "After sign-in, open a new terminal. boat new starts a sandbox, boat exec <id> \"<command>\" runs a command in it, and boat stop <id> stops billing. Stop sandboxes when done; each runs until its auto-stop (one hour by default)."
     }
   ]
 }

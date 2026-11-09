@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.22.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.23.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -84,6 +84,42 @@ an assurance of OS-level isolation. Upstream updates and ELv2 licensing remain
 upstream-managed; AgentFleet does not vendor or relicense the plugin. See the
 [upstream project](https://github.com/mksglu/context-mode) and
 [license](https://github.com/mksglu/context-mode/blob/main/LICENSE).
+
+### Local CI (`agentfleet ci`)
+
+When hosted CI is slow or unavailable (for example, a GitHub account locked
+for billing), run the tests on your own machine and post the result to the
+pull request as the commit status `agentfleet/tests`:
+
+```sh
+git push                     # GitHub must have the commit first
+agentfleet ci                # run the tests, then post success or failure
+agentfleet ci --run "npm test"
+agentfleet ci --no-status    # run the tests without posting
+```
+
+The test command comes from `--run`, or the first line of a committed
+`.agentfleet-ci` file, or the project: `npm test` (or `pnpm`, `yarn`, `bun`),
+`composer test`, `vendor/bin/phpunit`, `php artisan test`, `make test`,
+`go test ./...`, `cargo test`, or pytest/unittest. It runs through your shell
+with your permissions, as `npm test` would.
+
+A status is posted only for a commit with no uncommitted changes that GitHub
+already has, and only if the same commit is still checked out when the tests
+finish. It needs `gh` signed in with write access to the repository. The status
+says the tests passed on the machine that ran them, not on a neutral runner.
+When it posts, `.agentfleet-ci` is read from the commit, not the disk. Git-ignored
+files (such as `node_modules` or a local `.env`) still take part in the run.
+To require it before merging, add `agentfleet/tests` to the branch protection's
+required status checks. The policy tells Claude to run it after pushing a pull
+request branch instead of waiting for hosted CI; lanes may run only
+`agentfleet ci --no-status`. lane-guard blocks the posting forms it can recognise
+by name; that check is best-effort, not a sandbox.
+
+[Boat](https://docs.boat.dev/quickstart) (paid cloud sandboxes) is offered in
+`/fleet-suggest` for repositories with GitHub workflows. It is off unless you
+pick it, needs a card and a browser sign-in, and copies your repository to its
+machines. Its own CI recipe runs inside GitHub Actions.
 
 ### Computer use (optional, off by default)
 

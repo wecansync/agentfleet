@@ -3,6 +3,16 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.23.0] - 2026-11-09
+
+### Added
+
+- `agentfleet ci` runs the project's tests on this machine and posts the result to GitHub as the commit status `agentfleet/tests`, through `gh`, so a pull request can be checked while hosted CI is unavailable or slow. The command comes from `--run`, a committed `.agentfleet-ci` file, or the project (npm, pnpm, yarn, bun, Composer, PHPUnit, Laravel, make, Go, Cargo, pytest, unittest). A status is posted only for a clean commit GitHub already has, and only if that commit is still checked out when the tests finish; otherwise the run stops, or posts `error`. When it posts, `.agentfleet-ci` is read from the commit, so an ignored or untracked copy cannot replace the committed tests; other Git-ignored files (such as `node_modules`) still take part. `--no-status` only runs the tests. The status reports a run on the pusher's machine, not on a neutral runner.
+- Policy: in a GitHub repository, after pushing a pull request branch, run `agentfleet ci` and report the result, and fix a failure before asking for a merge, rather than waiting for hosted CI.
+- lane-guard 1.7.0: `[github-write]` covers `agentfleet ci` without `--no-status`, which posts a status, also through the Python entry point (`python3 ~/.claude/agentfleet.py ci`), wrappers such as `sudo`, global options such as `--home DIR`, and the installed helper `~/.claude/local_ci.py`; lanes may still run the tests. The rule matches command words, so it is best-effort: a lane that copies or imports the helper is not caught, and the policy remains the main control.
+- `/fleet-suggest` offers Boat (paid cloud Linux sandboxes) to repositories with GitHub workflows, off unless picked. The offer says it needs a card, copies the repository to Boat's machines, and that its CI recipe runs inside GitHub Actions. A catalog tool entry can name a `command`, and it is not offered once that command is on PATH.
+- AgentFleet's own repository runs its clean-environment gate through `.agentfleet-ci` (`packaging/test-gate.sh`, which exits non-zero when a module fails), and its `main` branch requires `agentfleet/tests`.
+
 ## [2.22.0] - 2026-11-09
 
 ### Added

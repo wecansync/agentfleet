@@ -794,7 +794,7 @@ def validate_bundle(bundle: Path) -> tuple[dict, str]:
     for rel in (
         PROVIDER_POLICY_PATH, PROVIDER_CATALOG_MODULE, RECONCILE_SCRIPT, INSTRUCTIONS_SCRIPT, AGENT_BRAIN_SCRIPT,
         "scripts/fleet_watch.py", "scripts/fleet_suggest.py", "scripts/fleet_configure.py", "scripts/context_mode.py",
-        "scripts/computer_use.py", "scripts/plugin_toggle.py", "scripts/provider_usage.py",
+        "scripts/computer_use.py", "scripts/plugin_toggle.py", "scripts/local_ci.py", "scripts/provider_usage.py",
         "config/suggestions.json", "skills/fleet-suggest/SKILL.md",
     ):
         if not (bundle / rel).is_file():
@@ -3071,6 +3071,7 @@ def managed_specs(
     add(claude / "context_mode.py", source_bytes(bundle, "scripts/context_mode.py"), 0o755, "home:.claude/context_mode.py")
     add(claude / "computer_use.py", source_bytes(bundle, "scripts/computer_use.py"), 0o755, "home:.claude/computer_use.py")
     add(claude / "plugin_toggle.py", source_bytes(bundle, "scripts/plugin_toggle.py"), 0o755, "home:.claude/plugin_toggle.py")
+    add(claude / "local_ci.py", source_bytes(bundle, "scripts/local_ci.py"), 0o755, "home:.claude/local_ci.py")
     add(claude / "provider_usage.py", source_bytes(bundle, "scripts/provider_usage.py"), 0o755, "home:.claude/provider_usage.py")
     add(claude / "fleet-suggestions.json", source_bytes(bundle, "config/suggestions.json"), 0o644, "home:.claude/fleet-suggestions.json")
     add(claude / "skills" / "fleet-setup" / "SKILL.md", source_bytes(bundle, "skills/fleet-setup/SKILL.md"), 0o644, "home:.claude/skills/fleet-setup/SKILL.md")

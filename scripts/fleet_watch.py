@@ -888,6 +888,18 @@ PACKAGE_RUNNERS = {"npx", "bunx", "pnpx", "npm", "pnpm", "yarn", "bun"}
 COMPUTER_USE_PACKAGE = re.compile(r"(^|[\s'\"=/])open-computer-use(@[\w.^~-]+)?(?=$|[\s'\"])")
 
 
+AGENTFLEET_ENTRIES = {"agentfleet", "agentfleet.py"}
+
+
+def _runs_agentfleet_ci(raw: list[str]) -> bool:
+    names = [w.replace("\\", "/").rsplit("/", 1)[-1] for w in raw]
+    # The installed helper posts by default when run on its own.
+    if "local_ci.py" in names and "--no-status" not in raw:
+        return True
+    entry = next((i for i, name in enumerate(names) if name in AGENTFLEET_ENTRIES), None)
+    return entry is not None and "ci" in raw[entry + 1:] and "--no-status" not in raw
+
+
 def _segment_reason(segment: str) -> str | None:
     raw = _words(segment)
     # Open Computer Use's CLI clicks and types in other apps; lanes leave it to the main session.
@@ -896,6 +908,11 @@ def _segment_reason(segment: str) -> str | None:
     # matched: no npm package of that name is Open Computer Use.
     if any(_program([w]) in PACKAGE_RUNNERS for w in raw) and any(COMPUTER_USE_PACKAGE.search(w) for w in raw):
         return "computer-use"
+    # `agentfleet ci` posts a commit status unless told not to. Checked on the raw words, so
+    # the Python entry point (`python3 ~/.claude/agentfleet.py ci`), wrappers and global
+    # options (`agentfleet --home DIR ci`) are covered too.
+    if _runs_agentfleet_ci(raw):
+        return "github-write"
     words = _skip_wrapper(raw)
     if not words:
         return None

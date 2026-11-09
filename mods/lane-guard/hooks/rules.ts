@@ -830,6 +830,18 @@ function runsComputerUse(tokens: string[]): boolean {
   );
 }
 
+// `agentfleet ci` posts a commit status unless told not to. Checked on the raw
+// words, so the Python entry point (`python3 ~/.claude/agentfleet.py ci`),
+// wrappers and global options (`agentfleet --home DIR ci`) are covered too.
+const AGENTFLEET_ENTRIES = ['agentfleet', 'agentfleet.py'];
+function runsAgentfleetCi(tokens: string[]): boolean {
+  const names = tokens.map((t) => t.replace(/\\/g, '/').split('/').pop() || t);
+  // The installed helper posts by default when run on its own.
+  if (names.includes('local_ci.py') && !tokens.includes('--no-status')) return true;
+  const entry = names.findIndex((n) => AGENTFLEET_ENTRIES.includes(n));
+  return entry >= 0 && tokens.slice(entry + 1).includes('ci') && !tokens.includes('--no-status');
+}
+
 function checkSegment(program: string, args: string[], mode: GuardMode): ForbiddenResult | null {
   const base = program.split('/').pop() || program;
 
@@ -1280,6 +1292,7 @@ export function forbiddenReason(command: string, mode: GuardMode = 'lane'): Forb
   for (const seg of segments) {
     const tokens = tokenizeSegment(seg);
     if (mode === 'lane' && runsComputerUse(tokens)) return RULES.COMPUTER_USE;
+    if (mode === 'lane' && runsAgentfleetCi(tokens)) return RULES.GITHUB_WRITE;
     const unwrapped = unwrapTokens(tokens);
     if (!unwrapped) continue;
 
