@@ -218,7 +218,8 @@ class ModInstallerTests(unittest.TestCase):
         home = self.home_for()
         result = self.install(home, extra_env={"AGENTFLEET_DEFAULT_PLUGINS": "1"})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        defaults = ["context7@claude-plugins-official", "security-guidance@claude-plugins-official"]
+        defaults = ["context7@claude-plugins-official", "security-guidance@claude-plugins-official",
+                    "playwright@claude-plugins-official"]
         installs = [c["argv"][2] for c in self.calls() if c["argv"][:2] == ["plugin", "install"]]
         for plugin_id in defaults:
             self.assertIn(plugin_id, installs)

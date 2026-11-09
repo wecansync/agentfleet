@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.21.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.22.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -233,16 +233,19 @@ configuration wizard still asks about new options, so add
 `AGENTFLEET_MODS=0` also opts out of mods; `agentfleet update` honors the
 variable. See [Mods](#mods) for requirements and optional plugins.
 
-A new install also adds two upstream plugins from Anthropic's official
+A new install also adds three upstream plugins from Anthropic's official
 marketplace: **Context7**, which looks up current library documentation (your
-lookups go to Upstash's Context7 service), and **Security Guidance**, which
-warns when Claude writes insecure code and runs locally. An update never adds
-them; `agentfleet configure` asks once, with Yes preselected. Skip them with
+lookups go to Upstash's Context7 service); **Security Guidance**, which warns
+when Claude writes insecure code and runs locally; and **Playwright**
+(Microsoft's browser automation, from 2.22.0), so Claude can open a web app,
+click through it and check pages. Playwright adds its browser tools to every
+session, which costs some context. An update never adds them; `agentfleet configure` asks once, with Yes preselected. Skip them with
 `AGENTFLEET_DEFAULT_PLUGINS=0` or `--no-mods`, and turn each on or off later:
 
 ```sh
 agentfleet config context7 on|off|status
 agentfleet config security-guidance on|off|status
+agentfleet config playwright on|off|status
 agentfleet config egm on|off|status   # Google's Elephant-Goldfish Model, off by default
 ```
 

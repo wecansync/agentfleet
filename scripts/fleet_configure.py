@@ -114,7 +114,7 @@ def current(api, paths, key):
 
 
 # Upstream plugins with an `agentfleet config` toggle, asked with Yes preselected.
-PLUGIN_TOGGLES = {"context7": "context7", "securityGuidance": "security-guidance"}
+PLUGIN_TOGGLES = {"context7": "context7", "securityGuidance": "security-guidance", "playwright": "playwright"}
 
 
 def apply(api, paths, key, value):
@@ -181,6 +181,7 @@ FEATURES = (
     Feature("contextMode", "2.12.0", "Install Context Mode, a third-party plugin (ELv2 license) that indexes large tool output locally and adds its own hooks? It promises no measured token savings. (y/N)", "yes/no"),
     Feature("context7", "2.21.0", "Add Context7, Anthropic-listed plugin that looks up current library documentation? Your lookups go to Upstash's Context7 service. (Y/n)", "yes/no"),
     Feature("securityGuidance", "2.21.0", "Add Security Guidance, Anthropic's plugin that warns when Claude writes insecure code? It runs locally. (Y/n)", "yes/no"),
+    Feature("playwright", "2.22.0", "Add Playwright, Microsoft's browser automation plugin listed by Anthropic, so Claude can open your web app, click through it and check pages? It adds browser tools to every session. (Y/n)", "yes/no"),
     Feature("tokenWeather", "2.5.0", "Show token-weather, a forecast of how full the context window is, above the prompt? (Y/n)", "yes/no"),
     # Lanes
     Feature("workStyle", "2.4.0", "How should Claude use fleet lanes? balanced (work directly; lanes for large, parallel or risky work), direct (lanes only when you ask), or fleet (delegate by default)", "balanced, direct, fleet"),
@@ -464,7 +465,7 @@ def run(api, paths, args):
         if not registered and any(f.key in PLUGIN_IDS for f in selected):
             print(MODS_MESSAGE)
         groups = (
-            ("Context", {"compact", "jev", "contextMode", "context7", "securityGuidance", "tokenWeather"}),
+            ("Context", {"compact", "jev", "contextMode", "context7", "securityGuidance", "playwright", "tokenWeather"}),
             ("Lanes", {"workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard", "mainSessionGuard"}),
             ("Status and reports", {"statusBand", "sessionInfo", "brainMod", "providerUsage", "learn"}),
             ("agent-brain", {"agentBrainInstall", "agentBrain", "agentBrainLocalMemory"}),

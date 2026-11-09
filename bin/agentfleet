@@ -1250,7 +1250,7 @@ def cmd_config(paths: Paths, args: argparse.Namespace) -> int:
             print(f"agentfleet: {exc}", file=sys.stderr)
             return 1
 
-    if setting in {"context7", "security-guidance", "egm"}:
+    if setting in {"context7", "security-guidance", "playwright", "egm"}:
         if value not in {"on", "off", "status"}:
             print(f"agentfleet: {setting} must be on, off, or status", file=sys.stderr)
             return 2
@@ -2210,7 +2210,7 @@ def main() -> int:
     sub.add_parser("doctor", help="verify the installation")
     sub.add_parser("sync", help="regenerate the fleet agents from the fleet map")
     config = sub.add_parser("config", help="show or change AgentFleet preferences")
-    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "computer-use", "mobile-mcp", "context7", "security-guidance", "egm", "prices", "provider-usage", "main-session-guard"))
+    config.add_argument("setting", nargs="?", choices=("compact", "reviewer-access", "learn", "work-style", "ask-first", "branch-check", "agent-brain", "agent-brain-memory", "context-mode", "computer-use", "mobile-mcp", "context7", "security-guidance", "playwright", "egm", "prices", "provider-usage", "main-session-guard"))
     config.add_argument("value", nargs="?")
     instructions = sub.add_parser("instructions", help="check Claude Code instruction files for conflicts")
     instructions.add_argument("--project", metavar="DIR")
