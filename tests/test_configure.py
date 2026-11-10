@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = api
 loader.exec_module(api)
-KEYS = ["compact", "jev", "contextMode", "context7", "securityGuidance", "playwright", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
+KEYS = ["compact", "jev", "contextMode", "context7", "securityGuidance", "playwright", "securityAudit", "tokenWeather", "workStyle", "askFirst", "branchCheck", "reviewerAccess", "laneGuard",
         "mainSessionGuard", "statusBand", "sessionInfo", "brainMod", "providerUsage", "learn", "agentBrainInstall", "agentBrain", "agentBrainLocalMemory", "autoUpdate", "instructions"]
 ACTIONS = {"instructions"}
 
@@ -164,7 +164,8 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual({k for k, v in introduced.items() if v == "2.15.0"}, {"mainSessionGuard"})
         self.assertEqual({k for k, v in introduced.items() if v == "2.21.0"}, {"context7", "securityGuidance"})
         self.assertEqual({k for k, v in introduced.items() if v == "2.22.0"}, {"playwright"})
-        self.assertEqual([f.key for f in wizard.FEATURES[17:20]], ["learn", "agentBrainInstall", "agentBrain"])
+        self.assertEqual({k for k, v in introduced.items() if v == "2.24.0"}, {"securityAudit"})
+        self.assertEqual([f.key for f in wizard.FEATURES[18:21]], ["learn", "agentBrainInstall", "agentBrain"])
 
     def test_groups_and_closing_pointers_are_interactive_only(self):
         _, _, output = self.interactive_run({"agentBrainInstall": False, "instructions": False})
@@ -475,7 +476,7 @@ class ConfigureTests(unittest.TestCase):
                 return True
         prompted = []
         # The recommended plugins are declined unless a test answers them.
-        answers = {"context7": False, "securityGuidance": False, "playwright": False, **answers}
+        answers = {"context7": False, "securityGuidance": False, "playwright": False, "securityAudit": False, **answers}
         def fake_prompt(feature, value):
             prompted.append(feature.key)
             return answers.get(feature.key, value)
@@ -583,7 +584,7 @@ class ConfigureTests(unittest.TestCase):
         # is declined so no headless Claude run starts.
         questions = [f for f in wizard.FEATURES if f.key not in {'agentBrain', 'agentBrainLocalMemory'}]
         # The recommended plugins default to Yes; declining them keeps the run offline.
-        declined = ('agentBrainInstall', 'instructions', 'context7', 'securityGuidance', 'playwright')
+        declined = ('agentBrainInstall', 'instructions', 'context7', 'securityGuidance', 'playwright', 'securityAudit')
         deadline = time.monotonic() + 20
         reaped = False
         try:

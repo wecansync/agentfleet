@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermetic tests for `agentfleet config context7|security-guidance|egm`."""
+"""Hermetic tests for `agentfleet config context7|security-guidance|playwright|egm|security-audit`."""
 from __future__ import annotations
 
 import json
@@ -146,3 +146,103 @@ class PluginToggleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# A git stand-in for the security-audit skill: it records each call and builds the
+# pinned skill folder on checkout, so no network is used. Marker files in the
+# state directory make it fail the fetch, report another commit, or add a symlink.
+FAKE_GIT = r'''#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+
+state = Path(__STATE__)
+args = sys.argv[1:]
+while args[:1] == ["-c"]:
+    args = args[2:]
+with (state / "git-calls.jsonl").open("a", encoding="utf-8") as handle:
+    handle.write(json.dumps(args) + "\n")
+here = Path.cwd()
+if args[0] == "init":
+    (here / ".git").mkdir()
+elif args[0] == "fetch":
+    if (state / "fail-fetch").exists():
+        sys.exit(1)
+    (here / ".git" / "FETCHED").write_text(args[-1])
+elif args[0] == "checkout":
+    skill = here / "skills" / "security-audit"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: security-audit\n---\n")
+    (skill / "validate-findings.cjs").write_text("// validator\n")
+    if (state / "add-symlink").exists():
+        os.symlink("/etc/hostname", skill / "linked")
+elif args[0] == "rev-parse":
+    print("0" * 40 if (state / "wrong-commit").exists() else (here / ".git" / "FETCHED").read_text())
+else:
+    sys.exit(2)
+'''
+PINNED = "c1c8a8c1471069fb0e188eeaff69b8e8db6564a8"
+
+
+@unittest.skipIf(os.name == "nt", "the fake git is a POSIX script")
+class SecurityAuditSkillTests(unittest.TestCase):
+    setUp_base = PluginToggleTests.setUp
+    run_agentfleet = PluginToggleTests.run_agentfleet
+    calls = PluginToggleTests.calls
+
+    def setUp(self):
+        self.setUp_base()
+        fake = self.bin / "git"
+        fake.write_text(FAKE_GIT.replace("__STATE__", repr(str(self.root))), encoding="utf-8")
+        fake.chmod(0o755)
+        self.skill = self.home / ".claude" / "skills" / "security-audit"
+
+    def git_calls(self) -> list[list[str]]:
+        path = self.root / "git-calls.jsonl"
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+    def leftovers(self) -> list[str]:
+        parent = self.skill.parent
+        return sorted(p.name for p in parent.iterdir() if p.name != "security-audit") if parent.exists() else []
+
+    def test_on_copies_the_pinned_commit_with_a_marker_and_off_removes_it(self):
+        self.assertEqual(self.run_agentfleet("config", "security-audit", "status").stdout.strip(),
+                         "security-audit: off (not installed)")
+        result = self.run_agentfleet("config", "security-audit", "on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        fetch = next(c for c in self.git_calls() if c[0] == "fetch")
+        self.assertEqual(fetch[-2:], ["https://github.com/cloudflare/security-audit-skill.git", PINNED])
+        self.assertTrue((self.skill / "SKILL.md").is_file())
+        self.assertIn(PINNED, (self.skill / ".agentfleet-skill").read_text(encoding="utf-8"))
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.run_agentfleet("config", "security-audit", "status").stdout.strip(), "security-audit: on")
+        self.assertIn("already on", self.run_agentfleet("config", "security-audit", "on").stdout)
+        result = self.run_agentfleet("config", "security-audit", "off")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("its copy is removed", result.stdout)
+        self.assertFalse(self.skill.exists())
+        self.assertEqual(self.calls(), [])
+
+    def test_a_copy_installed_outside_agentfleet_is_never_removed(self):
+        self.skill.mkdir(parents=True)
+        (self.skill / "SKILL.md").write_text("mine\n", encoding="utf-8")
+        self.assertEqual(self.run_agentfleet("config", "security-audit", "status").stdout.strip(),
+                         "security-audit: on (installed outside AgentFleet)")
+        result = self.run_agentfleet("config", "security-audit", "off")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not installed by AgentFleet", result.stderr)
+        self.assertEqual((self.skill / "SKILL.md").read_text(encoding="utf-8"), "mine\n")
+
+    def test_failures_leave_nothing_installed(self):
+        for marker, message in (("fail-fetch", "git fetch failed"), ("wrong-commit", "pinned commit"),
+                                ("add-symlink", "symbolic link")):
+            with self.subTest(marker=marker):
+                (self.root / marker).write_text("", encoding="utf-8")
+                result = self.run_agentfleet("config", "security-audit", "on")
+                (self.root / marker).unlink()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(self.skill.exists())
+                self.assertEqual(self.leftovers(), [])
+

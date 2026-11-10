@@ -230,6 +230,9 @@ class WorkStyleTests(unittest.TestCase):
                 with self.subTest(style=style, ask_first=ask_first):
                     rendered = provider_catalog.render_policy(template, style, ask_first)
                     self.assertIn("Run at most three lanes at once unless the user asks for more", rendered)
+                    # A full security audit needs approval of its cost and subagent limit, in every rendering.
+                    self.assertIn("Run its full audit only when the user asks for an audit or pen-test", rendered)
+                    self.assertIn("the maximum number of subagents you will run at once, then wait for approval", rendered)
 
     def test_multi_lane_plan_gate_only_for_balanced_and_fleet(self):
         # Several lanes need an approved plan first; direct and single-lane work do not.

@@ -3,6 +3,13 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.24.0] - 2026-11-10
+
+### Added
+
+- Cloudflare's [security-audit skill](https://github.com/cloudflare/security-audit-skill) (MIT) is on by default: a new install copies it, pinned to reviewed commit `c1c8a8c`, into `~/.claude/skills/security-audit` with a marker file; an existing install is asked once in `agentfleet configure`, with Yes preselected. `agentfleet config security-audit on|off|status` controls it: `on` fetches exactly the pinned commit with `git` and refuses a different commit or a symbolic link; `off` removes only a copy that carries AgentFleet's marker, never one the user installed. A failed fetch on install prints the command to run and leaves nothing behind. `/fleet-suggest` offers it to projects with a manifest until it is in place.
+- Policy, in every work style and setting: use the skill's guidance mode for security questions and focused reviews, and keep single-change reviews on `fleet-security-review`. Run its full audit only when the user asks for an audit or pen-test, after stating the scope, the expected token cost and the maximum number of subagents at once, and with the user's approval; never exceed the approved number, which replaces the three-lane limit for that audit only.
+
 ## [2.23.0] - 2026-11-09
 
 ### Added

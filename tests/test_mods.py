@@ -216,8 +216,20 @@ class ModInstallerTests(unittest.TestCase):
                     "url": "https://github.com/anthropics/claude-plugins-official.git"}
         self.set_fake_state({**new_state(), "marketplaces": [official]})
         home = self.home_for()
+        # The security-audit skill is fetched with git; this stand-in records the fetch
+        # and fails it, so the test stays offline and covers the best-effort path.
+        git_log = self.root / "git-calls.txt"
+        fake_git = self.fake_bin / "git"
+        fake_git.write_text(f"#!/bin/sh\necho \"$*\" >> '{git_log}'\n[ \"$1\" = init ] && mkdir .git && exit 0\nexit 1\n",
+                            encoding="utf-8")
+        fake_git.chmod(0o755)
+        self.addCleanup(fake_git.unlink)
         result = self.install(home, extra_env={"AGENTFLEET_DEFAULT_PLUGINS": "1"})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("cloudflare/security-audit-skill.git c1c8a8c1471069fb0e188eeaff69b8e8db6564a8",
+                      git_log.read_text(encoding="utf-8"))
+        self.assertIn("Could not add Security Audit (Cloudflare); run: agentfleet config security-audit on", result.stdout)
+        self.assertFalse((home / ".claude" / "skills" / "security-audit").exists())
         defaults = ["context7@claude-plugins-official", "security-guidance@claude-plugins-official",
                     "playwright@claude-plugins-official"]
         installs = [c["argv"][2] for c in self.calls() if c["argv"][:2] == ["plugin", "install"]]
