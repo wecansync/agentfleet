@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentFleet — a fleet of Claude Code subagents for any provider</title>
+<link rel="canonical" href="https://agentfleet.sync.com.lb/">
+<meta property="og:url" content="https://agentfleet.sync.com.lb/">
 <meta name="description" content="AgentFleet installs a fleet of native Claude Code subagents mapped to whatever models your provider offers: a Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway.">
 <meta property="og:title" content="AgentFleet">
 <meta property="og:description" content="A fleet of native Claude Code subagents. One command to install. Works with your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway.">
@@ -60,7 +62,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.24.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 10, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.25.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 10, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -72,21 +74,21 @@
           <p class="panel-label">macOS</p>
           <div class="code-wrap">
             <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy macOS install command">Copy</button></div>
-            <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></pre>
+            <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code></pre>
           </div>
         </div>
         <div role="tabpanel" id="panel-linux" aria-labelledby="tab-linux">
           <p class="panel-label">Linux</p>
           <div class="code-wrap">
             <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy Linux install command">Copy</button></div>
-            <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></pre>
+            <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code></pre>
           </div>
         </div>
         <div role="tabpanel" id="panel-win" aria-labelledby="tab-win">
           <p class="panel-label">Windows</p>
           <div class="code-wrap">
             <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy Windows install command">Copy</button></div>
-            <pre><code>irm https://agentfleet.wecansync.com/install.ps1 | iex</code></pre>
+            <pre><code>irm https://agentfleet.sync.com.lb/install.ps1 | iex</code></pre>
           </div>
         </div>
       </div>
@@ -102,7 +104,7 @@
     <div>
       <div class="terminal">
         <div class="terminal-bar" aria-hidden="true"><span></span><span></span><span></span></div>
-        <pre class="terminal-body"><span class="prompt">$</span> curl -fsSL https://agentfleet.wecansync.com/install.sh | sh
+        <pre class="terminal-body"><span class="prompt">$</span> curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh
 <span class="muted">Verifying SHA-256… ok
 Installing under ~/.claude and ~/.local/bin — no root required.</span>
 
@@ -432,25 +434,25 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.24.0</span>
+        <span class="release-version" data-latest-version>v2.25.0</span>
         <span class="release-date" data-latest-date>November 10, 2026</span>
       </div>
-      <p>Cloudflare's security-audit skill is on by default: security guidance in every session, and a full audit when you ask for one.</p>
+      <p>AgentFleet has moved to agentfleet.sync.com.lb, and agent-brain to agentbrain.sync.com.lb.</p>
       <ul class="release-list">
-        <li>New installs add the skill, pinned to a reviewed commit. Existing installs are asked once in <code class="il">agentfleet configure</code>; <code class="il">agentfleet config security-audit off</code> removes it.</li>
-        <li>A full audit runs only when you ask for one. Claude first states the scope, the expected token cost and the most subagents it will run at once, and waits for your approval.</li>
-      </ul>
-    </div>
-      <p>Check pull requests without hosted CI: run the tests on your machine and post the result to GitHub.</p>
-      <ul class="release-list">
-        <li><code class="il">agentfleet ci</code> runs the project's tests here and posts <code class="il">agentfleet/tests</code> on the pull request, so a branch can be checked while GitHub Actions is unavailable. Branch protection can require it.</li>
-        <li>Claude runs it after pushing a pull request branch instead of waiting for hosted CI; lanes can run the tests but not post the status.</li>
-        <li><code class="il">/fleet-suggest</code> offers Boat, paid cloud sandboxes, to repositories with GitHub workflows. Off unless you pick it.</li>
+        <li>Updates, installs and the docs use the new addresses.</li>
+        <li>The former wecansync.com addresses keep working: installers and releases are still served there, so older copies keep updating, and their pages redirect to the new address.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.24.0</span><span class="release-date">November 10, 2026</span><span class="version-summary">Cloudflare's security-audit skill is on by default: security guidance in every session, and a full audit when you ask for one.</span></summary>
+        <ul class="release-list">
+          <li>New installs add the skill, pinned to a reviewed commit. Existing installs are asked once in <code class="il">agentfleet configure</code>; <code class="il">agentfleet config security-audit off</code> removes it.</li>
+          <li>A full audit runs only when you ask for one. Claude first states the scope, the expected token cost and the most subagents it will run at once, and waits for your approval.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.23.0</span><span class="release-date">November 9, 2026</span><span class="version-summary">Check pull requests without hosted CI: run the tests on your machine and post the result to GitHub.</span></summary>
         <ul class="release-list">
@@ -638,7 +640,7 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
         <summary><span class="release-version">v2.8.1</span><span class="release-date">October 15, 2026</span><span class="version-summary">agent-brain works on Windows.</span></summary>
         <ul class="release-list">
           <li>When the daily update installs a newer agent-brain, AgentFleet lets it rewrite its Claude Code hooks, so Windows machines get agent-brain 0.5.5's fixed hooks without any command.</li>
-          <li>A check script for Windows machines: <code class="il">irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1</code>.</li>
+          <li>A check script for Windows machines: <code class="il">irm https://agentfleet.sync.com.lb/windows-check.ps1 -OutFile windows-check.ps1</code>.</li>
         </ul>
       </details>
       <details class="version-item">
@@ -689,7 +691,7 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
         <summary><span class="release-version">v2.6.0</span><span class="release-date">October 14, 2026</span><span class="version-summary">Claude checks the git branch with you before changing files, and the setup wizard installs agent-brain and keeps it up to date.</span></summary>
         <ul class="release-list">
           <li>Before changing files in a git repository, Claude shows the current branch, uncommitted changes and whether it is behind its remote, then asks whether to continue, switch, or start a new branch, with its recommendation. No more work landing on last task's branch. Turn it off with <code class="il">agentfleet config branch-check off</code>.</li>
-          <li>The wizard offers to install <a href="https://agentbrain.wecansync.com">agent-brain</a>, which records the tokens and cost of each session. The download is checked against the release manifest before it is installed.</li>
+          <li>The wizard offers to install <a href="https://agentbrain.sync.com.lb">agent-brain</a>, which records the tokens and cost of each session. The download is checked against the release manifest before it is installed.</li>
           <li>Automatic updates now keep agent-brain current too, once a day, never to an older version.</li>
           <li>agent-brain writes its own Claude Code hooks; AgentFleet no longer keeps a second copy.</li>
         </ul>
@@ -779,7 +781,7 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
       <details class="version-item">
         <summary><span class="release-version">v2.0.6</span><span class="release-date">September 25, 2026</span><span class="version-summary">Windows fixes: the one-command install works on the PowerShell built into Windows, and updates repair hooks an older install left behind.</span></summary>
         <ul class="release-list">
-          <li><code class="il">irm https://agentfleet.wecansync.com/install.ps1 | iex</code> works on Windows PowerShell 5.1. It had stopped on the Microsoft Store <code class="il">python3</code> placeholder and wrongly reported Node.js 18+ as missing. <code class="il">agentfleet update</code> and automatic updates on Windows are fixed too.</li>
+          <li><code class="il">irm https://agentfleet.sync.com.lb/install.ps1 | iex</code> works on Windows PowerShell 5.1. It had stopped on the Microsoft Store <code class="il">python3</code> placeholder and wrongly reported Node.js 18+ as missing. <code class="il">agentfleet update</code> and automatic updates on Windows are fixed too.</li>
           <li>The Windows installer finds a Python installed with <code class="il">uv python install</code> even when it is not on PATH.</li>
           <li><code class="il">agentfleet</code>, <code class="il">claude-agents-doctor</code>, and <code class="il">claude-fleet-setup</code> on Windows run with the Python the installer used, instead of failing with "Python was not found".</li>
           <li>Updates refresh hooks that differ only in quoting or comment style, and never leave a hook pointing at a script they just removed.</li>

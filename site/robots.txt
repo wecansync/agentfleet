@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://agentfleet.sync.com.lb/sitemap.xml

@@ -239,7 +239,7 @@ class AgentBrainTests(unittest.TestCase):
                     agent_brain.latest_release()
         with mock.patch.dict(os.environ, {agent_brain.BASE_URL_ENV: ""}):
             os.environ.pop(agent_brain.BASE_URL_ENV)
-            self.assertEqual(agent_brain.base_url(), "https://agentbrain.wecansync.com")
+            self.assertEqual(agent_brain.base_url(), "https://agentbrain.sync.com.lb")
 
     def test_every_redirect_hop_must_stay_on_https(self):
         self.server.publish_binary("0.9.0", fake_binary("0.9.0"))

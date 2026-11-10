@@ -4,7 +4,7 @@ AgentFleet is maintained by WeCanSync and is MIT licensed. Contributions are
 welcome. Read this guide before opening a PR.
 
 - Public repo: https://github.com/wecansync/agentfleet
-- Site and docs: https://agentfleet.wecansync.com / https://agentfleet.wecansync.com/docs/
+- Site and docs: https://agentfleet.sync.com.lb / https://agentfleet.sync.com.lb/docs/
 
 ---
 

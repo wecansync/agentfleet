@@ -2,8 +2,8 @@
 # AgentFleet bootstrap installer.
 #
 # Usage:
-#   curl -fsSL https://agentfleet.wecansync.com/install.sh | sh
-#   irm https://agentfleet.wecansync.com/install.ps1 | iex   (Windows, see install.ps1)
+#   curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh
+#   irm https://agentfleet.sync.com.lb/install.ps1 | iex   (Windows, see install.ps1)
 #
 # This script is intentionally POSIX sh: it must run correctly under dash,
 # busybox sh, and bash without modification. Everything is inside functions
@@ -12,7 +12,7 @@
 # cannot execute a partial, unintended command.
 set -eu
 
-AGENTFLEET_DEFAULT_BASE_URL="https://agentfleet.wecansync.com"
+AGENTFLEET_DEFAULT_BASE_URL="https://agentfleet.sync.com.lb"
 
 log() {
     printf 'agentfleet: %s\n' "$1"

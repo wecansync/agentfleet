@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.24.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.25.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -160,13 +160,13 @@ and its anonymous telemetry off.
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://agentfleet.wecansync.com/install.sh | sh
+curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-irm https://agentfleet.wecansync.com/install.ps1 | iex
+irm https://agentfleet.sync.com.lb/install.ps1 | iex
 ```
 
 **One command installs and updates.** On an existing install, run the same
@@ -239,7 +239,7 @@ agentfleet auto-update on       # turn them back on
 ```bash
 # Gateway example (set the token first, outside shell history):
 export MY_GATEWAY_TOKEN=…
-curl -fsSL https://agentfleet.wecansync.com/install.sh | \
+curl -fsSL https://agentfleet.sync.com.lb/install.sh | \
   sh -s -- --provider gateway \
             --gateway-url https://gateway.example.com \
             --gateway-token-env MY_GATEWAY_TOKEN
@@ -304,7 +304,7 @@ each AgentFleet and agent-brain hook run through Git Bash, as Claude Code runs
 them; it runs no other hooks.
 
 ```powershell
-irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1
+irm https://agentfleet.sync.com.lb/windows-check.ps1 -OutFile windows-check.ps1
 powershell -ExecutionPolicy Bypass -File .\windows-check.ps1
 ```
 
@@ -324,13 +324,13 @@ same command for installation or updates with the preset:
 **macOS / Linux:**
 
 ```bash
-curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_PRESET=team.json sh
+curl -fsSL https://agentfleet.sync.com.lb/install.sh | AGENTFLEET_PRESET=team.json sh
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET
+$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.sync.com.lb/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET
 ```
 
 A preset path is relative to the current directory.
@@ -702,7 +702,7 @@ Restart Claude Code after changing the work style, ask-first or branch-check.
 
 ### agent-brain
 
-[agent-brain](https://agentbrain.wecansync.com) is a free tool that records
+[agent-brain](https://agentbrain.sync.com.lb) is a free tool that records
 the tokens and cost of each Claude Code session and, from agent-brain 0.5.7,
 keeps a free project memory on your machine. AgentFleet installs and connects
 the free tool only; it never asks you to sign in or create an agent-brain
@@ -710,7 +710,7 @@ account.
 
 - **Install:** when agent-brain is missing, the wizard offers to install it
   (default: yes). AgentFleet downloads the release for your system from
-  agentbrain.wecansync.com, checks it against the release manifest's size and
+  agentbrain.sync.com.lb, checks it against the release manifest's size and
   SHA-256, and puts the `agent-brain` executable in `~/.local/bin` (on Windows,
   `%LOCALAPPDATA%\Programs\agent-brain`). `agentfleet config agent-brain on`
   does the same.

@@ -3,7 +3,7 @@
   "version": "1.8.0",
   "description": "Actionable AgentFleet notices, status summaries, and a live fleet-tasks pane.",
   "author": { "name": "WeCanSync" },
-  "homepage": "https://agentfleet.wecansync.com",
+  "homepage": "https://agentfleet.sync.com.lb",
   "license": "MIT",
   "types": "./types/index.d.ts"
 }
