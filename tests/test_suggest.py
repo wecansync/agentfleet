@@ -376,6 +376,18 @@ services:
                                                encoding="utf-8")
         self.assertNotIn("egm", {s["id"] for s in fleet_suggest.suggest(self.home, designs)})
 
+    def test_security_audit_offered_to_code_projects_until_the_skill_is_in_place(self):
+        app = self.root / "api_app"
+        app.mkdir()
+        (app / "composer.json").write_text("{}", encoding="utf-8")
+        suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, app)}
+        self.assertIn("security-audit", suggs)
+        self.assertEqual(suggs["security-audit"]["install"], "agentfleet config security-audit on")
+        skill = self.home / ".claude" / "skills" / "security-audit"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text("---\nname: security-audit\n---\n", encoding="utf-8")
+        self.assertNotIn("security-audit", {s["id"] for s in fleet_suggest.suggest(self.home, app)})
+
     def test_mobile_mcp_offered_for_mobile_apps_until_registered(self):
         web = self.root / "web_app"
         web.mkdir()

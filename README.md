@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.23.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.24.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -283,9 +283,20 @@ agentfleet config context7 on|off|status
 agentfleet config security-guidance on|off|status
 agentfleet config playwright on|off|status
 agentfleet config egm on|off|status   # Google's Elephant-Goldfish Model, off by default
+agentfleet config security-audit on|off|status
 ```
 
 `off` disables a plugin and keeps it installed.
+
+From 2.24.0 a new install also adds Cloudflare's **Security Audit** skill
+(MIT), pinned to a reviewed commit and copied into `~/.claude/skills/security-audit`;
+an update asks once in `agentfleet configure`. It needs `git` to install and
+Node.js for its validators. For a security question it only gives guidance. Its
+full audit, which starts many subagents and can cost more tokens than any other
+task, runs only when you ask for an audit or pen-test: Claude first states the
+scope, the expected cost and the most subagents it will run at once, and waits
+for your approval. It runs project code only inside an OS sandbox. `off` removes
+the copy AgentFleet installed and never touches a copy you installed yourself.
 
 To check a Windows machine, download and run the check script in PowerShell.
 It prints versions, `agentfleet doctor`, `agent-brain status`, and the result of

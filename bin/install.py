@@ -470,7 +470,7 @@ def install_default_plugins(home: Path) -> None:
         except Exception:  # noqa: BLE001 - an optional plugin must never fail an install
             print(f"Could not add {meta['title']}; run: agentfleet config {setting} on")
             continue
-        print(f"Added {meta['title']}, an upstream Claude Code plugin. Turn it off with: agentfleet config {setting} off")
+        print(f"Added {meta['title']}, an upstream Claude Code add-on. Turn it off with: agentfleet config {setting} off")
 
 
 def register_mods(home: Path, mods_dir: Path) -> tuple[bool, bool]:

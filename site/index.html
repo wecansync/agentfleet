@@ -60,7 +60,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.23.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 9, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.24.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 10, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -432,9 +432,15 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.23.0</span>
-        <span class="release-date" data-latest-date>November 9, 2026</span>
+        <span class="release-version" data-latest-version>v2.24.0</span>
+        <span class="release-date" data-latest-date>November 10, 2026</span>
       </div>
+      <p>Cloudflare's security-audit skill is on by default: security guidance in every session, and a full audit when you ask for one.</p>
+      <ul class="release-list">
+        <li>New installs add the skill, pinned to a reviewed commit. Existing installs are asked once in <code class="il">agentfleet configure</code>; <code class="il">agentfleet config security-audit off</code> removes it.</li>
+        <li>A full audit runs only when you ask for one. Claude first states the scope, the expected token cost and the most subagents it will run at once, and waits for your approval.</li>
+      </ul>
+    </div>
       <p>Check pull requests without hosted CI: run the tests on your machine and post the result to GitHub.</p>
       <ul class="release-list">
         <li><code class="il">agentfleet ci</code> runs the project's tests here and posts <code class="il">agentfleet/tests</code> on the pull request, so a branch can be checked while GitHub Actions is unavailable. Branch protection can require it.</li>
@@ -445,6 +451,14 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.23.0</span><span class="release-date">November 9, 2026</span><span class="version-summary">Check pull requests without hosted CI: run the tests on your machine and post the result to GitHub.</span></summary>
+        <ul class="release-list">
+          <li><code class="il">agentfleet ci</code> runs the project's tests here and posts <code class="il">agentfleet/tests</code> on the pull request, so a branch can be checked while GitHub Actions is unavailable. Branch protection can require it.</li>
+          <li>Claude runs it after pushing a pull request branch instead of waiting for hosted CI; lanes can run the tests but not post the status.</li>
+          <li><code class="il">/fleet-suggest</code> offers Boat, paid cloud sandboxes, to repositories with GitHub workflows. Off unless you pick it.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.22.0</span><span class="release-date">November 9, 2026</span><span class="version-summary">Playwright is on by default, so Claude can open your web app and check it in a browser.</span></summary>
         <ul class="release-list">

@@ -1272,6 +1272,28 @@
       "template": "Start a new session, then for a feature with consequential decisions run /egm:egm-brainstorm <idea>, /egm:egm-draft, and /egm:egm-review <draft path>. Skip it for small fixes. /egm:egm-drift-report compares design documents with the current code. claude plugin uninstall egm@egm removes it."
     },
     {
+      "id": "security-audit",
+      "kind": "tool",
+      "title": "Security Audit (Cloudflare's multi-phase security audit skill)",
+      "why": "Project manifests present; answers security questions, and on request runs a whole-codebase audit whose findings are each checked by an independent agent",
+      "match": {
+        "files": [
+          "package.json",
+          "pyproject.toml",
+          "Cargo.toml",
+          "composer.json",
+          "go.mod"
+        ]
+      },
+      "skill": "security-audit",
+      "install": {
+        "command": "agentfleet config security-audit on"
+      },
+      "source": "cloudflare/security-audit-skill",
+      "access": "Copies Cloudflare's MIT security-audit skill, pinned to a reviewed commit, into your user skills folder: instructions plus two zero-dependency Node.js validators, with no MCP server or hooks. Guidance mode is light; a full audit starts many subagents and can cost more tokens than any other task, so Claude states the cost and the maximum number of subagents and waits for your approval first. It runs project code only inside an OS sandbox.",
+      "template": "Start a new session, then ask a security question, or ask for a security audit of this codebase. Claude names the scope, expected cost and subagent limit before a full audit starts. agentfleet config security-audit off removes it."
+    },
+    {
       "id": "mobile-mcp",
       "kind": "tool",
       "title": "Mobile MCP (drive Android and iOS apps on emulators, simulators and phones)",
