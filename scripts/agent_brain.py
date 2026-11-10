@@ -2,7 +2,7 @@
 """Install, update and connect agent-brain, the free tool that records the
 tokens and cost of each Claude Code session.
 
-Releases come from the manifest at agentbrain.wecansync.com: an archive must
+Releases come from the manifest at agentbrain.sync.com.lb: an archive must
 match the manifest's size and SHA-256, and only the agent-brain executable is
 taken from it. The Claude Code hooks belong to agent-brain itself:
 `agent-brain install --assistant claude-code` writes them and
@@ -32,7 +32,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 import provider_catalog  # noqa: E402
 
-DEFAULT_BASE_URL = "https://agentbrain.wecansync.com"
+DEFAULT_BASE_URL = "https://agentbrain.sync.com.lb"
 BASE_URL_ENV = "AGENTFLEET_AGENT_BRAIN_URL"
 MANIFEST_LIMIT = 256 * 1024
 ARCHIVE_LIMIT = 128 * 1024 * 1024

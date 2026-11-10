@@ -556,8 +556,8 @@ def check_hook_interpreters(settings: dict, errors: list[str]) -> None:
             fix = "run agentfleet update to use the Node.js now on your PATH (if you edited this hook, fix its path yourself)"
         else:
             # The agentfleet launcher pins the same Python, so only a fresh install repairs it.
-            fix = ("reinstall AgentFleet: curl -fsSL https://agentfleet.wecansync.com/install.sh | sh "
-                   "(Windows: irm https://agentfleet.wecansync.com/install.ps1 | iex)")
+            fix = ("reinstall AgentFleet: curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh "
+                   "(Windows: irm https://agentfleet.sync.com.lb/install.ps1 | iex)")
         fail(errors, f"{kind} hook runs {runtime}, which no longer exists; {fix}")
 
 

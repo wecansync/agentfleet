@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.24.0",
+  "version": "2.25.0",
   "files": [
     {
       "path": ".agentfleet-ci",
@@ -19,7 +19,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "1b76d841572308d5ba07c74e0190695ccd2639321e3bac798a4c973fa0fbf0c6",
+      "sha256": "e344e56bfdcfb0b4bf7c72c34ce8294a1e2e69cd18022ebc326c03fa721b2411",
       "mode": "0o644"
     },
     {
@@ -29,7 +29,7 @@
     },
     {
       "path": "CONTRIBUTING.md",
-      "sha256": "fb87191dabc81b1894be09f908aa286cb6e90d91e3bfe2c620c75f8003ff24e6",
+      "sha256": "c33ff5c5477e11d82243529ca345360f0bb2c85f0d760584dba9462a2cc4eb36",
       "mode": "0o644"
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "273c86087309d37cc246589f79e2b87ca959580ca36d6ef39202ea7cab6f2c19",
+      "sha256": "5caa43bbc20d8ad868a3030e9486a29165aed6d9acec3fc446dbfbe6375d62be",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "415247fa0ec964ac56c0ca8d00d2895456ae04192325d010e7b04772d6a67d0b",
+      "sha256": "2e697d8c55a16448188e229b2752e85005250307370ab33239cc98a95627da17",
       "mode": "0o644"
     },
     {
@@ -144,12 +144,12 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "63c2c6ddf5512c5c2e9f31329e34d26520ab76acf5445a28950ff87a243c4291",
+      "sha256": "b95b1714d9d897970bc3d947ff372988dabe15f6cef49a21c00451d381eb356a",
       "mode": "0o755"
     },
     {
       "path": "bin/claude-agents-doctor",
-      "sha256": "c8808670206f2828a5af79d8df21937be1251894bf96ef6fa47e5e8ae19ad405",
+      "sha256": "4cda0bc81233c282232c55918eab61d3794f03bf22e22b2c02cd4847afe682d8",
       "mode": "0o755"
     },
     {
@@ -214,7 +214,7 @@
     },
     {
       "path": "mods/brain/.claude-plugin/plugin.json",
-      "sha256": "968eba5ca90e9274efda3b72d11bcb8d583432d25cff9c224dcb567ca9ba24a2",
+      "sha256": "9ef6994a3054540d8389463c81d99e1d7d1713e2839987c841a69db44a055f30",
       "mode": "0o644"
     },
     {
@@ -334,7 +334,7 @@
     },
     {
       "path": "mods/fleet-status/.claude-plugin/plugin.json",
-      "sha256": "7cbf1c620b6260bbeb40ebf81bc99fcf657fcc44175b95cd7ef7d6e6219e087f",
+      "sha256": "a2e22adf844716e05cea8d905ed75506d48e5407972aabefe4fa35988d5e03f8",
       "mode": "0o644"
     },
     {
@@ -389,7 +389,7 @@
     },
     {
       "path": "mods/lane-guard/.claude-plugin/plugin.json",
-      "sha256": "95404f82490f77af739799903337a0213e402aa5ab04258a0aab0cec857acd16",
+      "sha256": "caaa9e2a9852149c1a65f14fbd1011b7d125bafa34e6732b93befd6def6e0004",
       "mode": "0o644"
     },
     {
@@ -459,7 +459,7 @@
     },
     {
       "path": "mods/session-info/.claude-plugin/plugin.json",
-      "sha256": "95eb980868da977cb22972bd5c1d90ef45ef327c1f36b81c0f77d8e8d18569ca",
+      "sha256": "301741a102b8fcebfdfb8602b0ddac80a60d117563cf42e6eb60c1012160b17f",
       "mode": "0o644"
     },
     {
@@ -529,7 +529,7 @@
     },
     {
       "path": "scripts/agent_brain.py",
-      "sha256": "ab0c1fc48d4dc7c356204659fde4745dd495337c9129d2d03f4858ba984e9390",
+      "sha256": "526601f4940b8b5689a905862474d669f155e07c4de92872b03c0a52137f925b",
       "mode": "0o644"
     },
     {
@@ -554,7 +554,7 @@
     },
     {
       "path": "scripts/fleet_configure.py",
-      "sha256": "943d77404561950f461785f8b57b786b0d6564b235298df9ed8e9f1e86418131",
+      "sha256": "aa7171d22cd50239f4aff7eac027baeefd2eea5f7c6ada29c79eb265040ee36e",
       "mode": "0o644"
     },
     {
@@ -634,7 +634,7 @@
     },
     {
       "path": "tests/test_agent_brain.py",
-      "sha256": "96b519a6b92f8e11263e3352212a0563174636acc1b224c00b155c376f816b2f",
+      "sha256": "fee59c18fdd4e813dcc95ec4812c47f24e3c376bb5c8daae97dcd21450266e2a",
       "mode": "0o644"
     },
     {

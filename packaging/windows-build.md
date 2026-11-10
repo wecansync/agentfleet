@@ -93,7 +93,7 @@ timestamps come from that commit's time, so any other commit gives different
 bytes.
 
 ```powershell
-$latest = Invoke-RestMethod https://agentfleet.wecansync.com/releases/latest.json
+$latest = Invoke-RestMethod https://agentfleet.sync.com.lb/releases/latest.json
 $out = Join-Path $env:TEMP 'af-dist'
 py -3 -B packaging\build-release.py --ref $latest.commit --out $out
 $dir = Join-Path $out "releases\$($latest.version)"

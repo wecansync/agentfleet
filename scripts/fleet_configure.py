@@ -198,7 +198,7 @@ FEATURES = (
     Feature("providerUsage", "2.12.0", "Show the spend and limits your gateway reports in agentfleet report, /brain and the status band? Your gateway key is sent only to the gateway's own URL. (Y/n)", "yes/no"),
     Feature("learn", "2.3.0", "Learn from your usage to suggest skills, plugins and hooks? It counts command names, tool names, documentation sites and slash commands only, never prompt text. (Y/n)", "yes/no"),
     # agent-brain, in dependency order
-    Feature("agentBrainInstall", "2.6.0", "Install agent-brain, the free tool that records the tokens and cost of each session? It comes from agentbrain.wecansync.com, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
+    Feature("agentBrainInstall", "2.6.0", "Install agent-brain, the free tool that records the tokens and cost of each session? It comes from agentbrain.sync.com.lb, and AgentFleet's auto-update keeps it current. (Y/n)", "yes/no"),
     Feature("agentBrain", "2.4.0", "Connect agent-brain to Claude Code, so it records the tokens and cost of each session? (Y/n)", "yes/no"),
     Feature("agentBrainLocalMemory", "2.10.1", "Turn on agent-brain memory? Claude saves decisions and project context on this machine and reads them back in later sessions. It's free, nothing leaves this machine, and Claude takes a short save step now and then, less often when there is nothing to save. (y/N)", "yes/no"),
     # Updates and checks
@@ -532,7 +532,7 @@ def run(api, paths, args):
             if key == "agentBrainInstall":
                 want = values[key] if key in values else interactive and prompt(feature, True)
                 if want:
-                    print("Installing agent-brain from agentbrain.wecansync.com ...")
+                    print("Installing agent-brain from agentbrain.sync.com.lb ...")
                     with contextlib.redirect_stdout(io.StringIO()):
                         code = feature.apply(api, paths, True)
                     if code:

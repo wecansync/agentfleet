@@ -2,10 +2,10 @@
 #
 # Covers what CI cannot: the machine's own Claude Code, its settings and its
 # Git Bash. Install or update both tools first, in PowerShell:
-#   irm https://agentfleet.wecansync.com/install.ps1 | iex
-#   irm https://agentbrain.wecansync.com/install.ps1 | iex
+#   irm https://agentfleet.sync.com.lb/install.ps1 | iex
+#   irm https://agentbrain.sync.com.lb/install.ps1 | iex
 # then download this script, run it, and paste its whole output back:
-#   irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1
+#   irm https://agentfleet.sync.com.lb/windows-check.ps1 -OutFile windows-check.ps1
 #   powershell -ExecutionPolicy Bypass -File .\windows-check.ps1
 #
 # It runs only AgentFleet's and agent-brain's own hooks, which Claude Code also

@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.25.0] - 2026-11-10
+
+### Changed
+
+- AgentFleet is now published at https://agentfleet.sync.com.lb and agent-brain at https://agentbrain.sync.com.lb. Updates, the agent-brain install, the docs, the install commands, the mods' homepage links and the doctor's reinstall hint use the new addresses. The former addresses, agentfleet.wecansync.com and agentbrain.wecansync.com, stay online and keep serving installers, scripts and releases directly, so copies installed before 2.25.0 keep updating; their pages send a permanent redirect to the new address.
+- Each site page names its new address as canonical, and the site now has `robots.txt` and `sitemap.xml`.
+
+### Fixed
+
+- The home page's latest-release card showed leftover text from the previous release after 2.24.0.
+
 ## [2.24.0] - 2026-11-10
 
 ### Added

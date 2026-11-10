@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Docs — AgentFleet</title>
+<link rel="canonical" href="https://agentfleet.sync.com.lb/docs/">
+<meta property="og:url" content="https://agentfleet.sync.com.lb/docs/">
 <meta name="description" content="AgentFleet documentation: install, the 19 lanes, capability tiers, provider profiles, commands, safety guarantees, and troubleshooting.">
 <link rel="icon" href="/favicon.svg?v=1" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/site.css?v=3">
@@ -141,14 +143,14 @@
             <h3 class="panel-label">macOS / Linux</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy macOS / Linux install command">Copy</button></div>
-              <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></pre>
+              <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code></pre>
             </div>
           </div>
           <div role="tabpanel" id="panel-quick-win" aria-labelledby="tab-quick-win">
             <h3 class="panel-label">Windows (PowerShell)</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy Windows install command">Copy</button></div>
-              <pre><code>irm https://agentfleet.wecansync.com/install.ps1 | iex</code></pre>
+              <pre><code>irm https://agentfleet.sync.com.lb/install.ps1 | iex</code></pre>
             </div>
           </div>
         </div>
@@ -162,7 +164,7 @@
 
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy pin-a-version command">Copy</button></div>
-          <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.3.0 sh</code></pre>
+          <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | AGENTFLEET_VERSION=2.3.0 sh</code></pre>
         </div>
 
         <h3 id="install-what-it-does" class="anchor-heading">What the installer does<a class="anchor-link" href="#install-what-it-does" aria-label="Link to this section">#</a></h3>
@@ -188,7 +190,7 @@
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy non-interactive gateway install command for macOS / Linux">Copy</button></div>
               <pre><code># Gateway example (set the token first, outside shell history):
 export MY_GATEWAY_TOKEN=…
-curl -fsSL https://agentfleet.wecansync.com/install.sh | \
+curl -fsSL https://agentfleet.sync.com.lb/install.sh | \
   sh -s -- --provider gateway \
             --gateway-url https://gateway.example.com \
             --gateway-token-env MY_GATEWAY_TOKEN</code></pre>
@@ -198,7 +200,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <h3 class="panel-label">Windows (PowerShell)</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy non-interactive gateway install command for Windows">Copy</button></div>
-              <pre><code>$env:MY_GATEWAY_TOKEN='…'; &amp; ([scriptblock]::Create((irm https://agentfleet.wecansync.com/install.ps1))) --provider gateway --gateway-url https://gateway.example.com --gateway-token-env MY_GATEWAY_TOKEN</code></pre>
+              <pre><code>$env:MY_GATEWAY_TOKEN='…'; &amp; ([scriptblock]::Create((irm https://agentfleet.sync.com.lb/install.ps1))) --provider gateway --gateway-url https://gateway.example.com --gateway-token-env MY_GATEWAY_TOKEN</code></pre>
             </div>
           </div>
         </div>
@@ -238,9 +240,9 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
 
         <h3 id="install-quick-reference" class="anchor-heading">Quick reference<a class="anchor-link" href="#install-quick-reference" aria-label="Link to this section">#</a></h3>
         <div class="cmd-ref">
-          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code><p>Install on macOS or Linux.</p></div>
-          <div class="cmd-ref-item"><code class="il">irm https://agentfleet.wecansync.com/install.ps1 | iex</code><p>Install on Windows PowerShell.</p></div>
-          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_VERSION=2.3.0 sh</code><p>Pin a specific version.</p></div>
+          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code><p>Install on macOS or Linux.</p></div>
+          <div class="cmd-ref-item"><code class="il">irm https://agentfleet.sync.com.lb/install.ps1 | iex</code><p>Install on Windows PowerShell.</p></div>
+          <div class="cmd-ref-item"><code class="il">curl -fsSL https://agentfleet.sync.com.lb/install.sh | AGENTFLEET_VERSION=2.3.0 sh</code><p>Pin a specific version.</p></div>
           <div class="cmd-ref-item"><code class="il">./install.sh</code><p>From a local clone; <code class="il">install.ps1</code> / <code class="il">install.cmd</code> do the same on Windows.</p></div>
         </div>
       </section>
@@ -257,14 +259,14 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <h3 class="panel-label">macOS / Linux</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy team install command for macOS / Linux">Copy</button></div>
-              <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | AGENTFLEET_PRESET=team.json sh</code></pre>
+              <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | AGENTFLEET_PRESET=team.json sh</code></pre>
             </div>
           </div>
           <div role="tabpanel" id="panel-team-win" aria-labelledby="tab-team-win">
             <h3 class="panel-label">Windows (PowerShell)</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy team install command for Windows">Copy</button></div>
-              <pre><code>$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.wecansync.com/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET</code></pre>
+              <pre><code>$env:AGENTFLEET_PRESET="team.json"; irm https://agentfleet.sync.com.lb/install.ps1 | iex; Remove-Item Env:AGENTFLEET_PRESET</code></pre>
             </div>
           </div>
         </div>
@@ -350,14 +352,14 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | \
             <h3 class="panel-label">macOS / Linux</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy macOS / Linux flags example">Copy</button></div>
-              <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh -s -- --no-wizard --provider native</code></pre>
+              <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh -s -- --no-wizard --provider native</code></pre>
             </div>
           </div>
           <div role="tabpanel" id="panel-fl-win" aria-labelledby="tab-fl-win">
             <h3 class="panel-label">Windows (PowerShell)</h3>
             <div class="code-wrap">
               <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy Windows flags example">Copy</button></div>
-              <pre><code>&amp; ([scriptblock]::Create((irm https://agentfleet.wecansync.com/install.ps1))) --no-wizard --provider native</code></pre>
+              <pre><code>&amp; ([scriptblock]::Create((irm https://agentfleet.sync.com.lb/install.ps1))) --no-wizard --provider native</code></pre>
             </div>
           </div>
         </div>
@@ -935,9 +937,9 @@ agentfleet configure --export team.json # export settings without secrets</code>
           <div class="cmd-ref-item"><code class="il">agentfleet config main-session-guard on|off</code><p>Ask you before the main session discards work or data, or publishes. Default: off. See <a href="#main-session-guard">Main-session guard</a>.</p></div>
         </div>
         <h3 id="agent-brain" class="anchor-heading">agent-brain<a class="anchor-link" href="#agent-brain" aria-label="Link to this section">#</a></h3>
-        <p><a href="https://agentbrain.wecansync.com">agent-brain</a> is a free tool that records the tokens and cost of each Claude Code session and, from agent-brain 0.5.7, keeps a free project memory on your machine. AgentFleet installs and connects the free tool only; it never asks you to sign in or create an agent-brain account.</p>
+        <p><a href="https://agentbrain.sync.com.lb">agent-brain</a> is a free tool that records the tokens and cost of each Claude Code session and, from agent-brain 0.5.7, keeps a free project memory on your machine. AgentFleet installs and connects the free tool only; it never asks you to sign in or create an agent-brain account.</p>
         <ul>
-          <li><strong>Install:</strong> when agent-brain is missing, the wizard offers to install it (default: yes). AgentFleet downloads the release for your system from agentbrain.wecansync.com, checks it against the release manifest's size and SHA-256, and puts the <code class="il">agent-brain</code> executable in <code class="il">~/.local/bin</code> (on Windows, <code class="il">%LOCALAPPDATA%\Programs\agent-brain</code>). <code class="il">agentfleet config agent-brain on</code> does the same.</li>
+          <li><strong>Install:</strong> when agent-brain is missing, the wizard offers to install it (default: yes). AgentFleet downloads the release for your system from agentbrain.sync.com.lb, checks it against the release manifest's size and SHA-256, and puts the <code class="il">agent-brain</code> executable in <code class="il">~/.local/bin</code> (on Windows, <code class="il">%LOCALAPPDATA%\Programs\agent-brain</code>). <code class="il">agentfleet config agent-brain on</code> does the same.</li>
           <li><strong>Connect:</strong> agent-brain adds its own hooks to Claude Code with <code class="il">agent-brain install --assistant claude-code</code>, using its recommended settings. <code class="il">agentfleet config agent-brain off</code> runs <code class="il">agent-brain uninstall --assistant claude-code</code>.</li>
           <li><strong>Updates:</strong> with automatic updates on, AgentFleet checks once a day for a newer agent-brain and installs it in the background, then says so at the next start. It only replaces the copy in agent-brain's standard folder, never a dev build or one a package manager installed, and never moves to an older version.</li>
           <li><strong>Memory:</strong> the wizard asks once whether to turn on agent-brain memory (default: no; memory needs a yes, as in agent-brain's own consent prompt). Claude then saves decisions and project context on this machine and reads them back in later sessions; nothing leaves the machine, and Claude takes a short save step now and then, less often when there is nothing to save. A yes runs <code class="il">agent-brain memory enable --yes</code>, first updating the agent-brain AgentFleet installed when it is older than 0.5.7. Existing users are asked on their next interactive update; background updates and <code class="il">--yes</code> never turn it on. <code class="il">agentfleet config agent-brain-memory off</code> runs <code class="il">agent-brain memory disable --all</code> and keeps existing memories. Lanes get the memory search tool only while memory is on; they search memory but leave saving it to the main conversation.</li>
@@ -1119,7 +1121,7 @@ agentfleet config prices off                              # remove all prices</c
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> The log rotates at 2,000,000 bytes.</li>
         </ul>
         <p>The hook is fail-open: a logging failure does not block a prompt. The doctor checks these retention and redaction values in both the packaged and installed hook.</p>
-        <p>The automatic update check makes at most one request a day to <code class="il">https://agentfleet.wecansync.com/releases/latest.json</code>, identified only by the user agent <code class="il">agentfleet/&lt;version&gt;</code>; it sends nothing about your projects, prompts, or provider. Turn it off with <code class="il">agentfleet auto-update off</code>.</p>
+        <p>The automatic update check makes at most one request a day to <code class="il">https://agentfleet.sync.com.lb/releases/latest.json</code>, identified only by the user agent <code class="il">agentfleet/&lt;version&gt;</code>; it sends nothing about your projects, prompts, or provider. Turn it off with <code class="il">agentfleet auto-update off</code>.</p>
       </section>
 
       <section id="safety">
@@ -1145,7 +1147,7 @@ agentfleet config prices off                              # remove all prices</c
         <aside class="callout warn"><span class="callout-label">Warning</span><p>On versions 2.0.0 and 2.0.1, <code class="il">agentfleet update</code> fails with HTTP 403 because Cloudflare blocks the default Python <code class="il">urllib</code> user agent. This was fixed in 2.0.2. If you are on 2.0.0 or 2.0.1, run the install one-liner once to update past the broken version:</p></aside>
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy workaround install command">Copy</button></div>
-          <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></pre>
+          <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code></pre>
         </div>
         <h3 id="upgrading-auto" class="anchor-heading">Automatic updates<a class="anchor-link" href="#upgrading-auto" aria-label="Link to this section">#</a></h3>
         <p>From 2.0.4 on, AgentFleet keeps itself up to date. Each time Claude Code starts, a quick hook checks at most once a day whether a newer release exists:</p>
@@ -1241,7 +1243,7 @@ claude plugin install fleet-status@agentfleet</code></pre>
         <h3 id="ts-windows-check" class="anchor-heading">Checking a Windows machine<a class="anchor-link" href="#ts-windows-check" aria-label="Link to this section">#</a></h3>
         <p>Claude Code runs hooks in Git Bash on Windows. To see whether AgentFleet's and agent-brain's hooks work there, download the check script and run it in PowerShell. It prints versions, <code class="il">agentfleet doctor</code>, <code class="il">agent-brain status</code>, and the result of each AgentFleet and agent-brain hook; it runs no other hooks. agent-brain before 0.5.5 wrote hooks that fail in Git Bash; <code class="il">agent-brain install</code> rewrites them.</p>
         <div class="code-wrap">
-          <pre><code>irm https://agentfleet.wecansync.com/windows-check.ps1 -OutFile windows-check.ps1
+          <pre><code>irm https://agentfleet.sync.com.lb/windows-check.ps1 -OutFile windows-check.ps1
 powershell -ExecutionPolicy Bypass -File .\windows-check.ps1</code></pre>
           <button class="copy-btn" type="button" aria-label="Copy Windows check commands">Copy</button>
         </div>
@@ -1263,7 +1265,7 @@ powershell -ExecutionPolicy Bypass -File .\windows-check.ps1</code></pre>
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy gateway reinstall example">Copy</button></div>
           <pre><code># Set the token first, outside shell history.
-curl -fsSL https://agentfleet.wecansync.com/install.sh | sh -s -- --provider gateway \
+curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh -s -- --provider gateway \
   --gateway-url https://gateway.example.com --gateway-token-env MY_GATEWAY_TOKEN</code></pre>
         </div>
 
@@ -1305,7 +1307,7 @@ curl -fsSL https://agentfleet.wecansync.com/install.sh | sh -s -- --provider gat
         <p>Versions 2.0.0 and 2.0.1 used the default <code class="il">urllib</code> user agent, which Cloudflare rejected. This was fixed in 2.0.2. Run the install one-liner to update past the broken version:</p>
         <div class="code-wrap">
           <div class="code-head"><button class="copy-btn" type="button" aria-label="Copy install one-liner">Copy</button></div>
-          <pre><code>curl -fsSL https://agentfleet.wecansync.com/install.sh | sh</code></pre>
+          <pre><code>curl -fsSL https://agentfleet.sync.com.lb/install.sh | sh</code></pre>
         </div>
       </section>
 

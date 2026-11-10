@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Usage:
-        irm https://agentfleet.wecansync.com/install.ps1 | iex
+        irm https://agentfleet.sync.com.lb/install.ps1 | iex
 
     Downloads the latest (or a pinned) AgentFleet release zip, verifies its
     sha256 checksum, extracts it under $env:LOCALAPPDATA\AgentFleet, and runs
@@ -33,7 +33,7 @@ if ($PSVersionTable.PSVersion.Major -lt 6) {
     }
 }
 
-$script:DefaultBaseUrl = 'https://agentfleet.wecansync.com'
+$script:DefaultBaseUrl = 'https://agentfleet.sync.com.lb'
 
 function Write-Info {
     param([string] $Message)
