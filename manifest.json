@@ -1,6 +1,6 @@
 {
   "format": "claude-agents-config.bundle.v1",
-  "version": "2.26.0",
+  "version": "2.27.0",
   "files": [
     {
       "path": ".agentfleet-ci",
@@ -19,7 +19,7 @@
     },
     {
       "path": "CHANGELOG.md",
-      "sha256": "dae6b58b19e385a00c7107cab1e7857f76fbed2bb2be6f8f5acb5dcb3c9ea53c",
+      "sha256": "fbae1f3d1b3abcc78f07a44bace8892ef8e039d21c2281447140a402e726ff46",
       "mode": "0o644"
     },
     {
@@ -39,12 +39,12 @@
     },
     {
       "path": "README.md",
-      "sha256": "e63b264130f190d3fbed3ad355fa6b61c612dcb0734bca4b31bb9caf2f8831a8",
+      "sha256": "6bf0ebeb4acfe26355da30cc075aaaa9b165de5af75c35b35ed37628a355285d",
       "mode": "0o644"
     },
     {
       "path": "VERSION",
-      "sha256": "91bcec0cb53aa657be746c411f2155e0c4d4c212bd88198e12204774b1736f2f",
+      "sha256": "fe4cdb1957a64adc109dc99a7734ed99a14af564af5b70ab8e6ee84b12ff96d4",
       "mode": "0o644"
     },
     {
@@ -144,7 +144,7 @@
     },
     {
       "path": "bin/agentfleet",
-      "sha256": "b95b1714d9d897970bc3d947ff372988dabe15f6cef49a21c00451d381eb356a",
+      "sha256": "a3b3ee1b28630d876321bb3088f9758ba301cf5e1944d48f8187972deb04d074",
       "mode": "0o755"
     },
     {
@@ -169,7 +169,7 @@
     },
     {
       "path": "config/agentfleet.md",
-      "sha256": "027be23d0c237ba80e11a9c90329471b9ea443d7257fee8dd4114b47ee5b3775",
+      "sha256": "89611ab524c211501898e22d4b2405cf12c603db472d7129e4dd8c8a9826c3cf",
       "mode": "0o644"
     },
     {
@@ -579,7 +579,7 @@
     },
     {
       "path": "scripts/local_ci.py",
-      "sha256": "e0aad858e3ed9c0caee54f3ed8a1af30d891dc293b0163bdf111042bde154aba",
+      "sha256": "9fef990dad0368397d0b51593ed504ea6209a45fa4e6859f303fe8332766f49e",
       "mode": "0o644"
     },
     {
@@ -714,7 +714,7 @@
     },
     {
       "path": "tests/test_local_ci.py",
-      "sha256": "568a487d1770d422ade5f115dbf71982880df823e3d810fda1a37df0ca338fcd",
+      "sha256": "9de9a7cd6c8e0ea320ebaf733d2f858b1ffc03894f32a8179f3eb98c8f240e5b",
       "mode": "0o644"
     },
     {
@@ -809,7 +809,7 @@
     },
     {
       "path": "tests/test_work_style.py",
-      "sha256": "ff626eae95f2672a331eeab68b5e292af1c931e990f539a036ac0645398cb84f",
+      "sha256": "838005c710f04002ae50f2b47bc3f7e1bcc163bd259cbe05e420ddc3cd0deb59",
       "mode": "0o644"
     },
     {

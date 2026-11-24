@@ -16,7 +16,7 @@ By default Claude works on your task directly, uses a lane only for large
 work, and agrees on the approach with you before large, unclear or risky
 tasks. See [Work style](#work-style).
 
-Version: **2.26.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
+Version: **2.27.0** — MIT license. See [LICENSE](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 > AgentFleet is an independent project by WeCanSync. It is not affiliated with
 > or endorsed by Anthropic. Claude and Claude Code are trademarks of Anthropic.
@@ -96,7 +96,26 @@ git push                     # GitHub must have the commit first
 agentfleet ci                # run the tests, then post success or failure
 agentfleet ci --run "npm test"
 agentfleet ci --no-status    # run the tests without posting
+agentfleet ci --php 8.3 --memory-limit 1G --env COMPOSER_PROCESS_TIMEOUT=0
+agentfleet ci --repo OWNER/NAME
 ```
+
+Options for the test run:
+
+- `--php VERSION|PATH`: run the tests with this PHP, for machines with several
+  versions. `8.3` finds `php8.3` or Homebrew's `php@8.3`; a path is used as given.
+  A `php` that runs it is put first on `PATH`, so `composer`, `php artisan` and
+  `vendor/bin` scripts all use it.
+- `--memory-limit SIZE`: PHP's `memory_limit` for the tests (`1G`, `-1`), added
+  through `PHP_INI_SCAN_DIR` after PHP's own ini files. A `memory_limit` set in
+  `phpunit.xml` still wins.
+- `--env NAME=VALUE`: an extra environment variable for the tests; repeatable.
+  `COMPOSER_PROCESS_TIMEOUT=0` lifts Composer's 300-second limit on `composer test`.
+- `--repo OWNER/NAME`: the repository to post to. By default it is the
+  repository the branch pushes to, so a fork with an `upstream` remote posts to
+  the fork, not to the upstream project.
+
+The PHP version and memory limit appear in the posted status's description.
 
 The test command comes from `--run`, or the first line of a committed
 `.agentfleet-ci` file, or the project: `npm test` (or `pnpm`, `yarn`, `bun`),
