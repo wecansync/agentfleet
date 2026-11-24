@@ -1338,6 +1338,44 @@
       "source": "boat.dev",
       "access": "A paid third-party service: a card is required, even for the 7-day trial, and plans start at $20 a month. The installer script, piped from boat.dev into sh, adds the boat CLI and opens a browser to sign in. Testing on Boat copies your repository to their machines, plus any secrets or .env files you give its environments. Its CI recipe runs inside GitHub Actions, so it does not help while Actions is unavailable; agentfleet ci does.",
       "template": "After sign-in, open a new terminal. boat new starts a sandbox, boat exec <id> \"<command>\" runs a command in it, and boat stop <id> stops billing. Stop sandboxes when done; each runs until its auto-stop (one hour by default)."
+    },
+    {
+      "id": "strix",
+      "kind": "tool",
+      "title": "Strix (AI penetration tests of a running web app or API, in Docker)",
+      "why": "Web app or API project; Strix attacks a running copy and reports only the holes it proves with a working exploit. For reading code, the security-audit skill is cheaper",
+      "match": {
+        "files": [
+          "openapi.yaml",
+          "openapi.json",
+          "swagger.yaml",
+          "swagger.json",
+          "artisan",
+          "manage.py"
+        ],
+        "deps": [
+          "express",
+          "fastify",
+          "koa",
+          "hono",
+          "next",
+          "nuxt",
+          "@nestjs/core",
+          "laravel/framework",
+          "symfony/framework-bundle",
+          "django",
+          "fastapi",
+          "flask",
+          "rails"
+        ]
+      },
+      "command": "strix",
+      "install": {
+        "command": "pipx install strix-agent==1.7.0"
+      },
+      "source": "usestrix/strix",
+      "access": "Installs the Apache-2.0 Strix CLI (pinned to 1.7.0) with pipx; it needs Python 3.12+ and a running Docker, and its first run pulls a sandbox image. It uses its own model key (STRIX_LLM and LLM_API_KEY), not your Claude subscription, and sends the code or app traffic it examines to that provider. It sends anonymous usage data unless STRIX_TELEMETRY=0 is set. A scan sends real attack traffic: point it only at a local or staging copy you own, never at production or someone else's site.",
+      "template": "export STRIX_TELEMETRY=0, set STRIX_LLM and LLM_API_KEY, start Docker, then run strix --target ./ for the code or strix --target http://localhost:<port> for a local copy. Ask Claude before each run; results go to strix_runs/. pipx uninstall strix-agent removes it."
     }
   ]
 }

@@ -120,7 +120,10 @@ class FleetWatchTests(unittest.TestCase):
         self.assertEqual((report["inputTokens"], report["outputTokens"]), (510, 203))
 
     def test_main_usage_counts_updates_and_survives_state_pruning(self):
-        stamp = "2026-10-19T01:00:00Z"
+        # Recent days, so the pruning of old days never drops them.
+        day = datetime.now(timezone.utc).date() - timedelta(days=2)
+        next_day = day + timedelta(days=1)
+        stamp = f"{day.isoformat()}T01:00:00Z"
         self.write_records(self.transcript, [
             {**assistant("main", [], usage={
                 "input_tokens": 5, "output_tokens": 2,
@@ -140,15 +143,15 @@ class FleetWatchTests(unittest.TestCase):
             handle.write(json.dumps({**assistant("main", [], usage={
                 "input_tokens": 8, "output_tokens": 4,
                 "cache_read_input_tokens": 10, "cache_creation_input_tokens": 6,
-            }), "timestamp": "2026-10-19T01:01:00Z"}) + "\n")
+            }), "timestamp": f"{day.isoformat()}T01:01:00Z"}) + "\n")
             handle.write(json.dumps({**assistant("next", [], usage={"input_tokens": 3, "output_tokens": 1}),
-                                     "timestamp": "2026-10-20T01:00:00Z"}) + "\n")
+                                     "timestamp": f"{next_day.isoformat()}T01:00:00Z"}) + "\n")
         fleet_watch.on_prompt(self.payload(), self.home)
         data = json.loads((store / "main-usage.json").read_text())
-        bucket = data["days"]["2026-10-19"][model]
+        bucket = data["days"][day.isoformat()][model]
         self.assertEqual(bucket, {"inputTokens": 8, "outputTokens": 4, "cacheReadTokens": 10,
                                   "cacheWriteTokens": 6, "messages": 1})
-        totals = fleet_watch.main_usage(self.home, datetime(2026, 10, 19, tzinfo=timezone.utc))[model]
+        totals = fleet_watch.main_usage(self.home, datetime(day.year, day.month, day.day, tzinfo=timezone.utc))[model]
         self.assertEqual((totals["inputTokens"], totals["outputTokens"], totals["messages"]), (11, 5, 2))
         if os.name != "nt":
             self.assertEqual((store / "main-usage.json").stat().st_mode & 0o777, 0o600)

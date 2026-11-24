@@ -3,6 +3,13 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.26.0] - 2026-11-24
+
+### Added
+
+- `/fleet-suggest` offers [Strix](https://github.com/usestrix/strix) (Apache-2.0), an AI penetration tester, to web app and API projects (web framework dependencies, `artisan`, `manage.py`, or an OpenAPI or Swagger file) until its `strix` command is installed. It installs with `pipx install strix-agent==1.7.0` and is off unless picked. The offer states that it needs Docker and its own model key, sends what it examines to that model provider, sends usage data unless `STRIX_TELEMETRY=0`, and sends real attack traffic.
+- Policy, in every work style and setting: live attack tools such as Strix run only from the main session, only against a local or staging target the user owns, and only after the user approves each run with the target named.
+
 ## [2.25.0] - 2026-11-10
 
 ### Changed

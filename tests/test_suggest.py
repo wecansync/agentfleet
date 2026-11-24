@@ -437,6 +437,27 @@ services:
         with patch.object(fleet_suggest.shutil, "which", side_effect=lambda name: "/usr/local/bin/boat" if name == "boat" else None):
             self.assertNotIn("boat", {s["id"] for s in fleet_suggest.suggest(self.home, repo)})
 
+    def test_strix_offered_to_web_apps_until_the_cli_is_installed(self):
+        api = self.root / "api_repo"
+        api.mkdir()
+        (api / "package.json").write_text(json.dumps({"dependencies": {"express": "^5.0.0"}}), encoding="utf-8")
+        spec = self.root / "spec_repo"
+        spec.mkdir()
+        (spec / "openapi.yaml").write_text("openapi: 3.1.0\n", encoding="utf-8")
+        lib = self.root / "lib_repo"
+        lib.mkdir()
+        (lib / "package.json").write_text(json.dumps({"dependencies": {"lodash": "^4.0.0"}}), encoding="utf-8")
+        with patch.object(fleet_suggest.shutil, "which", return_value=None):
+            suggs = {s["id"]: s for s in fleet_suggest.suggest(self.home, api)}
+            self.assertIn("strix", suggs)
+            self.assertIn("strix-agent==1.7.0", suggs["strix"]["install"])
+            self.assertIn("STRIX_TELEMETRY=0", suggs["strix"]["access"])
+            self.assertIn("never at production", suggs["strix"]["access"])
+            self.assertIn("strix", {s["id"] for s in fleet_suggest.suggest(self.home, spec)})
+            self.assertNotIn("strix", {s["id"] for s in fleet_suggest.suggest(self.home, lib)})
+        with patch.object(fleet_suggest.shutil, "which", side_effect=lambda name: "/usr/local/bin/strix" if name == "strix" else None):
+            self.assertNotIn("strix", {s["id"] for s in fleet_suggest.suggest(self.home, api)})
+
     def test_ui_skills_offered_until_installed_in_project_or_home(self):
         app = self.root / "react_proj"
         app.mkdir()

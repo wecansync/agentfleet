@@ -62,7 +62,7 @@
       <p class="lede">AgentFleet installs 19 native Claude Code subagents ("lanes"), each named for a role — plan, implement, review, test — never a model. Point it at your Claude subscription, an Anthropic API key, or any Anthropic-compatible gateway, and every lane gets the best-fit model automatically.</p>
 
       <p>One command installs and updates; a wizard configures everything.</p>
-      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.25.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 10, 2026</span> &middot; <a href="#changelog">What's new</a></p>
+      <p class="latest-badge"><span class="latest-badge-version" data-latest-version>v2.26.0</span> &middot; <span class="latest-badge-date" data-latest-date>November 24, 2026</span> &middot; <a href="#changelog">What's new</a></p>
 
       <div class="tabs" id="install-tabs">
         <div role="tablist" aria-label="Operating system">
@@ -434,18 +434,25 @@ agentfleet save &lt;name&gt;       # name the current setup</code></pre>
 
     <div class="release-card">
       <div class="release-head">
-        <span class="release-version" data-latest-version>v2.25.0</span>
-        <span class="release-date" data-latest-date>November 10, 2026</span>
+        <span class="release-version" data-latest-version>v2.26.0</span>
+        <span class="release-date" data-latest-date>November 24, 2026</span>
       </div>
-      <p>AgentFleet has moved to agentfleet.sync.com.lb, and agent-brain to agentbrain.sync.com.lb.</p>
+      <p><code class="il">/fleet-suggest</code> offers Strix, an AI penetration tester for running web apps and APIs.</p>
       <ul class="release-list">
-        <li>Updates, installs and the docs use the new addresses.</li>
-        <li>The former wecansync.com addresses keep working: installers and releases are still served there, so older copies keep updating, and their pages redirect to the new address.</li>
+        <li>Offered to web app and API projects, off unless you pick it, pinned to version 1.7.0. It needs Docker and its own model key.</li>
+        <li>Claude runs it only against a local or staging copy you own, and asks you before each run.</li>
       </ul>
     </div>
 
     <h3 class="version-history-heading">Version history</h3>
     <div class="version-history">
+      <details class="version-item">
+        <summary><span class="release-version">v2.25.0</span><span class="release-date">November 10, 2026</span><span class="version-summary">AgentFleet has moved to agentfleet.sync.com.lb, and agent-brain to agentbrain.sync.com.lb.</span></summary>
+        <ul class="release-list">
+          <li>Updates, installs and the docs use the new addresses.</li>
+          <li>The former wecansync.com addresses keep working: installers and releases are still served there, so older copies keep updating, and their pages redirect to the new address.</li>
+        </ul>
+      </details>
       <details class="version-item">
         <summary><span class="release-version">v2.24.0</span><span class="release-date">November 10, 2026</span><span class="version-summary">Cloudflare's security-audit skill is on by default: security guidance in every session, and a full audit when you ask for one.</span></summary>
         <ul class="release-list">
