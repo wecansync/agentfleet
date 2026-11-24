@@ -3,6 +3,17 @@
 All notable changes to AgentFleet are documented here. Dates are UTC. This
 file follows the [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [2.27.0] - 2026-11-24
+
+### Added
+
+- `agentfleet ci` options for the test run: `--php VERSION|PATH` runs the tests with that PHP (a `php` that runs it goes first on `PATH`, so Composer, `php artisan` and `vendor/bin` scripts use it; a version must match what the binary reports); `--memory-limit SIZE` sets PHP's `memory_limit` through `PHP_INI_SCAN_DIR`; `--env NAME=VALUE` adds an environment variable and can be repeated; `--repo OWNER/NAME` names the repository to post to. The PHP version and memory limit appear in the status description. Bad values are refused before anything runs or is posted.
+- Policy: Claude passes these options instead of editing the project, choosing the PHP version the project requires and raising the memory limit after an out-of-memory error.
+
+### Fixed
+
+- In a fork with an `upstream` remote, `agentfleet ci` posted to the upstream repository, which GitHub refused. It now posts to the repository the branch pushes to and asks `gh` only when git does not say.
+
 ## [2.26.0] - 2026-11-24
 
 ### Added

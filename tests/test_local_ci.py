@@ -157,6 +157,70 @@ class LocalCITests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("refused the commit status", result.stderr)
 
+    def fake_php(self, name: str, version: str) -> Path:
+        php = self.bin / name
+        php.write_text(f"#!/bin/sh\nif [ \"$1\" = -r ]; then echo {version}; exit 0; fi\necho \"$0 $*\"\n", encoding="utf-8")
+        php.chmod(0o755)
+        return php
+
+    def write_probe(self) -> None:
+        # Writes outside the checkout, so the run leaves it clean.
+        self.write_test(f'php -r x > "{self.home}/php.txt"\n'
+                        f'cat "${{PHP_INI_SCAN_DIR##*:}}"/*.ini > "{self.home}/ini.txt"\n'
+                        f'echo "$CI_FLAG" > "{self.home}/env.txt"')
+
+    def test_php_version_memory_limit_and_env_reach_the_tests(self):
+        self.fake_php("php8.3", "8.3")
+        self.write_probe()
+        result = self.ci("--php", "8.3", "--memory-limit", "1G", "--env", "CI_FLAG=on")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.home / "php.txt").read_text().strip(), "8.3")
+        self.assertEqual((self.home / "ini.txt").read_text().strip(), "memory_limit=1G")
+        self.assertEqual((self.home / "env.txt").read_text().strip(), "on")
+        self.assertIn("(PHP 8.3, memory 1G)", result.stdout)
+        post = [c for c in self.calls() if c[:3] == ["api", "--method", "POST"]][-1]
+        self.assertTrue(any(a.startswith("description=Passed locally") and a.endswith("(PHP 8.3, memory 1G)")
+                            for a in post), post)
+
+    def test_php_given_as_a_path_is_used(self):
+        php = self.fake_php("custom-php", "8.1")
+        self.write_probe()
+        result = self.ci("--no-status", "--php", str(php))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.home / "php.txt").read_text().strip(), "8.1")
+        self.assertIn("PHP 8.1", result.stdout)
+
+    def test_bad_php_and_option_values_are_refused_before_running(self):
+        self.fake_php("php8.2", "8.1")
+        for args, message in ((["--php", "8.2"], "reports PHP 8.1"),
+                              (["--php", "1.9"], "PHP 1.9 was not found"),
+                              (["--php", "latest"], "--php takes a version"),
+                              (["--memory-limit", "lots"], "--memory-limit takes"),
+                              (["--env", "1BAD=x"], "--env takes NAME=VALUE"),
+                              (["--repo", "not a repo"], "--repo must look like")):
+            result = self.ci(*args)
+            self.assertEqual(result.returncode, 2, args)
+            self.assertIn(message, result.stderr, args)
+        self.assertEqual(self.statuses(), [])
+
+    def test_status_goes_to_the_push_remote_not_the_upstream(self):
+        self.git("remote", "add", "upstream", "https://github.com/owner/project.git")
+        self.git("remote", "add", "fork", "git@github.com:me/project.git")
+        branch = self.git("symbolic-ref", "--short", "HEAD")
+        self.git("config", f"branch.{branch}.remote", "fork")
+        result = self.ci()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        post = [c for c in self.calls() if c[:3] == ["api", "--method", "POST"]][-1]
+        self.assertTrue(post[3].startswith("repos/me/project/statuses/"), post)
+        self.assertNotIn(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], self.calls())
+
+    def test_repo_option_overrides_the_remote(self):
+        self.git("remote", "add", "origin", "https://github.com/me/project.git")
+        result = self.ci("--repo", "team/project")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        post = [c for c in self.calls() if c[:3] == ["api", "--method", "POST"]][-1]
+        self.assertTrue(post[3].startswith("repos/team/project/statuses/"), post)
+
     def test_detects_common_test_commands(self):
         cases = (
             ({"package.json": json.dumps({"scripts": {"test": "jest"}})}, "npm test"),

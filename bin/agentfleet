@@ -1496,7 +1496,13 @@ def cmd_ci(paths: Paths, args: argparse.Namespace) -> int:
     except ImportError:
         print("agentfleet: ci support is missing; reinstall AgentFleet", file=sys.stderr)
         return 1
-    return local_ci.main([*(["--run", args.run] if args.run else []), *(["--no-status"] if args.no_status else [])])
+    forwarded = [*(["--run", args.run] if args.run else []), *(["--no-status"] if args.no_status else [])]
+    for option, value in (("--repo", args.repo), ("--php", args.php), ("--memory-limit", args.memory_limit)):
+        if value:
+            forwarded += [option, value]
+    for pair in args.env or []:
+        forwarded += ["--env", pair]
+    return local_ci.main(forwarded)
 
 
 def cmd_suggest(paths: Paths, args: argparse.Namespace) -> int:
@@ -2239,6 +2245,10 @@ def main() -> int:
     ci = sub.add_parser("ci", help="run the project's tests here and post the result to GitHub as agentfleet/tests")
     ci.add_argument("--run", metavar="COMMAND", help="test command (default: .agentfleet-ci or detected from the project)")
     ci.add_argument("--no-status", action="store_true", help="run the tests without posting a GitHub status")
+    ci.add_argument("--repo", metavar="OWNER/NAME", help="repository to post to (default: the branch's push remote)")
+    ci.add_argument("--php", metavar="VERSION|PATH", help="run the tests with this PHP, e.g. 8.3 or /usr/bin/php8.3")
+    ci.add_argument("--memory-limit", metavar="SIZE", help="PHP memory_limit for the tests, e.g. 1G or -1")
+    ci.add_argument("--env", metavar="NAME=VALUE", action="append", help="extra environment variable for the tests (repeatable)")
     sugg = sub.add_parser("suggest", help="propose plugins, MCP servers, mods, and hooks for the project")
     sugg.add_argument("--project", metavar="DIR", help="project directory to scan")
     sugg.add_argument("--json", action="store_true", help="output suggestions as JSON")

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,11 @@ import time
 CONTEXT = "agentfleet/tests"
 CONFIG_FILE = ".agentfleet-ci"
 GIT_TIMEOUT = 60
+REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+GITHUB_URL = re.compile(r"github\.com[:/]+([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/*$")
+PHP_VERSION = re.compile(r"\d+\.\d+")
+MEMORY_LIMIT = re.compile(r"-1|\d+[KMGkmg]?")
+ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class CIError(RuntimeError):
@@ -114,7 +120,36 @@ def _gh(root: Path, *args: str) -> subprocess.CompletedProcess:
         raise CIError("the GitHub CLI did not answer") from None
 
 
-def _github_repo(root: Path) -> str:
+def _git_value(root: Path, *args: str) -> str:
+    try:
+        return _git(root, *args)
+    except CIError:
+        return ""
+
+
+def _push_remote_repo(root: Path) -> str | None:
+    """OWNER/NAME of the GitHub remote this branch pushes to, if it can be told from git.
+
+    In a fork with an `upstream` remote, `gh repo view` names the upstream repository,
+    where the user usually cannot post a status, so the push remote is asked first."""
+    branch = _git_value(root, "symbolic-ref", "--short", "-q", "HEAD")
+    keys = ([f"branch.{branch}.pushRemote"] if branch else []) + ["remote.pushDefault"] \
+        + ([f"branch.{branch}.remote"] if branch else [])
+    remote = next((v for v in (_git_value(root, "config", "--get", k) for k in keys) if v and v != "."), "")
+    if not remote and "origin" in _git_value(root, "remote").split():
+        remote = "origin"
+    match = GITHUB_URL.search(_git_value(root, "remote", "get-url", "--push", remote)) if remote else None
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
+def _github_repo(root: Path, override: str | None = None) -> str:
+    if override:
+        if not REPO_NAME.fullmatch(override):
+            raise CIError("--repo must look like OWNER/NAME")
+        return override
+    found = _push_remote_repo(root)
+    if found:
+        return found
     result = _gh(root, "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner")
     name = result.stdout.strip()
     if result.returncode != 0 or name.count("/") != 1:
@@ -131,8 +166,84 @@ def _duration(seconds: float) -> str:
     return f"{minutes}m {secs:02d}s" if minutes else f"{secs}s"
 
 
-def run(start: Path, command: str | None = None, post: bool = True) -> int:
+def _php_binary(spec: str) -> Path:
+    """The PHP binary for --php: a path, or a version such as 8.3 found as php8.3 or php@8.3."""
+    if os.sep in spec or (os.altsep and os.altsep in spec):
+        binary = Path(spec).expanduser()
+        if not (binary.is_file() and os.access(binary, os.X_OK)):
+            raise CIError(f"--php {spec}: not an executable file")
+        return binary
+    if not PHP_VERSION.fullmatch(spec):
+        raise CIError("--php takes a version such as 8.3, or the path to a PHP binary")
+    candidates = [shutil.which(f"php{spec}"), f"/usr/bin/php{spec}", f"/opt/homebrew/opt/php@{spec}/bin/php",
+                  f"/usr/local/opt/php@{spec}/bin/php"]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK):
+            return Path(candidate)
+    raise CIError(f"PHP {spec} was not found (looked for php{spec} and php@{spec}); pass --php with its path")
+
+
+def _php_version(binary: Path) -> str:
+    try:
+        result = subprocess.run([str(binary), "-r", 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;'],
+                                text=True, capture_output=True, timeout=GIT_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise CIError(f"{binary} did not run") from None
+    version = result.stdout.strip()
+    if result.returncode != 0 or not PHP_VERSION.fullmatch(version):
+        raise CIError(f"{binary} did not report a PHP version")
+    return version
+
+
+def test_environment(scratch: Path, php: str | None = None, memory_limit: str | None = None,
+                     env: list[str] | None = None) -> tuple[dict[str, str], list[str]]:
+    """The environment for the test command, and short notes for the status description.
+
+    --php puts a `php` that runs the chosen binary first on PATH, so composer,
+    `php artisan` and vendor/bin scripts all use it. --memory-limit adds an ini file
+    through PHP_INI_SCAN_DIR, after PHP's own scan directory."""
+    result = dict(os.environ)
+    notes: list[str] = []
+    if php:
+        binary = _php_binary(php)
+        version = _php_version(binary)
+        if PHP_VERSION.fullmatch(php) and version != php:
+            raise CIError(f"--php {php}: {binary} reports PHP {version}")
+        shim = scratch / "bin"
+        shim.mkdir()
+        if os.name == "nt":
+            (shim / "php.cmd").write_text(f'@"{binary}" %*\r\n', encoding="utf-8")
+        else:
+            (shim / "php").symlink_to(binary)
+        result["PATH"] = os.pathsep.join([str(shim), result.get("PATH", os.defpath)])
+        notes.append(f"PHP {version}")
+    if memory_limit:
+        if not MEMORY_LIMIT.fullmatch(memory_limit):
+            raise CIError("--memory-limit takes a PHP size such as 512M, 2G or -1")
+        ini = scratch / "ini"
+        ini.mkdir()
+        (ini / "zz-agentfleet-ci.ini").write_text(f"memory_limit={memory_limit}\n", encoding="utf-8")
+        result["PHP_INI_SCAN_DIR"] = f"{result.get('PHP_INI_SCAN_DIR', '')}{os.pathsep}{ini}"
+        notes.append(f"memory {memory_limit}")
+    for pair in env or []:
+        name, sep, value = pair.partition("=")
+        if not sep or not ENV_NAME.fullmatch(name):
+            raise CIError(f"--env takes NAME=VALUE, not {pair.split('=', 1)[0]!r}")
+        result[name] = value
+    return result, notes
+
+
+def run(start: Path, command: str | None = None, post: bool = True, repo_name: str | None = None,
+        php: str | None = None, memory_limit: str | None = None, env: list[str] | None = None) -> int:
     """Run the tests; post the status when asked. Returns the exit code to use."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="agentfleet-ci-") as scratch:
+        test_env, notes = test_environment(Path(scratch), php, memory_limit, env)
+        return _run(start, command, post, repo_name, test_env, notes)
+
+
+def _run(start: Path, command: str | None, post: bool, repo_name: str | None,
+         test_env: dict[str, str], notes: list[str]) -> int:
     root = repo_root(start)
     command = command or detect_command(root, committed=post)
     if not command:
@@ -142,14 +253,15 @@ def run(start: Path, command: str | None = None, post: bool = True) -> int:
         if not _clean(root):
             raise CIError("uncommitted changes: commit them first, or run with --no-status")
         sha = _git(root, "rev-parse", "HEAD")
-        repo = _github_repo(root)
+        repo = _github_repo(root, repo_name)
         if _gh(root, "api", f"repos/{repo}/commits/{sha}", "--silent").returncode != 0:
             raise CIError(f"GitHub does not have commit {sha[:12]} yet: push it first, or run with --no-status")
         _post(root, repo, sha, "pending", "Running the tests locally")
-    print(f"agentfleet ci: running {command}", flush=True)
+    extra = f" ({', '.join(notes)})" if notes else ""
+    print(f"agentfleet ci: running {command}{extra}", flush=True)
     started = time.monotonic()
     try:
-        code = subprocess.run(command, shell=True, cwd=root, check=False).returncode
+        code = subprocess.run(command, shell=True, cwd=root, env=test_env, check=False).returncode
     except KeyboardInterrupt:
         code = 130
     elapsed = _duration(time.monotonic() - started)
@@ -161,6 +273,7 @@ def run(start: Path, command: str | None = None, post: bool = True) -> int:
             _post(root, repo, sha, "error", "The checkout changed during the run; run agentfleet ci again")
             raise CIError("the checkout changed during the run, so no result was posted; run agentfleet ci again")
         description = f"Passed locally in {elapsed}" if passed else f"Failed locally (exit {code}) after {elapsed}"
+        description += extra
         _post(root, repo, sha, "success" if passed else "failure", description)
         print(f"agentfleet ci: posted {CONTEXT} = {'success' if passed else 'failure'} on {sha[:12]}")
     return 0 if passed else (code if 0 < code < 256 else 1)
@@ -179,9 +292,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agentfleet ci")
     parser.add_argument("--run", metavar="COMMAND")
     parser.add_argument("--no-status", action="store_true")
+    parser.add_argument("--repo", metavar="OWNER/NAME")
+    parser.add_argument("--php", metavar="VERSION|PATH")
+    parser.add_argument("--memory-limit", metavar="SIZE")
+    parser.add_argument("--env", metavar="NAME=VALUE", action="append")
     args = parser.parse_args(argv)
     try:
-        return run(Path.cwd(), args.run, not args.no_status)
+        return run(Path.cwd(), args.run, not args.no_status, args.repo, args.php, args.memory_limit, args.env)
     except CIError as exc:
         print(f"agentfleet ci: {exc}", file=sys.stderr)
         return 2
